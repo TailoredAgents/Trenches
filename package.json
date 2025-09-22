@@ -1,0 +1,35 @@
+{
+  "name": "trenches",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.6.0",
+  "engines": { "node": ">=20" },
+  "workspaces": ["packages/*", "services/*", "apps/*", "tools/*", "training/*"],
+  "scripts": {
+    "clean": "rimraf \"**/dist\" \"**/*.tsbuildinfo\"",
+    "typecheck": "tsc -b --pretty false",
+    "build": "tsc -b",
+    "lint": "eslint . --ext .ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "pnpm -r --parallel run dev"
+  },
+  "devDependencies": {
+    "@types/eventsource": "^1.1.11",
+    "@types/node": "^20.12.7",
+    "@types/ws": "^8.5.10",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "@vitest/coverage-v8": "^1.6.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "prettier": "^3.2.5",
+    "rimraf": "^5.0.5",
+    "ts-node": "^10.9.2",
+    "tslib": "^2.6.2",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}

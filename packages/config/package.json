@@ -1,0 +1,17 @@
+{
+  "name": "@trenches/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@trenches/util": "workspace:*",
+    "yaml": "^2.4.2",
+    "zod": "^3.23.8"
+  }
+}

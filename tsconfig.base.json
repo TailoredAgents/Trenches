@@ -1,0 +1,45 @@
+{
+    "compilerOptions":  {
+                            "target":  "ES2020",
+                            "module":  "CommonJS",
+                            "moduleResolution":  "Node",
+                            "strict":  true,
+                            "esModuleInterop":  true,
+                            "skipLibCheck":  true,
+                            "forceConsistentCasingInFileNames":  true,
+                            "resolveJsonModule":  true,
+                            "declaration":  true,
+                            "composite":  true,
+                            "sourceMap":  true,
+                            "rootDir":  "src",
+                            "outDir":  "dist",
+                            "types":  [
+                                          "node"
+                                      ],
+                            "baseUrl":  ".",
+                            "paths":  {
+                                          "@trenches/shared":  [
+                                                                   "packages/shared/src"
+                                                               ],
+                                          "@trenches/config":  [
+                                                                   "packages/config/src"
+                                                               ],
+                                          "@trenches/logger":  [
+                                                                   "packages/logger/src"
+                                                               ],
+                                          "@trenches/metrics":  [
+                                                                    "packages/metrics/src"
+                                                                ],
+                                          "@trenches/persistence":  [
+                                                                        "packages/persistence/src"
+                                                                    ],
+                                          "@trenches/util":  [
+                                                                 "packages/util/src"
+                                                             ]
+                                      }
+                        },
+    "exclude":  [
+                    "node_modules",
+                    "dist"
+                ]
+}

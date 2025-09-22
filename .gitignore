@@ -1,0 +1,55 @@
+# Environment and secrets
+.env
+*.env
+*.env.*
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build artifacts
+dist/
+build/
+.next/
+apps/ui-gateway/.next/
+.turbo/
+coverage/
+.cache/
+
+# TypeScript
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# Logs and data
+logs/
+data/
+data/*.db*
+data/parquet/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Corepack, pnpm caches/logs
+corepack/
+.pnpm-store/
+pnpm-debug.log*
+npm-debug.log*
+yarn-error.log*
+
+# Framework/platform
+.vercel/
+
+# Python venv (training scaffold)
+training/offline_rl/.venv/
+
+# Temp files
+tmp_*/
+tmp_*.tmp
+tmp_*.txt
+_tmp_*.py# Recursive build directories
+**/dist/
+**/build/
+**/.next/

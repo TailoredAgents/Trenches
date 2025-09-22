@@ -1,0 +1,17 @@
+{
+  "name": "@trenches/metrics",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@trenches/config": "workspace:*",
+    "@trenches/logger": "workspace:*",
+    "prom-client": "^15.1.0"
+  }
+}

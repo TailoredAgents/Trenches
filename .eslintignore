@@ -1,0 +1,5 @@
+dist/
+**/*.d.ts
+packages/**/dist/
+services/**/dist/
+`napps/ui-gateway/.next

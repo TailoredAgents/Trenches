@@ -1,0 +1,14 @@
+[Unit]
+Description=Trenches Safety Engine
+After=network.target
+
+[Service]
+WorkingDirectory=%h/trenches
+EnvironmentFile=%h/trenches/.env
+ExecStart=/usr/bin/node services/safety-engine/dist/index.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,269 @@
+﻿mode: SIM
+logging:
+  level: info
+  json: true
+services:
+  agentCore:
+    port: 4010
+  executor:
+    port: 4011
+  uiGateway:
+    port: 3000
+  socialIngestor:
+    port: 4012
+  onchainDiscovery:
+    port: 4013
+  safetyEngine:
+    port: 4014
+  policyEngine:
+    port: 4015
+  positionManager:
+    port: 4016
+  narrativeMiner:
+    port: 4017
+  metrics:
+    port: 8090
+gating:
+  sssMin: 0.6
+  ocrsMin: 0.68
+  lpMinSol: 20
+  buysSellRatioMin: 2.2
+  uniquesMin: 12
+  minPoolAgeSec: 30
+  maxSpreadBps: 150
+watchWindows:
+  durationSec: 1200
+  refreshIntervalSec: 5
+  decayHalfLifeSec: 120
+topics:
+  cluster:
+    lshBands: 12
+    lshRows: 6
+    minCosine: 0.82
+    mergeMinObservations: 3
+  scoring:
+    openThreshold: 0.6
+    sustainThreshold: 0.45
+    recencyHalfLifeSec: 120
+    noveltyEpsilon: 0.000001
+  phrase:
+    minLength: 3
+    maxLength: 48
+    stopwords:
+      - the
+      - and
+      - for
+      - with
+      - that
+      - this
+      - have
+      - from
+      - your
+      - about
+      - into
+      - just
+      - over
+      - they
+      - what
+      - when
+      - where
+      - will
+      - make
+      - going
+      - been
+      - take
+      - like
+      - want
+  matching:
+    minTrieScore: 0.5
+    minCosine: 0.75
+    boostSymbolMatch: 0.15
+    coolDownSec: 60
+  baseline:
+    halfLifeSec: 604800
+    flushIntervalSec: 300
+  test:
+    enabled: false
+ladders:
+  takeProfits: [1.5, 2, 3, 5]
+  multiplierPercents: [50, 100, 200, 400]
+  trailActivatePct: 60
+  trailPct: 28
+  hardStopLossPct: 22
+bandit:
+  rewardHorizonMinutes: 30
+  updateIntervalSec: 20
+  epsilonFloor: 0.02
+  bundles:
+    - id: aggressive-entry
+      label: Aggressive Entry
+      gate: loose
+      slippageBps: 700
+      tipPercentile: p75
+      sizeMultiplier: 0.7
+    - id: bulk-sniper
+      label: Bulk Sniper
+      gate: normal
+      slippageBps: 300
+      tipPercentile: p50
+      sizeMultiplier: 1
+    - id: conservative
+      label: Conservative
+      gate: strict
+      slippageBps: 100
+      tipPercentile: p25
+      sizeMultiplier: 0.5
+    - id: hvy-chase
+      label: HVY Chase
+      gate: loose
+      slippageBps: 850
+      tipPercentile: p90
+      sizeMultiplier: 0.85
+wallet:
+  reservesSol: 0.02
+  dailySpendCapSol: 0.30
+  autoSkimProfitSol: 0.5
+  perNameCapFraction: 0.3
+  perNameCapMaxSol: 5
+  lpImpactCapFraction: 0.015
+  flowCapFraction: 0.4
+  equityTiers:
+    - minEquity: 0
+      maxEquity: 3
+      riskFraction: 0.12
+    - minEquity: 3
+      maxEquity: 10
+      riskFraction: 0.12
+    - minEquity: 10
+      maxEquity: 25
+      riskFraction: 0.08
+    - minEquity: 25
+      maxEquity: 100
+      riskFraction: 0.05
+    - minEquity: 100
+      maxEquity: null
+      riskFraction: 0.03
+  concurrencyCap: 3
+  concurrencyScaler:
+    base: 1
+    max: 1.4
+    recoveryMinutes: 60
+rpc:
+  primaryUrl: ''
+  secondaryUrl: ''
+  wsUrl: ''
+  jitoHttpUrl: ''
+  jitoGrpcUrl: ''
+  jupiterBaseUrl: https://quote-api.jup.ag/v6
+execution:
+  tipStrategy: auto
+  computeUnitPriceMode: auto_oracle
+dataProviders:
+  neynarBaseUrl: https://api.neynar.com
+  dexscreenerBaseUrl: https://api.dexscreener.com
+  birdeyeBaseUrl: https://public-api.birdeye.so
+  bitqueryWsUrl: wss://stream.bitquery.io/graphql
+  blueskyJetstreamUrl: wss://jetstream2.us-east.host.bsky.network
+  gdeltPulseUrl: https://api.gdeltproject.org/api/v2/summary/summary
+safety:
+  lpBurnThreshold: 0.9
+  holderTopCap: 0.2
+  lockerPrograms:
+    - 6z7H14RTa7tD1ynjUTduV1JN9WewtGku5Kz4DKftd84f
+    - Lock111111111111111111111111111111111111111
+    - 87AxbZcq7aj3HyCuXapnwXCfJLLq5yRvCNr4ieVsg7fR
+  ignoreAccounts:
+    - 1nc1nerator11111111111111111111111111111111
+  candidateFeedUrl: null
+
+policy:
+  safeFeedUrl: null
+  blockedFeedUrl: null
+  contextWindowSec: 900
+  minOcrs: 0.68
+  minConfidence: 0.4
+  dailyLossCapPct: 0.1
+  rewardSmoothing: 0.2
+
+caching:
+  dexscreenerPairsTtlSec: 10
+  dexscreenerTrendingTtlSec: 60
+  birdeyeMultiPriceTtlSec: 5
+  birdeyeTrendingTtlSec: 60
+  topicEmbeddingTtlSec: 600
+social:
+  neynar:
+    enabled: true
+    watchFids: []
+    keywords: []
+    pollIntervalSec: 15
+  bluesky:
+    enabled: true
+    cursorPath: ./data/bluesky.cursor
+    reconnectBackoffSec: 5
+  reddit:
+    enabled: true
+    subreddits: [solanamemes, memecoins, solana]
+    pollIntervalSec: 45
+    appType: installed
+  telegram:
+    enabled: true
+    channels: []
+    downloadDir: ./data/tdlib
+    pollIntervalSec: 10
+  gdelt:
+    enabled: true
+    pollIntervalSec: 900
+alerts: {}
+persistence:
+  sqlitePath: ./data/trenches.db
+  parquetDir: ./data/parquet
+  parquetRollHours: 6
+security:
+  allowRemoteKillSwitch: false
+
+
+
+positionManager:
+  tipRangeLamports:
+    min: 1500000
+    max: 2500000
+  autokill:
+    flowRatioThreshold: 0.6
+    uniquesDropThreshold: 1
+    safetyReasons:
+      - missing_lp_mint
+      - lp_supply_zero
+      - lp_not_burned_or_locked
+      - lp_locker_insufficient
+      - lp_locker_lookup_failed
+      - lp_insufficient
+      - flow_ratio_low
+      - uniques_low
+      - ocrs_below_threshold
+
+providers:
+  solanatracker:
+    enabled: true
+    baseUrl: https://api.solanatracker.io
+    pollSec: 8
+    ttlSec: 10
+    endpoints:
+      trending: true
+      latest: true
+      launchpads:
+        pumpfun: true
+        jupstudio: true
+
+
+lunarcrush:
+  enabled: true
+  baseUrl: https://api.lunarcrush.com
+  pollSec: 180
+  endpoints:
+    topics: /v2
+    influencers: /v2
+  sssBias:
+    topicBoost: 0.03
+    influencerBoost: 0.02
+    maxBoost: 0.06

@@ -1,0 +1,25 @@
+{
+  "name": "@trenches/backtest",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "trenches-replay": "dist/replay.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsx src/replay.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "9.6.0",
+    "yargs": "17.7.2",
+    "node-fetch": "3.3.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.11",
+    "@types/yargs": "17.0.33",
+    "typescript": "5.9.2",
+    "tsx": "4.20.5"
+  }
+}

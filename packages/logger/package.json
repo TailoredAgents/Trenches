@@ -1,0 +1,16 @@
+{
+  "name": "@trenches/logger",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@trenches/config": "workspace:*",
+    "pino": "^8.19.0"
+  }
+}

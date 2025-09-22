@@ -1,0 +1,22 @@
+{
+  "name": "@trenches/persistence",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@trenches/config": "workspace:*",
+    "@trenches/logger": "workspace:*",
+    "@trenches/shared": "workspace:*",
+    "better-sqlite3": "^9.6.0",
+    "parquetjs-lite": "^0.8.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.9"
+  }
+}

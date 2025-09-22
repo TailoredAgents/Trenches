@@ -1,0 +1,7 @@
+d3rlpy==2.3.0
+onnx==1.16.1
+onnxruntime==1.18.1
+numpy==1.26.4
+pandas==2.2.2
+matplotlib==3.9.0
+

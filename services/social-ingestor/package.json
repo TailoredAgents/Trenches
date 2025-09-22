@@ -1,0 +1,32 @@
+{
+  "name": "@trenches/social-ingestor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fastify/helmet": "^11.1.1",
+    "@fastify/rate-limit": "^8.1.1",
+    "fastify-sse-v2": "^4.2.1",
+    "@trenches/config": "workspace:*",
+    "@trenches/logger": "workspace:*",
+    "@trenches/persistence": "workspace:*",
+    "@trenches/shared": "workspace:*",
+    "@trenches/util": "workspace:*",
+    "eventemitter3": "^5.0.1",
+    "fastify": "^4.28.0",
+    "lru-cache": "^10.2.0",
+    "p-retry": "^6.0.1",
+    "tdl": "^8.0.2",
+    "tdl-tdlib-addon": "^1.2.2",
+    "ws": "^8.16.0",
+    "@trenches/metrics": "workspace:*"
+  }
+}

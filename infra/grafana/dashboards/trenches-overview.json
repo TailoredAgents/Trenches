@@ -1,0 +1,42 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Open Positions",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [
+        { "expr": "position_manager_positions", "legendFormat": "positions", "refId": "A" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "SOL Exposure",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [
+        { "expr": "position_manager_total_size_sol", "legendFormat": "SOL", "refId": "B" }
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "Exits Triggered",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "sum(increase(position_exits_total[5m])) by (reason)", "legendFormat": "{{reason}}", "refId": "C" }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["trenches"],
+  "time": { "from": "now-6h", "to": "now" },
+  "timezone": "browser",
+  "title": "Trenches Overview",
+  "version": 1
+}
+

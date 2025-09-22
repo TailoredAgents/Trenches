@@ -1,0 +1,49 @@
+{
+    "files":  [
+
+              ],
+    "references":  [
+                       {
+                           "path":  "./packages/util"
+                       },
+                       {
+                           "path":  "./packages/shared"
+                       },
+                       {
+                           "path":  "./packages/logger"
+                       },
+                       {
+                           "path":  "./packages/metrics"
+                       },
+                       {
+                           "path":  "./packages/persistence"
+                       },
+                       {
+                           "path":  "./packages/config"
+                       },
+                       {
+                           "path":  "./services/agent-core"
+                       },
+                       {
+                           "path":  "./services/executor"
+                       },
+                       {
+                           "path":  "./services/narrative-miner"
+                       },
+                       {
+                           "path":  "./services/onchain-discovery"
+                       },
+                       {
+                           "path":  "./services/policy-engine"
+                       },
+                       {
+                           "path":  "./services/position-manager"
+                       },
+                       {
+                           "path":  "./services/safety-engine"
+                       },
+                       {
+                           "path":  "./services/social-ingestor"
+                       }
+                   ]
+}

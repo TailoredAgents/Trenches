@@ -1,0 +1,14 @@
+[Unit]
+Description=Trenches Onchain Discovery
+After=network.target
+
+[Service]
+WorkingDirectory=%h/trenches
+EnvironmentFile=%h/trenches/.env
+ExecStart=/usr/bin/node services/onchain-discovery/dist/index.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
