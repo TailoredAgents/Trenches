@@ -1,4 +1,4 @@
-﻿try { require('dotenv').config(); } catch {}
+import 'dotenv/config';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -210,6 +210,5 @@ bootstrap().catch((err) => {
   logger.error({ err }, 'social ingestor failed to start');
   process.exit(1);
 });
-
 
 

@@ -7,10 +7,11 @@ import {
   storeTokenCandidate,
   storeTopicEvent,
   upsertTopicCluster,
-  upsertTopicWindow
+  upsertTopicWindow,
+  TopicWindowRecord,
+  TopicClusterRecord
 } from '@trenches/persistence';
 import { TokenCandidate, TopicEvent } from '@trenches/shared';
-import { TopicWindowRecord, TopicClusterRecord } from '@trenches/persistence';
 
 export interface NarrativePersistence {
   recordTopic(event: TopicEvent): Promise<void> | void;
@@ -137,4 +138,3 @@ export class InMemoryNarrativePersistence implements NarrativePersistence {
     this.candidates.push(candidate);
   }
 }
-

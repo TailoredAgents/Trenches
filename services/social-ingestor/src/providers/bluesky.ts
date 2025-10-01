@@ -115,7 +115,11 @@ class BlueskySource implements SocialSource {
         const now = Date.now();
         if (now - this.lastMessageAt > 40_000) {
           logger.warn('jetstream heartbeat missed; reconnecting');
-          try { this.socket?.close(); } catch {}
+          try {
+            this.socket?.close();
+          } catch (err) {
+            logger.warn({ err }, 'failed to close jetstream socket during heartbeat');
+          }
         }
       }, 30_000);
     });

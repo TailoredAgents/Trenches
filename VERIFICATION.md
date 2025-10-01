@@ -6,7 +6,9 @@ Scope
 
 Prerequisites
 - Node >= 20, pnpm, SQLite writable data dir (./data).
-- No external credentials required for offline checks.
+- Configure `.env` with `SOLANA_PRIMARY_RPC_URL` (defaults to `http://127.0.0.1:8899`).
+- Set `SOLANA_WS_URL` when running a separate WebSocket endpoint and `SOLANA_RPC_HTTP_HEADERS` when the validator requires auth headers.
+- No external credentials required for offline checks beyond optional RPC headers.
 
 Build & Start
 - npx pnpm install
@@ -18,7 +20,9 @@ Build & Start
   - optional: start other services similarly (social, onchain, safety, policy, executor, miner)
 
 Health & Metrics
-- curl http://127.0.0.1:4010/healthz → { status: "ok" }
+- curl http://127.0.0.1:4010/healthz → `{ status: "ok" }`
+- curl http://127.0.0.1:4013/healthz → `{ dexscreener: true, birdeye: false|true, providers: { solanatracker: ... } }`
+- curl http://127.0.0.1:4013/metrics → confirm `raydium_last_pool_slot`, `raydium_watcher_reconnects_total`, and cache miss counters exist
 - curl http://127.0.0.1:4016/metrics → Prometheus text (exposure, exits)
 - curl -D - --max-time 2 http://127.0.0.1:4017/events/topics → 200 headers (idle stream ok)
 - curl -D - --max-time 2 http://127.0.0.1:4013/events/candidates → 200 headers (idle ok)
@@ -68,14 +72,13 @@ Failure Drills (offline)
 - SSE replay: run trenches-replay --serve-plans and point executor to that port via POLICY_ENGINE_PORT.
 
 Promotion to Live (with credentials)
-- Provide WALLET_KEYSTORE_PATH (+ passphrase), RPC/Jito endpoints, and provider keys.
+- Provide WALLET_KEYSTORE_PATH (+ passphrase), RPC/Jito endpoints, `SOLANA_RPC_HTTP_HEADERS` if required, and provider keys.
 - Re-run the full health probe; verify policy/executor change to ok.
 - Observe fills flowing to position-manager; verify exits and PnL.
 
 Runbooks (summary)
 - Rotate wallet: Stop policy/executor; update keystore path/passphrase; start policy then executor; verify /healthz.
 - Kill & Flatten: Use /control/pause then /control/flatten; confirm position-manager exit submissions; resume when safe.
-- RPC failover: Update SOLANA_PRIMARY_RPC_URL; restart executor; verify /healthz.
+- RPC failover: Update SOLANA_PRIMARY_RPC_URL (and headers/WS if needed); restart onchain-discovery, safety-engine, policy-engine, executor, and position-manager; verify `/metrics` shows advancing `raydium_last_pool_slot` and zero auth errors.
 - Dashboard issues: Check UI /api/health and /api/metrics; ensure services are bound to expected ports.
 - SSE health: curl the endpoints listed above; expect 200 + headers even when idle.
-

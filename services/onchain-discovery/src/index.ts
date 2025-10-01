@@ -1,4 +1,4 @@
-﻿try { require('dotenv').config(); } catch {}
+import 'dotenv/config';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -9,13 +9,13 @@ import { getRegistry, registerCounter } from '@trenches/metrics';
 import { storeTokenCandidate } from '@trenches/persistence';
 import { TokenCandidate } from '@trenches/shared';
 import { DiscoveryEventBus } from './eventBus';
-import { BitqueryManager } from './bitquery';
 import { DexScreenerClient } from './dexscreener';
 import { BirdeyeClient } from './birdeye';
 import { poolsDiscovered, candidatesEmitted } from './metrics';
 import { PoolInitEvent } from './types';
 import { buildCandidate } from './candidateBuilder';
 import { SolanaTrackerProvider } from './providers/solanatracker';
+import { RpcRaydiumWatcher } from './rpcRaydium';
 
 const logger = createLogger('onchain-discovery');
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -24,7 +24,11 @@ async function bootstrap() {
   const config = loadConfig();
   const app = Fastify({ logger: false });
   const bus = new DiscoveryEventBus();
-  const bitquery = new BitqueryManager(bus);
+  const raydiumWatcher = new RpcRaydiumWatcher(bus, {
+    primaryUrl: config.rpc.primaryUrl,
+    wsUrl: config.rpc.wsUrl || undefined,
+    httpHeaders: Object.keys(config.rpc.httpHeaders ?? {}).length > 0 ? config.rpc.httpHeaders : undefined
+  });
   const dexClient = new DexScreenerClient();
   const birdeyeClient = new BirdeyeClient();
   const stProvider = new SolanaTrackerProvider((ev) => {
@@ -184,7 +188,6 @@ async function bootstrap() {
   // DexScreener API is public and does not require an API key.
   app.get('/healthz', async () => ({
     status: 'ok',
-    bitquery: Boolean(process.env.BITQUERY_API_KEY),
     dexscreener: true,
     birdeye: Boolean(process.env.BIRDEYE_API_KEY),
     providers: {
@@ -209,7 +212,7 @@ async function bootstrap() {
   const address = await app.listen({ port: config.services.onchainDiscovery.port, host: '0.0.0.0' });
   logger.info({ address }, 'onchain discovery listening');
 
-  await bitquery.start();
+  await raydiumWatcher.start();
 
   const trendingIntervalMs = Math.max(10_000, config.caching.dexscreenerTrendingTtlSec * 1000);
   const birdTrendingIntervalMs = Math.max(30_000, config.caching.birdeyeTrendingTtlSec * 1000);
@@ -249,9 +252,9 @@ async function bootstrap() {
     clearInterval(trendingInterval);
     clearInterval(birdTrendingInterval);
     try {
-      await bitquery.stop();
+      await raydiumWatcher.stop();
     } catch (err) {
-      logger.error({ err }, 'failed to stop bitquery');
+      logger.error({ err }, 'failed to stop raydium watcher');
     }
     try {
       await app.close();
@@ -311,7 +314,3 @@ bootstrap().catch((err) => {
   logger.error({ err }, 'onchain discovery failed to start');
   process.exit(1);
 });
-
-
-
-

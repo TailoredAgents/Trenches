@@ -1,10 +1,10 @@
-﻿try { require('dotenv').config(); } catch {}
+import 'dotenv/config';
 import EventSource from 'eventsource';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import fastifySse from 'fastify-sse-v2';
-import { Connection, clusterApiUrl } from '@solana/web3.js';
+import { Connection } from '@solana/web3.js';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
 import { getRegistry } from '@trenches/metrics';
@@ -15,6 +15,7 @@ import { JupiterClient } from './jupiter';
 import { TransactionSender } from './sender';
 import { ordersReceived, ordersFailed, ordersSubmitted, simpleModeGauge, flagJitoEnabled, flagSecondaryRpcEnabled, flagWsEnabled } from './metrics';
 import { ExecutorEventBus } from './eventBus';
+import { createRpcConnection } from '@trenches/util';
 
 const logger = createLogger('executor');
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -32,15 +33,14 @@ async function bootstrap() {
   });
   await app.register(fastifySse as any);
 
-  const rpcUrl = config.rpc.primaryUrl && config.rpc.primaryUrl.length > 0 ? config.rpc.primaryUrl : clusterApiUrl('mainnet-beta');
-  const connection = new Connection(rpcUrl, 'confirmed');
+  const connection = createRpcConnection(config.rpc, { commitment: 'confirmed' });
   const wallet = new WalletProvider(connection);
   const jupiter = new JupiterClient(connection);
   const sender = new TransactionSender(connection);
 
   app.get('/healthz', async () => ({
     status: 'ok',
-    rpc: rpcUrl,
+    rpc: config.rpc.primaryUrl,
     connected: true,
     mode: config.execution?.simpleMode ? 'simple' : 'advanced',
     flags: {
@@ -370,5 +370,3 @@ bootstrap().catch((err) => {
   logger.error({ err }, 'executor failed to start');
   process.exit(1);
 });
-
-

@@ -140,7 +140,6 @@ const baseConfig = schema_1.configSchema.parse({
         neynarBaseUrl: 'https://api.neynar.com',
         dexscreenerBaseUrl: 'https://api.dexscreener.com',
         birdeyeBaseUrl: 'https://public-api.birdeye.so',
-        bitqueryWsUrl: 'wss://stream.bitquery.io/graphql',
         blueskyJetstreamUrl: 'wss://jetstream2.us-east.host.bsky.network',
         gdeltPulseUrl: 'https://api.gdeltproject.org/api/v2/summary/summary'
     },
@@ -208,7 +207,6 @@ const envMap = [
     ['rpc.jitoHttpUrl', 'JITO_BLOCK_ENGINE_HTTP', (v) => v],
     ['rpc.jitoGrpcUrl', 'JITO_BLOCK_ENGINE_GRPC', (v) => v],
     ['rpc.jupiterBaseUrl', 'JUPITER_API_URL', (v) => v],
-    ['dataProviders.bitqueryWsUrl', 'BITQUERY_WS_URL', (v) => v],
     ['dataProviders.neynarBaseUrl', 'NEYNAR_BASE_URL', (v) => v],
     ['dataProviders.dexscreenerBaseUrl', 'DEXSCREENER_BASE_URL', (v) => v],
     ['dataProviders.birdeyeBaseUrl', 'BIRDEYE_BASE_URL', (v) => v],

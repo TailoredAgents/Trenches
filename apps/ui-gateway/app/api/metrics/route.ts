@@ -129,7 +129,6 @@ export async function GET(_req: NextRequest) {
         social: socialRpm,
         dexscreener: dexscreenerRpm,
         birdeye: birdeyeRpm,
-        bitquery: 0,
         dexscreenerTypes: dexscreenerRpmTypes,
         birdeyeTypes: birdeyeRpmTypes
       }

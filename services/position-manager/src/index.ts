@@ -1,11 +1,11 @@
-﻿try { require('dotenv').config(); } catch {}
+import 'dotenv/config';
 import EventSource from 'eventsource';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import fastifySse from 'fastify-sse-v2';
 import fetch from 'node-fetch';
-import { Connection, clusterApiUrl } from '@solana/web3.js';
+import { Connection } from '@solana/web3.js';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
 import { getRegistry, registerGauge } from '@trenches/metrics';
@@ -15,7 +15,7 @@ import { BirdeyePriceOracle } from './birdeye';
 import { getMintDecimals } from './mint';
 import { PositionState } from './types';
 import { positionsOpened, positionsClosed, exitsTriggered, trailingActivations, positionSizeGauge } from './metrics';
-import { TtlCache } from '@trenches/util';
+import { TtlCache, createRpcConnection } from '@trenches/util';
 
 const logger = createLogger('position-manager');
 const PRICE_REFRESH_MS = 7_000;
@@ -32,14 +32,13 @@ async function bootstrap() {
   await app.register(rateLimit as any, { max: 180, timeWindow: '1 minute' });
   await app.register(fastifySse as any);
 
-  const rpcUrl = config.rpc.primaryUrl && config.rpc.primaryUrl.length > 0 ? config.rpc.primaryUrl : clusterApiUrl('mainnet-beta');
-  const connection = new Connection(rpcUrl, 'confirmed');
+  const connection = createRpcConnection(config.rpc, { commitment: 'confirmed' });
   const oracle = new BirdeyePriceOracle();
 
   const positions = new Map<string, { state: PositionState; candidate?: TokenCandidate }>();
   await hydratePositions(connection, positions);
 
-  app.get('/healthz', async () => ({ status: 'ok', rpc: rpcUrl, positions: positions.size }));
+  app.get('/healthz', async () => ({ status: 'ok', rpc: config.rpc.primaryUrl, positions: positions.size }));
 
   app.get('/metrics', async (_, reply) => {
     const registry = getRegistry();
@@ -466,4 +465,3 @@ bootstrap().catch((err) => {
   logger.error({ err }, 'position manager failed to start');
   process.exit(1);
 });
-

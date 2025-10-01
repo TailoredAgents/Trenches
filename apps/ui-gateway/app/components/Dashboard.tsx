@@ -119,7 +119,6 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
       social?: Record<string, number>;
       dexscreener?: number;
       birdeye?: number;
-      bitquery?: number;
       dexscreenerTypes?: Record<string, number>;
       birdeyeTypes?: Record<string, number>;
     };
@@ -139,7 +138,7 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
           exits?: Record<string, number>;
           trailing?: number;
           opened?: number;
-          apiRpm?: { social?: Record<string, number>; dexscreener?: number; birdeye?: number; bitquery?: number };
+          apiRpm?: { social?: Record<string, number>; dexscreener?: number; birdeye?: number };
         };
         if (!cancelled) {
           setMetrics(j as any);
@@ -184,7 +183,6 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
             social?: Record<string, number>;
             dexscreener?: number;
             birdeye?: number;
-            bitquery?: number;
             dexscreenerTypes?: Record<string, number>;
             birdeyeTypes?: Record<string, number>;
           };
@@ -208,7 +206,7 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
           exits?: Record<string, number>;
           trailing?: number;
           opened?: number;
-          apiRpm?: { social?: Record<string, number>; dexscreener?: number; birdeye?: number; bitquery?: number };
+          apiRpm?: { social?: Record<string, number>; dexscreener?: number; birdeye?: number };
         };
         if (!cancelled) {
           setMetrics(j as any);
@@ -545,9 +543,6 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
                       <span key={i} style={{ width: 3, height: Math.max(2, Math.min(20, v)), background: '#10b981', display: 'inline-block' }} />
                     ))}
                   </div>
-                </div>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <span className="chip">Bitquery ~ {formatNumber(metrics.apiRpm?.bitquery ?? 0, 1)}</span>
                 </div>
                 {metrics.apiRpm?.social ? (
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>

@@ -112,12 +112,14 @@ class RedditSource implements SocialSource {
       return res;
     }
     const basic = (this.cfg.appType ?? 'installed').trim() === 'web' ? withSecret : withInstalled;
-    let response = await attempt(basic);
+    const response = await attempt(basic);
     if (!response.ok) {
       try {
         const body = await response.text();
         logger.warn({ status: response.status, body: body.slice(0, 300) }, 'reddit refresh failed');
-      } catch {}
+      } catch (err) {
+        logger.warn({ err }, 'failed to read reddit refresh error body');
+      }
       throw new Error(`reddit token refresh failed ${response.status}`);
     }
     const payload = (await response.json()) as { access_token: string; expires_in: number };
@@ -225,6 +227,5 @@ function extractSubredditTopics(post: RedditPost): string[] {
   }
   return Array.from(topics);
 }
-
 
 

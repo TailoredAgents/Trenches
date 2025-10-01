@@ -1,16 +1,16 @@
-﻿try { require('dotenv').config(); } catch {}
+import 'dotenv/config';
 import EventSource from 'eventsource';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import fastifySse from 'fastify-sse-v2';
-import { Connection, clusterApiUrl } from '@solana/web3.js';
+import { Connection } from '@solana/web3.js';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
 import { getRegistry } from '@trenches/metrics';
 import { storeTokenCandidate } from '@trenches/persistence';
 import { TokenCandidate } from '@trenches/shared';
-import { TtlCache } from '@trenches/util';
+import { TtlCache, createRpcConnection } from '@trenches/util';
 import { SafetyEventBus } from './eventBus';
 import { safetyEvaluations, safetyPasses, safetyBlocks, ocrsGauge, evaluationDuration } from './metrics';
 import { checkTokenSafety } from './tokenSafety';
@@ -18,7 +18,6 @@ import { checkLpSafety } from './lpSafety';
 import { checkHolderSkew } from './holderSafety';
 import { computeOcrs } from './ocrs';
 import { SafetyEvaluation } from './types';
-
 const logger = createLogger('safety-engine');
 const EVALUATION_CACHE_MS = 30_000;
 
@@ -28,8 +27,7 @@ async function bootstrap() {
   const bus = new SafetyEventBus();
   const candidateCache = new TtlCache<string, SafetyEvaluation>(EVALUATION_CACHE_MS);
 
-  const rpcUrl = config.rpc.primaryUrl && config.rpc.primaryUrl.length > 0 ? config.rpc.primaryUrl : clusterApiUrl('mainnet-beta');
-  const connection = new Connection(rpcUrl, 'confirmed');
+  const connection = createRpcConnection(config.rpc, { commitment: 'confirmed' });
 
   await app.register(helmet as any, { global: true });
   await app.register(rateLimit as any, {
@@ -40,7 +38,7 @@ async function bootstrap() {
 
   app.get('/healthz', async () => ({
     status: 'ok',
-    rpc: rpcUrl,
+    rpc: config.rpc.primaryUrl,
     feed: config.safety.candidateFeedUrl ?? `http://127.0.0.1:${config.services.onchainDiscovery.port}/events/candidates`
   }));
 
@@ -307,5 +305,3 @@ bootstrap().catch((err) => {
   logger.error({ err }, 'safety engine failed to start');
   process.exit(1);
 });
-
-

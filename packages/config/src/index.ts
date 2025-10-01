@@ -138,18 +138,18 @@ const baseConfig: TrenchesConfig = configSchema.parse({
     concurrencyScaler: { base: 1, max: 1.4, recoveryMinutes: 60 }
   },
   rpc: {
-    primaryUrl: '',
+    primaryUrl: 'http://127.0.0.1:8899',
     secondaryUrl: '',
     wsUrl: '',
     jitoHttpUrl: '',
     jitoGrpcUrl: '',
-    jupiterBaseUrl: 'https://quote-api.jup.ag/v6'
+    jupiterBaseUrl: 'https://quote-api.jup.ag/v6',
+    httpHeaders: {}
   },
   dataProviders: {
     neynarBaseUrl: 'https://api.neynar.com',
     dexscreenerBaseUrl: 'https://api.dexscreener.com',
     birdeyeBaseUrl: 'https://public-api.birdeye.so',
-    bitqueryWsUrl: 'wss://stream.bitquery.io/graphql',
     blueskyJetstreamUrl: 'wss://jetstream2.us-east.host.bsky.network',
     gdeltPulseUrl: 'https://api.gdeltproject.org/api/v2/summary/summary'
   },
@@ -199,6 +199,26 @@ const baseConfig: TrenchesConfig = configSchema.parse({
   }
 });
 
+function parseJsonRecord(value: string): Record<string, string> {
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const record: Record<string, string> = {};
+      for (const [key, val] of Object.entries(parsed)) {
+        if (typeof val === 'string') {
+          record[key] = val;
+        } else {
+          record[key] = String(val);
+        }
+      }
+      return record;
+    }
+  } catch (err) {
+    throw new Error(`Failed to parse SOLANA_RPC_HTTP_HEADERS: ${(err as Error).message}`);
+  }
+  throw new Error('SOLANA_RPC_HTTP_HEADERS must be a JSON object of string values');
+}
+
 const envMap: EnvMapping[] = [
   ['mode', 'AGENT_MODE', (v) => v],
   ['logging.level', 'LOG_LEVEL', (v) => v],
@@ -218,7 +238,7 @@ const envMap: EnvMapping[] = [
   ['rpc.jitoHttpUrl', 'JITO_BLOCK_ENGINE_HTTP', (v) => v],
   ['rpc.jitoGrpcUrl', 'JITO_BLOCK_ENGINE_GRPC', (v) => v],
   ['rpc.jupiterBaseUrl', 'JUPITER_API_URL', (v) => v],
-  ['dataProviders.bitqueryWsUrl', 'BITQUERY_WS_URL', (v) => v],
+  ['rpc.httpHeaders', 'SOLANA_RPC_HTTP_HEADERS', parseJsonRecord],
   ['dataProviders.neynarBaseUrl', 'NEYNAR_BASE_URL', (v) => v],
   ['dataProviders.dexscreenerBaseUrl', 'DEXSCREENER_BASE_URL', (v) => v],
   ['dataProviders.birdeyeBaseUrl', 'BIRDEYE_BASE_URL', (v) => v],
@@ -318,4 +338,3 @@ export function getConfig(): TrenchesConfig {
   }
   return cachedConfig;
 }
-

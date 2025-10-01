@@ -149,12 +149,13 @@ wallet:
     max: 1.4
     recoveryMinutes: 60
 rpc:
-  primaryUrl: ''
+  primaryUrl: http://127.0.0.1:8899
   secondaryUrl: ''
   wsUrl: ''
   jitoHttpUrl: ''
   jitoGrpcUrl: ''
   jupiterBaseUrl: https://quote-api.jup.ag/v6
+  httpHeaders: {}
 execution:
   tipStrategy: auto
   computeUnitPriceMode: auto_oracle
@@ -162,7 +163,6 @@ dataProviders:
   neynarBaseUrl: https://api.neynar.com
   dexscreenerBaseUrl: https://api.dexscreener.com
   birdeyeBaseUrl: https://public-api.birdeye.so
-  bitqueryWsUrl: wss://stream.bitquery.io/graphql
   blueskyJetstreamUrl: wss://jetstream2.us-east.host.bsky.network
   gdeltPulseUrl: https://api.gdeltproject.org/api/v2/summary/summary
 safety:
@@ -203,7 +203,7 @@ social:
     reconnectBackoffSec: 5
   reddit:
     enabled: true
-    subreddits: [solanamemes, memecoins, solana]
+    subreddits: [solana, solananft, memecoins, CryptoMoonShots, solanaMemeCoins, solanaMarkets, solanaCoin, solanaDeFi]
     pollIntervalSec: 45
     appType: installed
   telegram:

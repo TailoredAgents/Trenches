@@ -171,12 +171,13 @@ export const configSchema = z.object({
     concurrencyScaler: concurrencyScalerSchema.default({ base: 1, max: 1.4, recoveryMinutes: 60 })
   }),
   rpc: z.object({
-    primaryUrl: z.string().url().or(z.literal('')).default(''),
+    primaryUrl: z.string().url().or(z.literal('')).default('http://127.0.0.1:8899'),
     secondaryUrl: z.string().url().or(z.literal('')).default(''),
     wsUrl: z.string().url().or(z.literal('')).default(''),
     jitoHttpUrl: z.string().url().or(z.literal('')).default(''),
     jitoGrpcUrl: z.string().url().or(z.literal('')).default(''),
-    jupiterBaseUrl: z.string().url().default('https://quote-api.jup.ag/v6')
+    jupiterBaseUrl: z.string().url().default('https://quote-api.jup.ag/v6'),
+    httpHeaders: z.record(z.string(), z.string()).default({})
   }),
   execution: z
     .object({
@@ -192,7 +193,6 @@ export const configSchema = z.object({
     neynarBaseUrl: z.string().url().default('https://api.neynar.com'),
     dexscreenerBaseUrl: z.string().url().default('https://api.dexscreener.com'),
     birdeyeBaseUrl: z.string().url().default('https://public-api.birdeye.so'),
-    bitqueryWsUrl: z.string().url().default('wss://stream.bitquery.io/graphql'),
     blueskyJetstreamUrl: z.string().url().default('wss://jetstream2.us-east.host.bsky.network'),
     gdeltPulseUrl: z.string().url().default('https://api.gdeltproject.org/api/v2/summary/summary')
   }),
@@ -279,5 +279,3 @@ export const configSchema = z.object({
 });
 
 export type TrenchesConfig = z.infer<typeof configSchema>;
-
-

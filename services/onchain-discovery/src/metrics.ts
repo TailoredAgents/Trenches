@@ -40,6 +40,18 @@ export const lastPoolSlot: Gauge<string> = registerGauge({
   help: 'Slot number of last pool discovery'
 });
 
+export const raydiumWatcherReconnects = registerCounter({
+  name: 'raydium_watcher_reconnects_total',
+  help: 'Number of Raydium log watcher reconnect attempts',
+  labelNames: ['reason']
+});
+
+export const raydiumWatcherErrors = registerCounter({
+  name: 'raydium_watcher_errors_total',
+  help: 'Raydium log watcher errors by type',
+  labelNames: ['type']
+});
+
 // SolanaTracker metrics
 export const stEventsTotal: Counter<string> = registerCounter({
   name: 'st_events_total',

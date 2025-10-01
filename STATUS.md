@@ -2,7 +2,7 @@
 | --- | --- | --- | --- |
 | Bootstrap & Scaffolding | ✅ | `pnpm install` OK; `pnpm run typecheck` OK; `pnpm run lint` OK (no errors); services build OK | None |
 | Connectors (Neynar/Jetstream/Reddit/TDLib/GDELT) | Partial | 4012 `/healthz` degraded (missing keys), `/metrics` 200; SSE 200 on `/events/social` | Provide API creds; validate reconnection + rate-limit handling |
-| On-chain Discovery (Bitquery/DexS/Birdeye) | Partial | 4013 `/healthz` `{bitquery:false,dexscreener:false,birdeye:false}`; `/metrics` 200; SSE 200 `/events/candidates` | Add provider keys; verify TTL caches + token bucket behavior |
+| On-chain Discovery (DexS/Birdeye) | Partial | 4013 `/healthz` `{dexscreener:false,birdeye:false}`; `/metrics` 200; SSE 200 `/events/candidates` | Add provider keys; verify TTL caches + token bucket behavior |
 | Safety & OCRS | Partial | 4014 `/healthz` OK; SSE 200 `/events/safe` and `/events/blocked`; metrics counters wired | Exercise with live candidates; tune OCRS / gates |
 | Sizing & Policy | Partial | 4015 `/healthz` awaiting_credentials; SSE 200 `/events/plans`; bandit + sizing in place | Provide keystore; then exercise plan stream end-to-end |
 | Executor (Jupiter+Jito+swQoS) | Partial | 4011 `/healthz` OK (RPC connected); `/metrics` 200 | Add wallet + Jito/Jupiter config; validate retries / tip logic |
@@ -16,7 +16,7 @@
 Known blockers
 - Port 8090 metrics endpoint is single-bind (from metrics package). Use per-service `/metrics` for each microservice.
 - Wallet keystore/env required for policy-engine and execution readiness; executor does not trade without it.
-- External API creds (Neynar/Bluesky/Reddit/Telegram/Bitquery) missing by design pre-credentials.
+- External API creds (Neynar/Bluesky/Reddit/Telegram) missing by design pre-credentials.
 - Optional Jito and swQoS endpoints empty until provided.
 
 Immediate next step

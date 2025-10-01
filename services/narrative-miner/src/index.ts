@@ -1,4 +1,4 @@
-﻿try { require('dotenv').config(); } catch {}
+import 'dotenv/config';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import EventSource from 'eventsource';
@@ -738,5 +738,4 @@ if (require.main === module) {
     }
   })();
 }
-
 

@@ -11,6 +11,7 @@
                     "tools/**/*.tsx",
                     "training/**/*.ts",
                     "training/**/*.tsx",
+                    "scripts/**/*.ts",
                     "vitest.config.ts"
                 ],
     "exclude":  [

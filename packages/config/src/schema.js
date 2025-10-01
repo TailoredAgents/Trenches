@@ -179,7 +179,6 @@ exports.configSchema = zod_1.z.object({
         neynarBaseUrl: zod_1.z.string().url().default('https://api.neynar.com'),
         dexscreenerBaseUrl: zod_1.z.string().url().default('https://api.dexscreener.com'),
         birdeyeBaseUrl: zod_1.z.string().url().default('https://public-api.birdeye.so'),
-        bitqueryWsUrl: zod_1.z.string().url().default('wss://stream.bitquery.io/graphql'),
         blueskyJetstreamUrl: zod_1.z.string().url().default('wss://jetstream2.us-east.host.bsky.network'),
         gdeltPulseUrl: zod_1.z.string().url().default('https://api.gdeltproject.org/api/v2/summary/summary')
     }),

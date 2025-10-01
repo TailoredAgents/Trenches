@@ -685,21 +685,18 @@ export declare const configSchema: z.ZodObject<{
         neynarBaseUrl: z.ZodDefault<z.ZodString>;
         dexscreenerBaseUrl: z.ZodDefault<z.ZodString>;
         birdeyeBaseUrl: z.ZodDefault<z.ZodString>;
-        bitqueryWsUrl: z.ZodDefault<z.ZodString>;
         blueskyJetstreamUrl: z.ZodDefault<z.ZodString>;
         gdeltPulseUrl: z.ZodDefault<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
         neynarBaseUrl: string;
         dexscreenerBaseUrl: string;
         birdeyeBaseUrl: string;
-        bitqueryWsUrl: string;
         blueskyJetstreamUrl: string;
         gdeltPulseUrl: string;
     }, {
         neynarBaseUrl?: string | undefined;
         dexscreenerBaseUrl?: string | undefined;
         birdeyeBaseUrl?: string | undefined;
-        bitqueryWsUrl?: string | undefined;
         blueskyJetstreamUrl?: string | undefined;
         gdeltPulseUrl?: string | undefined;
     }>;
@@ -1062,7 +1059,6 @@ export declare const configSchema: z.ZodObject<{
         neynarBaseUrl: string;
         dexscreenerBaseUrl: string;
         birdeyeBaseUrl: string;
-        bitqueryWsUrl: string;
         blueskyJetstreamUrl: string;
         gdeltPulseUrl: string;
     };
@@ -1264,7 +1260,6 @@ export declare const configSchema: z.ZodObject<{
         neynarBaseUrl?: string | undefined;
         dexscreenerBaseUrl?: string | undefined;
         birdeyeBaseUrl?: string | undefined;
-        bitqueryWsUrl?: string | undefined;
         blueskyJetstreamUrl?: string | undefined;
         gdeltPulseUrl?: string | undefined;
     };

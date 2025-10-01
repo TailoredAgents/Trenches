@@ -1,10 +1,10 @@
-﻿try { require('dotenv').config(); } catch {}
+import 'dotenv/config';
 import EventSource from 'eventsource';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import fastifySse from 'fastify-sse-v2';
-import { Connection, clusterApiUrl } from '@solana/web3.js';
+import { Connection } from '@solana/web3.js';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
 import { getRegistry, registerGauge } from '@trenches/metrics';
@@ -20,6 +20,7 @@ import { LinUCBBandit } from './bandit';
 import { WalletManager } from './wallet';
 import { computeSizing } from './sizing';
 import { PlanEnvelope } from './types';
+import { createRpcConnection } from '@trenches/util';
 
 const logger = createLogger('policy-engine');
 const PLAN_FEATURE_DIM = 8;
@@ -36,8 +37,7 @@ async function bootstrap() {
   const app = Fastify({ logger: false });
   const bus = new PolicyEventBus();
 
-  const rpcUrl = config.rpc.primaryUrl && config.rpc.primaryUrl.length > 0 ? config.rpc.primaryUrl : clusterApiUrl('mainnet-beta');
-  const connection = new Connection(rpcUrl, 'confirmed');
+  const connection = createRpcConnection(config.rpc, { commitment: 'confirmed' });
   const walletManager = new WalletManager(connection);
   const walletReady = walletManager.isReady;
   const bandit = new LinUCBBandit(PLAN_FEATURE_DIM);
@@ -81,7 +81,7 @@ async function bootstrap() {
 
   app.get('/healthz', async () => ({
     status: 'ok',
-    rpc: rpcUrl,
+    rpc: config.rpc.primaryUrl,
     wallet: walletReady ? 'ready' : 'missing_keystore',
     safeFeed: config.policy.safeFeedUrl ?? `http://127.0.0.1:${config.services.safetyEngine.port}/events/safe`
   }));
@@ -324,5 +324,3 @@ bootstrap().catch((err) => {
   logger.error({ err }, 'policy engine failed to start');
   process.exit(1);
 });
-
-
