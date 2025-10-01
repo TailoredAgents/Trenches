@@ -26,3 +26,13 @@ export const evaluationDuration: Gauge<string> = registerGauge({
   name: 'safety_evaluation_ms',
   help: 'Duration of last safety evaluation in milliseconds'
 });
+
+export const authorityPassRatio: Gauge<string> = registerGauge({
+  name: 'rugguard_authority_pass_ratio',
+  help: 'Share of candidates with revoked mint/freeze authorities'
+});
+
+export const avgRugProb: Gauge<string> = registerGauge({
+  name: 'rugguard_avg_rugprob',
+  help: 'Average rug probability over recent evaluations'
+});

@@ -61,7 +61,7 @@ export class JupiterClient {
     userPublicKey: string;
     wrapAndUnwrapSol?: boolean;
     computeUnitPriceMicroLamports?: number;
-  }): Promise<{ transaction: VersionedTransaction; lastValidBlockHeight: number }> {
+  }): Promise<{ transaction: VersionedTransaction; lastValidBlockHeight: number; prioritizationFeeLamports?: number }> {
     const url = `${this.baseUrl}/swap`; // POST
     const body = {
       quoteResponse: params.quoteResponse,
@@ -84,6 +84,6 @@ export class JupiterClient {
     const payload = (await response.json()) as JupiterSwapResponse;
     const txBuffer = Buffer.from(payload.swapTransaction, 'base64');
     const transaction = VersionedTransaction.deserialize(txBuffer);
-    return { transaction, lastValidBlockHeight: payload.lastValidBlockHeight };
+    return { transaction, lastValidBlockHeight: payload.lastValidBlockHeight, prioritizationFeeLamports: payload.prioritizationFeeLamports };
   }
 }

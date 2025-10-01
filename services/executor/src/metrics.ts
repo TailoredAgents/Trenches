@@ -51,3 +51,44 @@ export const flagWsEnabled: Gauge<string> = registerGauge({
   name: 'executor_ws_enabled',
   help: '1 if WS is enabled, else 0'
 });
+
+export const landedRateGauge: Gauge<string> = registerGauge({
+  name: 'executor_landed_rate',
+  help: 'Landed rate of recent executions'
+});
+
+export const slipAvgGauge: Gauge<string> = registerGauge({
+  name: 'executor_quote_exec_slip_bps_avg',
+  help: 'Average realized slippage (bps)'
+});
+
+export const timeToLandHistogram = registerGauge({
+  name: 'executor_time_to_land_ms',
+  help: 'Last execution time to land (ms)'
+});
+
+export const retriesTotal: Counter<string> = registerCounter({
+  name: 'executor_retries_total',
+  help: 'Number of retries across executions'
+});
+
+export const fallbacksTotal: Counter<string> = registerCounter({
+  name: 'executor_fallbacks_total',
+  help: 'Number of fallbacks (re-quote/next arm)'
+});
+
+export const migrationPresetActive = registerGauge({
+  name: 'executor_migration_preset_active',
+  help: '1 if migration preset is active for current execution'
+});
+
+export const migrationPresetUses = registerCounter({
+  name: 'executor_migration_preset_uses_total',
+  help: 'Number of times migration preset adjusted fees/slippage'
+});
+
+export const routePenaltyGauge = registerGauge({
+  name: 'executor_route_penalty',
+  help: 'Route penalty score',
+  labelNames: ['route']
+});

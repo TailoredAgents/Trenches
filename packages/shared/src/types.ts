@@ -56,6 +56,7 @@ export type TokenCandidate = {
   spreadBps: number;
   safety: { ok: boolean; reasons: string[] };
   ocrs: number;
+  rugProb?: number;
   topicId?: string;
   matchScore?: number;
   poolAddress?: string;
@@ -96,3 +97,74 @@ export interface Snapshot {
 }
 
 export type CongestionLevel = 'p25' | 'p50' | 'p75' | 'p90';
+
+// --- New PVP shared types ---
+
+export type MigrationEvent = {
+  ts: number;
+  mint: string;
+  pool: string;
+  source: 'pumpfun' | 'pumpswap' | 'raydium';
+  initSig: string;
+};
+
+export type CandidateScore = {
+  ts: number;
+  mint: string;
+  horizon: '10m' | '60m' | '24h';
+  score: number;
+  features: Record<string, number>;
+};
+
+export type RugGuardVerdict = {
+  ts: number;
+  mint: string;
+  rugProb: number;
+  reasons: string[];
+};
+
+export type FillPrediction = {
+  ts: number;
+  route: string;
+  pFill: number;
+  expSlipBps: number;
+  expTimeMs: number;
+};
+
+export type FeeDecision = {
+  ts: number;
+  cuPrice: number;
+  cuLimit: number;
+  slippageBps: number;
+  rationale: string;
+};
+
+export type SizeDecision = {
+  ts: number;
+  mint: string;
+  arm: string;
+  notional: number;
+  riskNote: string;
+};
+
+export type HazardState = {
+  ts: number;
+  mint: string;
+  sellTrailBps: number;
+  ladder: [number, number][];
+  hazard: number;
+};
+
+export type ExecOutcome = {
+  ts: number;
+  quotePrice: number;
+  execPrice?: number | null;
+  filled: number;
+  route?: string | null;
+  cuPrice?: number | null;
+  slippageReq?: number | null;
+  slippageReal?: number | null;
+  timeToLandMs?: number | null;
+  errorCode?: string | null;
+  notes?: string | null;
+};

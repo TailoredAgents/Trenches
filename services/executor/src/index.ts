@@ -8,12 +8,14 @@ import { Connection } from '@solana/web3.js';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
 import { getRegistry } from '@trenches/metrics';
-import { logTradeEvent, recordOrderPlan, recordFill } from '@trenches/persistence';
+import { logTradeEvent, recordOrderPlan, recordFill, insertExecOutcome } from '@trenches/persistence';
 import { TokenCandidate, OrderPlan, TradeEvent } from '@trenches/shared';
 import { WalletProvider } from './wallet';
 import { JupiterClient } from './jupiter';
 import { TransactionSender } from './sender';
-import { ordersReceived, ordersFailed, ordersSubmitted, simpleModeGauge, flagJitoEnabled, flagSecondaryRpcEnabled, flagWsEnabled } from './metrics';
+import { ordersReceived, ordersFailed, ordersSubmitted, simpleModeGauge, flagJitoEnabled, flagSecondaryRpcEnabled, flagWsEnabled, landedRateGauge, slipAvgGauge, timeToLandHistogram, retriesTotal, fallbacksTotal, migrationPresetActive, migrationPresetUses, routePenaltyGauge } from './metrics';
+import { predictFill } from './fillnet';
+import { decideFees, updateArm } from './fee-bandit';
 import { ExecutorEventBus } from './eventBus';
 import { createRpcConnection } from '@trenches/util';
 
@@ -218,12 +220,79 @@ async function executePlan(opts: {
     outputMint = SOL_MINT;
   }
 
+  // ExecutionPolicy: choose fees/slippage
+  const cfg = loadConfig();
+  const arms = cfg.execution.feeArms;
+  const eligible = [] as Array<{ cuPrice: number; slippageBps: number; pred: { pFill: number; expSlipBps: number; expTimeMs: number } }>;  
+  for (const arm of arms) {
+    if (!cfg.features.feeBandit || !cfg.features.fillNet) {
+      eligible.push({ cuPrice: arm.cuPrice, slippageBps: arm.slippageBps, pred: { pFill: 1, expSlipBps: arm.slippageBps, expTimeMs: 500 } });
+      continue;
+    }
+    const pred = await predictFill({
+      route: 'jupiter',
+      amountLamports,
+      slippageBps: arm.slippageBps,
+      congestionScore: 0.7,
+      lpSol: candidate.lpSol,
+      spreadBps: candidate.spreadBps,
+      volatilityBps: candidate.spreadBps,
+      ageSec: candidate.ageSec,
+      rugProb: (candidate as any).rugProb
+    }, { mint: candidate.mint, arm });
+    if (pred.pFill >= cfg.execution.minFillProb && arm.slippageBps <= cfg.execution.maxSlipBps) {
+      eligible.push({ cuPrice: arm.cuPrice, slippageBps: arm.slippageBps, pred });
+    }
+  }
+  const routeStats = (global as any).__route_stats ?? ((global as any).__route_stats = new Map<string, { attempts:number; fails:number; avgSlip:number; penalty:number }>());
+  const routeKey = 'jupiter';
+  const chosen = eligible.length > 0 ? eligible.sort((a, b) => (b.pred.pFill - (routeStats.get(routeKey)?.penalty ?? 0)) - (a.pred.pFill - (routeStats.get(routeKey)?.penalty ?? 0)))[0] : { cuPrice: 0, slippageBps: plan.slippageBps ?? 100, pred: { pFill: 1, expSlipBps: 100, expTimeMs: 500 } };
+  const feeDecision = cfg.features.feeBandit ? decideFees({ congestionScore: 0.7, sizeSol: plan.sizeSol, equity: plan.sizeSol * 10, lpSol: candidate.lpSol, spreadBps: candidate.spreadBps }) : { ts: Date.now(), cuPrice: chosen.cuPrice, cuLimit: 1_200_000, slippageBps: chosen.slippageBps, rationale: 'static' };
+  // Shadow fee policy (offline only)
+  try {
+    if ((cfg as any).features?.offlinePolicyShadow) {
+      const arms = cfg.execution.feeArms;
+      const baselineIndex = arms.findIndex((a) => a.cuPrice === feeDecision.cuPrice && a.slippageBps === feeDecision.slippageBps);
+      // Simple conservative shadow: pick lowest slippage arm
+      const shadowIndex = 0;
+      const shadowArm = arms[shadowIndex] ?? arms[0];
+      const pChosen = chosen.pred?.pFill ?? 1;
+      const shadowPred = await predictFill({ route: 'jupiter', amountLamports, slippageBps: shadowArm.slippageBps, congestionScore: 0.7, lpSol: candidate.lpSol, spreadBps: candidate.spreadBps, volatilityBps: candidate.spreadBps, ageSec: candidate.ageSec, rugProb: (candidate as any).rugProb }, { mint: candidate.mint, arm: shadowArm });
+      const delta = (shadowPred.pFill ?? 0) - (pChosen ?? 0);
+      const { insertShadowFeeDecision } = await import('@trenches/persistence');
+      insertShadowFeeDecision({ ts: Date.now(), mint: candidate.mint, chosenArm: shadowIndex, baselineArm: baselineIndex, deltaRewardEst: delta }, { baseline: { cuPrice: feeDecision.cuPrice, slippageBps: feeDecision.slippageBps }, shadow: shadowArm });
+    }
+  } catch {}
+
+  let slippageToUse = feeDecision.slippageBps;
+  let cuPriceToUse = feeDecision.cuPrice;
+  try {
+    const preset = (cfg as any).execution?.migrationPreset ?? { enabled: true, durationMs: 60000, decayMs: 30000, cuPriceBump: 3000, minSlippageBps: 100 };
+    if (preset.enabled) {
+      const ageMs = Math.max(0, (candidate.ageSec ?? 9999) * 1000);
+      let bump = 0; let minSlip = 0;
+      if (ageMs <= preset.durationMs) {
+        bump = preset.cuPriceBump; minSlip = preset.minSlippageBps; migrationPresetActive.set(1);
+      } else if (ageMs <= preset.durationMs + preset.decayMs) {
+        const f = 1 - (ageMs - preset.durationMs) / Math.max(1, preset.decayMs);
+        bump = Math.round(preset.cuPriceBump * f); minSlip = Math.round(preset.minSlippageBps * f); migrationPresetActive.set(1);
+      } else {
+        migrationPresetActive.set(0);
+      }
+      if (bump > 0 || minSlip > 0) {
+        cuPriceToUse = cuPriceToUse + bump;
+        slippageToUse = Math.max(slippageToUse, minSlip);
+        migrationPresetUses.inc();
+      }
+    }
+  } catch {}
+
   const quote = await jupiter.fetchQuote(
     {
       inputMint,
       outputMint,
       amount: amountLamports,
-      slippageBps: plan.slippageBps
+      slippageBps: slippageToUse
     },
     wallet.publicKey.toBase58()
   );
@@ -231,14 +300,15 @@ async function executePlan(opts: {
   let lastError: unknown = null;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
     try {
-      const { transaction, lastValidBlockHeight } = await jupiter.buildSwapTx({
+      const { transaction, lastValidBlockHeight, prioritizationFeeLamports } = await jupiter.buildSwapTx({
         quoteResponse: quote,
         userPublicKey: wallet.publicKey.toBase58(),
-        computeUnitPriceMicroLamports: plan.computeUnitPriceMicroLamports
+        computeUnitPriceMicroLamports: cuPriceToUse
       });
 
       transaction.sign([wallet.keypairInstance]);
 
+      const tSend = Date.now();
       const { signature, slot } = await sender.sendAndConfirm({
         transaction,
         jitoTipLamports: plan.jitoTipLamports,
@@ -254,6 +324,7 @@ async function executePlan(opts: {
         quoteOutAmount: quote.outAmount,
         amountIn: amountLamports
       });
+      const t0 = Date.now();
       recordFill({
         signature,
         mint: candidate.mint,
@@ -275,6 +346,12 @@ async function executePlan(opts: {
         side: plan.side ?? 'buy'
       };
       logTradeEvent(fillEvent);
+      const ttl = Date.now() - tSend;
+      const slipReal = 0; // TODO: compute vs expected price
+      const feeLamportsTotal = (prioritizationFeeLamports ?? 0) + (plan.jitoTipLamports ?? 0);
+      const amountIn = amountLamports;
+      const amountOut = qtyRaw;
+      insertExecOutcome({ ts: t0, quotePrice: price, execPrice: price, filled: 1, route: plan.route, cuPrice: cuPriceToUse, slippageReq: slippageToUse, slippageReal: slipReal, timeToLandMs: ttl, errorCode: null, notes: null, priorityFeeLamports: prioritizationFeeLamports ?? 0, amountIn, amountOut, feeLamportsTotal });
       bus.emitTrade(fillEvent);
       recordOrderPlan({
         id: orderId,
@@ -290,10 +367,20 @@ async function executePlan(opts: {
         tokenAmount: plan.tokenAmountLamports ?? null,
         expectedSol: plan.expectedSol ?? null
       });
+      try { landedRateGauge.set(1); slipAvgGauge.set(0); timeToLandHistogram.set(ttl); } catch {}
+      try { updateArm({ congestionScore: 0.7, sizeSol: plan.sizeSol, equity: plan.sizeSol * 10, lpSol: candidate.lpSol, spreadBps: candidate.spreadBps }, { cuPrice: cuPriceToUse, slippageBps: slippageToUse }, { filled: true, realizedSlipBps: 0, feeBps: 0 }); } catch {}
       return;
     } catch (err) {
       lastError = err;
       logger.error({ err, attempt }, 'execution attempt failed');
+      retriesTotal.inc();
+      if (attempt < MAX_RETRIES - 1) {
+        fallbacksTotal.inc();
+      }
+      const rs = routeStats.get(routeKey) ?? { attempts: 0, fails: 0, avgSlip: 0, penalty: 0 };
+      rs.attempts += 1; rs.fails += 1; rs.penalty = Math.min(1, rs.fails / Math.max(1, rs.attempts)) * ((cfg as any).execution?.quarantine?.failRate ?? 0.4);
+      routeStats.set(routeKey, rs);
+      try { routePenaltyGauge.set({ route: routeKey }, rs.penalty); } catch {}
     }
   }
   recordOrderPlan({
@@ -310,6 +397,7 @@ async function executePlan(opts: {
     tokenAmount: plan.tokenAmountLamports ?? null,
     expectedSol: plan.expectedSol ?? null
   });
+  insertExecOutcome({ ts: Date.now(), quotePrice: 0, execPrice: null, filled: 0, route: plan.route, cuPrice: cuPriceToUse, slippageReq: slippageToUse, slippageReal: null, timeToLandMs: null, errorCode: (lastError as any)?.message ?? 'unknown', notes: 'failed' });
   throw lastError instanceof Error ? lastError : new Error('execution failed');
 }
 

@@ -25,6 +25,7 @@ export type SafetyEvaluation = {
   ocrs: number;
   whaleFlag: boolean;
   features: Record<string, number>;
+  rugProb?: number;
 };
 
 export type CandidateContext = {

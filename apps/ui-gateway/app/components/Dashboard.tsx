@@ -169,6 +169,16 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
     return () => { cancelled = true; clearInterval(t); };
   }, []);
 
+  const migrations = snapshot?.latestMigrations ?? [];
+  const lag = snapshot?.migrationLag;
+  const rug = snapshot?.rugGuard;
+  const exec = snapshot?.execution as any;
+  const risk = (snapshot as any)?.riskBudget as any;
+  const sizingTop = (snapshot as any)?.sizing?.topArms as Array<{ arm: string; share: number }> | undefined;
+  const surv = (snapshot as any)?.survival as any;
+  const bt = (snapshot as any)?.backtest as any;
+  const sh = (snapshot as any)?.shadow as any;
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -487,6 +497,125 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
               Tip guide: p25 200–400k, p50 500k–1M, p75 1.5–2.5M, p90 3–4M
             </div>
           </div>
+        </div>
+      </section>
+
+      <section className="card" style={{ gridColumn: 'span 8 / span 8' }}>
+        <h2>Recent Migrations</h2>
+        <small>Latest {migrations.length} (p50 {formatNumber(lag?.p50, 0)} ms / p95 {formatNumber(lag?.p95, 0)} ms)</small>
+        {migrations.length === 0 ? (
+          <div className="empty-state">No migrations observed.</div>
+        ) : (
+          <div className="list">
+            {migrations.map((m, i) => (
+              <div key={i} className="list-item">
+                <div>
+                  <strong>{m.source}</strong>
+                  <div style={{ fontSize: 12, color: '#9aa5c4' }}>Mint: {m.mint.slice(0, 4)}...{m.mint.slice(-4)}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 12 }}>{new Date(m.ts).toLocaleTimeString()}</div>
+                  <div style={{ fontSize: 12, color: '#9aa5c4' }}>Pool: {m.pool.slice(0, 4)}...{m.pool.slice(-4)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="card" style={{ gridColumn: 'span 4 / span 4' }}>
+        <h2>RugGuard</h2>
+        <div className="metric-grid">
+          <div className="metric-tile">
+            <span>Authority Pass</span>
+            <div className="metric-value">{rug ? formatNumber(rug.passRate * 100, 1) : '-'}%</div>
+          </div>
+          <div className="metric-tile">
+            <span>Avg RugProb</span>
+            <div className="metric-value">{rug ? formatNumber(rug.avgRugProb, 2) : '-'}</div>
+          </div>
+        </div>
+      </section>
+
+      <section className="card" style={{ gridColumn: 'span 4 / span 4' }}>
+        <h2>Execution</h2>
+        <div className="metric-grid">
+          <div className="metric-tile">
+            <span>Landed Rate</span>
+            <div className="metric-value">{exec ? formatNumber(exec.landedRate * 100, 1) : '-'}%</div>
+          </div>
+          <div className="metric-tile">
+            <span>Avg Slip</span>
+            <div className="metric-value">{exec ? formatNumber(exec.avgSlipBps, 1) : '-'} bps</div>
+          </div>
+          <div className="metric-tile">
+            <span>p50 TTL</span>
+            <div className="metric-value">{exec ? formatNumber(exec.p50Ttl, 0) : '-'} ms</div>
+          </div>
+          <div className="metric-tile">
+            <span>p95 TTL</span>
+            <div className="metric-value">{exec ? formatNumber(exec.p95Ttl, 0) : '-'} ms</div>
+          </div>
+        </div>
+      </section>
+
+      <section className="card" style={{ gridColumn: 'span 4 / span 4' }}>
+        <h2>Risk Budget</h2>
+        <div className="metric-grid">
+          <div className="metric-tile">
+            <span>Daily Cap</span>
+            <div className="metric-value">{formatNumber(risk?.dailyLossCapUsd, 0)} USD</div>
+          </div>
+          <div className="metric-tile">
+            <span>Used</span>
+            <div className="metric-value">{formatNumber(risk?.usedUsd, 0)} USD</div>
+          </div>
+          <div className="metric-tile">
+            <span>Remaining</span>
+            <div className="metric-value">{formatNumber(risk?.remainingUsd, 0)} USD</div>
+          </div>
+        </div>
+      </section>
+
+      <section className="card" style={{ gridColumn: 'span 4 / span 4' }}>
+        <h2>Survival</h2>
+        <div className="metric-grid">
+          <div className="metric-tile"><span>Avg Hazard</span><div className="metric-value">{formatNumber(surv?.avgHazard, 2)}</div></div>
+          <div className="metric-tile"><span>Flattens</span><div className="metric-value">-</div></div>
+        </div>
+      </section>
+
+      <section className="card" style={{ gridColumn: 'span 4 / span 4' }}>
+        <h2>Sizing Distribution</h2>
+        {(!sizingTop || sizingTop.length === 0) ? (
+          <div className="empty-state">No decisions yet.</div>
+        ) : (
+          <div className="list">
+            {sizingTop.map((r) => (
+              <div key={r.arm} className="list-item">
+                <div>{r.arm}</div>
+                <div>{formatNumber(r.share * 100, 1)}%</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="card" style={{ gridColumn: 'span 8 / span 8' }}>
+        <h2>Backtest (last run {bt?.lastRunId ?? '-'})</h2>
+        <div className="metric-grid">
+          <div className="metric-tile"><span>Net PnL</span><div className="metric-value">{formatNumber(bt?.lastOverallNetPnl, 0)} USD</div></div>
+          <div className="metric-tile"><span>Landed Rate</span><div className="metric-value">{bt ? formatNumber(bt.landedRate*100,1) : '-'}%</div></div>
+          <div className="metric-tile"><span>Avg Slip</span><div className="metric-value">{formatNumber(bt?.avgSlipBps,1)} bps</div></div>
+          <div className="metric-tile"><span>TTL p50/p95</span><div className="metric-value">{formatNumber(bt?.p50Ttl,0)}/{formatNumber(bt?.p95Ttl,0)} ms</div></div>
+        </div>
+      </section>
+
+      <section className="card" style={{ gridColumn: 'span 4 / span 4' }}>
+        <h2>Shadow Policies</h2>
+        <div className="metric-grid">
+          <div className="metric-tile"><span>Fee Disagree</span><div className="metric-value">{sh ? formatNumber(sh.feeDisagreePct*100,1) : '-'}%</div></div>
+          <div className="metric-tile"><span>Sizing Disagree</span><div className="metric-value">{sh ? formatNumber(sh.sizingDisagreePct*100,1) : '-'}%</div></div>
         </div>
       </section>
 

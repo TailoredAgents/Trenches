@@ -4,7 +4,7 @@ import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
-import { startMetricsServer } from '@trenches/metrics';
+import { startMetricsServer, registerGauge } from '@trenches/metrics';
 import {
   closeDb,
   getDb,
@@ -23,6 +23,8 @@ const logger = createLogger('agent-core');
 async function bootstrap() {
   const config = loadConfig();
   const metricsServer = startMetricsServer();
+  const lagP50 = registerGauge({ name: 'migration_to_candidate_lag_ms', help: 'Lag between migration and candidate (ms)', labelNames: ['quantile'] });
+  const lagHist = (await import('@trenches/metrics')).registerHistogram({ name: 'migration_to_candidate_lag_hist_ms', help: 'Lag histogram', buckets: [50, 100, 200, 400, 900, 2000, 5000] });
   const db = getDb();
   db.prepare('SELECT 1').get();
 
@@ -111,14 +113,84 @@ async function bootstrap() {
       trailPct: config.ladders.trailPct
     }));
 
-    const snapshot: Snapshot = {
+    // Phase A additions: migrations and RugGuard stats
+    let latestMigrations: Array<{ ts: number; mint: string; pool: string; source: string }> = [];
+    let lag = { p50: 0, p95: 0 };
+    let rug = { passRate: 0, avgRugProb: 0 };
+    try {
+      const { listRecentMigrationEvents, computeMigrationCandidateLagQuantiles, getRugGuardStats } = await import('@trenches/persistence');
+      latestMigrations = listRecentMigrationEvents(20).map((m) => ({ ts: m.ts, mint: m.mint, pool: m.pool, source: m.source }));
+      lag = computeMigrationCandidateLagQuantiles();
+      rug = getRugGuardStats();
+      lagP50.set({ quantile: '0.5' }, lag.p50);
+      lagP50.set({ quantile: '0.95' }, lag.p95);
+      // Observe into histogram (representative)
+      lagHist.observe(lag.p50);
+      lagHist.observe(lag.p95);
+    } catch {}
+
+    // Execution summary (from SQLite exec_outcomes)
+    let execution = { landedRate: 0, avgSlipBps: 0, p50Ttl: 0, p95Ttl: 0 };
+    let riskBudget = { dailyLossCapUsd: 0, usedUsd: 0, remainingUsd: 0 };
+    let sizingDist: Array<{ arm: string; share: number }> = [];
+    let survival = { avgHazard: 0, forcedFlattens: 0 };
+    let backtest = { lastRunId: 0, lastOverallNetPnl: 0, landedRate: 0, avgSlipBps: 0, p50Ttl: 0, p95Ttl: 0 };
+    let shadow = { feeDisagreePct: 0, sizingDisagreePct: 0 };
+    let routes: Array<{ route: string; penalty: number }> = [];
+    let leaders: Array<{ pool: string; hits: number }> = [];
+    try {
+      const { getExecSummary, getRiskBudget, getSizingDistribution } = await import('@trenches/persistence');
+      execution = getExecSummary();
+      riskBudget = getRiskBudget();
+      sizingDist = getSizingDistribution();
+    } catch {}
+    try {
+      // Avg hazard from last 100 hazard states
+      const db = getDb();
+      const rows = db.prepare('SELECT hazard FROM hazard_states ORDER BY ts DESC LIMIT 100').all() as Array<{ hazard: number }>;
+      const avg = rows.length ? rows.reduce((a, r) => a + (r.hazard ?? 0), 0) / rows.length : 0;
+      survival.avgHazard = avg;
+      // Backtest: last run summary
+      const last = db.prepare('SELECT id FROM backtest_runs ORDER BY id DESC LIMIT 1').get() as { id?: number } | undefined;
+      if (last?.id) {
+        backtest.lastRunId = last.id;
+        const rs = db.prepare('SELECT metric, value FROM backtest_results WHERE run_id = ?').all(last.id) as Array<{ metric: string; value: number }>;
+        for (const r of rs) {
+          if (r.metric === 'landed_rate') backtest.landedRate = r.value;
+          if (r.metric === 'avg_slip_bps') backtest.avgSlipBps = r.value;
+          if (r.metric === 'p50_ttl_ms') backtest.p50Ttl = r.value;
+          if (r.metric === 'p95_ttl_ms') backtest.p95Ttl = r.value;
+          if (r.metric === 'net_pnl_usd') backtest.lastOverallNetPnl = r.value;
+        }
+      }
+      // Shadow disagreement (last 200)
+      const feeRows = db.prepare('SELECT ctx_json FROM shadow_decisions_fee ORDER BY ts DESC LIMIT 200').all() as Array<{ ctx_json: string }>;
+      const sizRows = db.prepare('SELECT ctx_json FROM shadow_decisions_sizing ORDER BY ts DESC LIMIT 200').all() as Array<{ ctx_json: string }>;
+      const feePairs = feeRows.map((r) => { try { const j = JSON.parse(r.ctx_json); return [j.baselineArm, j.chosenArm]; } catch { return null } }).filter(Boolean) as Array<[number, number]>;
+      const sizPairs = sizRows.map((r) => { try { const j = JSON.parse(r.ctx_json); return [j.baselineArm, j.chosenArm]; } catch { return null } }).filter(Boolean) as Array<[string, string]>;
+      shadow.feeDisagreePct = feePairs.length ? feePairs.filter(([b,c]) => b !== c).length / feePairs.length : 0;
+      shadow.sizingDisagreePct = sizPairs.length ? sizPairs.filter(([b,c]) => b !== c).length / sizPairs.length : 0;
+    } catch {}
+
+    const snapshot: Snapshot & { latestMigrations?: any; migrationLag?: any; rugGuard?: any; execution?: any; riskBudget?: any; sizing?: any; survival?: any; backtest?: any; shadow?: any; routes?: any; leaders?: any } = {
       status,
       pnl: { day: pnlDay, week: pnlWeek, month: pnlMonth },
       topics,
       candidates,
       positions,
       risk: { exposurePct: 0, dailyLossPct: 0 },
-      sizing: { equity: 0, free: 0, tier: 'n/a', base: 0, final: 0 }
+      sizing: { equity: 0, free: 0, tier: 'n/a', base: 0, final: 0 },
+      latestMigrations,
+      migrationLag: lag,
+      rugGuard: rug,
+      execution,
+      riskBudget,
+      sizing: { ...((snapshot as any)?.sizing ?? {}), topArms: sizingDist, skips: 0 },
+      survival,
+      backtest,
+      shadow,
+      routes,
+      leaders
     };
     return snapshot;
   });
@@ -312,3 +384,11 @@ bootstrap().catch((err) => {
   logger.error({ err }, 'agent core failed to start');
   process.exit(1);
 });
+      // Route Quality (24h): fallback derive from exec_outcomes by route
+      const rt = db.prepare('SELECT route, COUNT(1) AS n FROM exec_outcomes WHERE ts >= ? GROUP BY route').all(Date.now()-24*60*60*1000) as Array<{ route:string; n:number }>;
+      routes = rt.map(r => ({ route: r.route, penalty: 0 }));
+      // Leader Hits (recent)
+      try {
+        const lh = db.prepare('SELECT pool, COUNT(1) AS c FROM leader_hits WHERE ts >= ? GROUP BY pool ORDER BY c DESC LIMIT 10').all(Date.now()-24*60*60*1000) as Array<{ pool:string; c:number }>;
+        leaders = lh.map(x => ({ pool: x.pool, hits: x.c }));
+      } catch {}

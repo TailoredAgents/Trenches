@@ -19,6 +19,7 @@ import { buildContext } from './context';
 import { LinUCBBandit } from './bandit';
 import { WalletManager } from './wallet';
 import { computeSizing } from './sizing';
+import { chooseSize } from './sizing_constrained';
 import { PlanEnvelope } from './types';
 import { createRpcConnection } from '@trenches/util';
 
@@ -108,7 +109,36 @@ async function bootstrap() {
   logger.info({ address }, 'policy engine listening');
 
   const safeFeedUrl = config.policy.safeFeedUrl ?? `http://127.0.0.1:${config.services.safetyEngine.port}/events/safe`;
+  const alphaTopK = (config as any).alpha?.topK ?? 12;
+  const alphaMin = (config as any).alpha?.minScore ?? 0.52;
+  const alphaMap = new Map<string, number>();
   const disposeStream = startCandidateStream(safeFeedUrl, async (candidate) => {
+    try {
+      if ((config as any).features?.alphaRanker) {
+        const { getDb } = await import('@trenches/persistence');
+        const db = getDb();
+        const row = db.prepare('SELECT score FROM scores WHERE mint = ? AND horizon = ? ORDER BY ts DESC LIMIT 1').get(candidate.mint, '10m') as { score?: number } | undefined;
+        const sc = row?.score ?? 0;
+        alphaMap.set(candidate.mint, sc);
+        if (sc < alphaMin) {
+          plansSuppressed.inc({ reason: 'alpha_below_min' });
+          return;
+        }
+        // Keep only topK by score at decision time
+        const arr = Array.from(alphaMap.entries()).sort((a,b)=>b[1]-a[1]).slice(0, alphaTopK).map(([m])=>m);
+        if (!arr.includes(candidate.mint)) {
+          plansSuppressed.inc({ reason: 'alpha_not_topk' });
+          return;
+        }
+      }
+    } catch {}
+    if (typeof (candidate as any).rugProb === 'number') {
+      const rugProb = (candidate as any).rugProb as number;
+      if (rugProb > 0.6) {
+        plansSuppressed.inc({ reason: 'rugprob_high' });
+        return;
+      }
+    }
     if (!candidate.safety?.ok) {
       plansSuppressed.inc({ reason: 'safety_not_ok' });
       return;
@@ -145,7 +175,23 @@ async function bootstrap() {
 
     const selection = bandit.select(contextVector);
     const sizingStart = Date.now();
-    const sizing = computeSizing(candidate, walletSnapshot, selection.action.sizeMultiplier);
+    const sizing = (config.features?.constrainedSizing
+      ? (() => {
+          const dec = chooseSize({ candidate, walletEquity: walletSnapshot.equity, walletFree: walletSnapshot.free, dailySpendUsed: walletSnapshot.spendUsed, caps: { perNameFraction: 0.3, perNameMaxSol: 5, dailySpendCapSol: walletSnapshot.spendCap ?? walletSnapshot.equity } });
+          return { size: dec.notional, reason: 'ok' } as { size: number; reason: string };
+        })()
+      : computeSizing(candidate, walletSnapshot, selection.action.sizeMultiplier));
+
+    // Shadow sizing policy (offline)
+    try {
+      if ((config as any).features?.offlinePolicyShadow) {
+        const arms = ((config as any).sizing?.arms ?? []).map((a: any) => `${a.type}:${a.value}`);
+        const baselineArm = arms.find((a) => sizing.size >= 0) ?? (arms[0] ?? 'equity_frac:0.005');
+        const shadowArm = arms[0] ?? baselineArm;
+        const { insertShadowSizingDecision } = await import('@trenches/persistence');
+        insertShadowSizingDecision({ ts: Date.now(), mint: candidate.mint, chosenArm: shadowArm, baselineArm, deltaRewardEst: 0 }, { ctx: { walletEquity: walletSnapshot.equity } });
+      }
+    } catch {}
     sizingDurationMs.set(Date.now() - sizingStart);
 
     if (sizing.size <= 0) {

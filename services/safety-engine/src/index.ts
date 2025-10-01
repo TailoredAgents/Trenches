@@ -8,15 +8,17 @@ import { Connection } from '@solana/web3.js';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
 import { getRegistry } from '@trenches/metrics';
+import { insertRugVerdict } from '@trenches/persistence';
 import { storeTokenCandidate } from '@trenches/persistence';
 import { TokenCandidate } from '@trenches/shared';
 import { TtlCache, createRpcConnection } from '@trenches/util';
 import { SafetyEventBus } from './eventBus';
-import { safetyEvaluations, safetyPasses, safetyBlocks, ocrsGauge, evaluationDuration } from './metrics';
+import { safetyEvaluations, safetyPasses, safetyBlocks, ocrsGauge, evaluationDuration, authorityPassRatio, avgRugProb } from './metrics';
 import { checkTokenSafety } from './tokenSafety';
 import { checkLpSafety } from './lpSafety';
 import { checkHolderSkew } from './holderSafety';
 import { computeOcrs } from './ocrs';
+import { classify, candidateToFeatures } from './rugguard';
 import { SafetyEvaluation } from './types';
 const logger = createLogger('safety-engine');
 const EVALUATION_CACHE_MS = 30_000;
@@ -72,7 +74,8 @@ async function bootstrap() {
       const decorated: TokenCandidate = {
         ...candidate,
         safety: { ok: result.ok, reasons: result.reasons },
-        ocrs: result.ocrs
+        ocrs: result.ocrs,
+        rugProb: (result as any).rugProb ?? undefined
       };
       try {
         storeTokenCandidate(decorated);
@@ -199,13 +202,41 @@ async function evaluateCandidate(
   const gatingReasons = evaluateGating({ ...candidate, ocrs: ocrsPayload.score }, config);
   reasons.push(...gatingReasons);
 
+  // RugGuard v1
+  let rugProb = 0.5;
+  try {
+    const verdict = await classify(candidate.mint, candidateToFeatures(candidate), { connection });
+    rugProb = verdict.rugProb;
+    insertRugVerdict({ ts: verdict.ts, mint: verdict.mint, rugProb: verdict.rugProb, reasons: verdict.reasons });
+    // Authority gating: if mint/freeze not revoked, block immediately
+    if (verdict.reasons.includes('mint_or_freeze_active')) {
+      reasons.push('mint_or_freeze_active');
+    }
+    // Metrics aggregation (moving averages)
+    // Track ratio and avg
+    const prev = (authorityPassRatio as any)._last || { pass: 0, total: 0 };
+    const pass = verdict.reasons.includes('mint_or_freeze_active') ? 0 : 1;
+    const total = prev.total + 1;
+    const passes = prev.pass + pass;
+    (authorityPassRatio as any)._last = { pass: passes, total };
+    authorityPassRatio.set(total > 0 ? passes / total : 0);
+    const prevR = (avgRugProb as any)._last || { sum: 0, n: 0 };
+    const sum = prevR.sum + rugProb;
+    const n = prevR.n + 1;
+    (avgRugProb as any)._last = { sum, n };
+    avgRugProb.set(sum / Math.max(1, n));
+  } catch (err) {
+    logger.error({ err }, 'rugguard classify failed');
+  }
+
   const ok = reasons.length === 0;
   const evaluation: SafetyEvaluation = {
     ok,
     reasons,
     ocrs: ocrsPayload.score,
     whaleFlag: holderResult.whaleFlag,
-    features: ocrsPayload.features
+    features: ocrsPayload.features,
+    rugProb
   };
 
   safetyEvaluations.inc();

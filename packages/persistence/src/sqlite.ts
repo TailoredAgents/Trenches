@@ -416,6 +416,154 @@ const MIGRATIONS: Migration[] = [
   }
 
 ];
+// Phase A migration: PVP upgrade tables
+MIGRATIONS.push({
+  id: '0008_pvp_phase_a',
+  statements: [
+    `CREATE TABLE IF NOT EXISTS migration_events (
+      ts INTEGER NOT NULL,
+      mint TEXT NOT NULL,
+      pool TEXT NOT NULL,
+      source TEXT NOT NULL,
+      init_sig TEXT NOT NULL
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_migration_events_mint_ts ON migration_events(mint, ts);`,
+    `CREATE TABLE IF NOT EXISTS scores (
+      ts INTEGER NOT NULL,
+      mint TEXT NOT NULL,
+      horizon TEXT NOT NULL,
+      score REAL NOT NULL,
+      features_json TEXT NOT NULL
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_scores_mint_horizon_ts ON scores(mint, horizon, ts);`,
+    `CREATE TABLE IF NOT EXISTS rug_verdicts (
+      ts INTEGER NOT NULL,
+      mint TEXT NOT NULL,
+      rug_prob REAL NOT NULL,
+      reasons_json TEXT NOT NULL
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_rug_verdicts_mint_ts ON rug_verdicts(mint, ts);`
+  ]
+});
+
+MIGRATIONS.push({
+  id: '0009_pvp_phase_b',
+  statements: [
+    `CREATE TABLE IF NOT EXISTS fill_preds(
+      ts INTEGER NOT NULL,
+      route TEXT NOT NULL,
+      p_fill REAL NOT NULL,
+      exp_slip_bps REAL NOT NULL,
+      exp_time_ms INTEGER NOT NULL,
+      ctx_json TEXT NOT NULL
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_fill_preds_route_ts ON fill_preds(route, ts);`,
+    `CREATE TABLE IF NOT EXISTS fee_decisions(
+      ts INTEGER NOT NULL,
+      cu_price INTEGER NOT NULL,
+      cu_limit INTEGER NOT NULL,
+      slippage_bps INTEGER NOT NULL,
+      ctx_json TEXT NOT NULL
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_fee_decisions_ts ON fee_decisions(ts);`,
+    `CREATE TABLE IF NOT EXISTS exec_outcomes(
+      ts INTEGER NOT NULL,
+      quote_price REAL NOT NULL,
+      exec_price REAL,
+      filled INTEGER NOT NULL,
+      route TEXT,
+      cu_price INTEGER,
+      slippage_bps_req INTEGER,
+      slippage_bps_real REAL,
+      time_to_land_ms INTEGER,
+      error_code TEXT,
+      notes TEXT
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_exec_outcomes_ts ON exec_outcomes(ts);`
+  ]
+});
+
+MIGRATIONS.push({
+  id: '0010_pvp_phase_c',
+  statements: [
+    `CREATE TABLE IF NOT EXISTS hazard_states(
+      ts INTEGER NOT NULL,
+      mint TEXT NOT NULL,
+      hazard REAL NOT NULL,
+      trail_bps INTEGER NOT NULL,
+      ladder_json TEXT NOT NULL
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_hazard_states_mint_ts ON hazard_states(mint, ts);`,
+    `ALTER TABLE sizing_decisions ADD COLUMN ts INTEGER;`,
+    `ALTER TABLE sizing_decisions ADD COLUMN arm TEXT;`,
+    `ALTER TABLE sizing_decisions ADD COLUMN notional REAL;`,
+    `ALTER TABLE sizing_decisions ADD COLUMN ctx_json TEXT;`,
+    `CREATE INDEX IF NOT EXISTS idx_sizing_decisions_mint_ts ON sizing_decisions(mint, ts);`,
+    `CREATE TABLE IF NOT EXISTS sizing_outcomes(
+      ts INTEGER NOT NULL,
+      mint TEXT NOT NULL,
+      notional REAL NOT NULL,
+      pnl_usd REAL NOT NULL,
+      mae_bps REAL NOT NULL,
+      closed INTEGER NOT NULL
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_sizing_outcomes_ts ON sizing_outcomes(ts);`
+  ]
+});
+
+MIGRATIONS.push({
+  id: '0011_pvp_phase_d',
+  statements: [
+    `CREATE TABLE IF NOT EXISTS backtest_runs(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      started_ts INTEGER NOT NULL,
+      finished_ts INTEGER,
+      params_json TEXT NOT NULL,
+      notes TEXT
+    );`,
+    `CREATE TABLE IF NOT EXISTS backtest_results(
+      run_id INTEGER NOT NULL,
+      metric TEXT NOT NULL,
+      value REAL NOT NULL,
+      segment TEXT,
+      PRIMARY KEY(run_id, metric, segment)
+    );`,
+    `CREATE TABLE IF NOT EXISTS shadow_decisions_fee(
+      ts INTEGER NOT NULL,
+      mint TEXT NOT NULL,
+      chosen_arm INTEGER NOT NULL,
+      baseline_arm INTEGER,
+      delta_reward_est REAL,
+      ctx_json TEXT NOT NULL
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_shadow_fee_ts ON shadow_decisions_fee(ts);`,
+    `CREATE TABLE IF NOT EXISTS shadow_decisions_sizing(
+      ts INTEGER NOT NULL,
+      mint TEXT NOT NULL,
+      chosen_arm TEXT NOT NULL,
+      baseline_arm TEXT,
+      delta_reward_est REAL,
+      ctx_json TEXT NOT NULL
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_shadow_sizing_ts ON shadow_decisions_sizing(ts);`
+  ]
+});
+
+MIGRATIONS.push({
+  id: '0012_pvp_phase_e',
+  statements: [
+    `CREATE TABLE IF NOT EXISTS prices (
+      ts INTEGER NOT NULL,
+      symbol TEXT NOT NULL,
+      usd REAL NOT NULL
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_prices_symbol_ts ON prices(symbol, ts);`,
+    `ALTER TABLE exec_outcomes ADD COLUMN priority_fee_lamports INTEGER;`,
+    `ALTER TABLE exec_outcomes ADD COLUMN amount_in INTEGER;`,
+    `ALTER TABLE exec_outcomes ADD COLUMN amount_out INTEGER;`,
+    `ALTER TABLE exec_outcomes ADD COLUMN fee_lamports_total INTEGER;`
+  ]
+});
 
 
 
@@ -446,9 +594,9 @@ function openDb(): DatabaseConstructor.Database {
   const instance = new DatabaseConstructor(cfg.persistence.sqlitePath, { timeout: 5000 });
 
   instance.pragma('journal_mode = WAL');
-
   instance.pragma('synchronous = NORMAL');
-
+  instance.pragma('temp_store = MEMORY');
+  try { instance.pragma('mmap_size = 268435456'); } catch { /* optional */ }
   instance.pragma('foreign_keys = ON');
 
   return instance;
@@ -1388,4 +1536,236 @@ export function recordFill(fill: { signature: string; mint: string; price: numbe
          tip_lamports = excluded.tip_lamports,
          slot = excluded.slot`)
     .run(fill);
+}
+
+// ---- Phase A helpers ----
+
+export function insertMigrationEvent(e: { ts: number; mint: string; pool: string; source: string; initSig: string }): void {
+  const database = getDb();
+  database
+    .prepare(`INSERT INTO migration_events (ts, mint, pool, source, init_sig) VALUES (@ts, @mint, @pool, @source, @initSig)`)
+    .run(e);
+}
+
+export function listRecentMigrationEvents(limit = 20): Array<{ ts: number; mint: string; pool: string; source: string; initSig: string }> {
+  const database = getDb();
+  const rows = database
+    .prepare(`SELECT ts, mint, pool, source, init_sig FROM migration_events ORDER BY ts DESC LIMIT @limit`)
+    .all({ limit }) as Array<{ ts: number; mint: string; pool: string; source: string; init_sig: string }>;
+  return rows.map((r) => ({ ts: r.ts, mint: r.mint, pool: r.pool, source: r.source, initSig: r.init_sig }));
+}
+
+export function insertRugVerdict(v: { ts: number; mint: string; rugProb: number; reasons: string[] }): void {
+  const database = getDb();
+  database
+    .prepare(`INSERT INTO rug_verdicts (ts, mint, rug_prob, reasons_json) VALUES (@ts, @mint, @rugProb, @reasons)`)
+    .run({ ts: v.ts, mint: v.mint, rugProb: v.rugProb, reasons: JSON.stringify(v.reasons) });
+}
+
+export function insertScore(s: { ts: number; mint: string; horizon: string; score: number; features: Record<string, number> }): void {
+  const database = getDb();
+  database
+    .prepare(`INSERT INTO scores (ts, mint, horizon, score, features_json) VALUES (@ts, @mint, @horizon, @score, @features)`)
+    .run({ ts: s.ts, mint: s.mint, horizon: s.horizon, score: s.score, features: JSON.stringify(s.features) });
+}
+
+export function computeMigrationCandidateLagQuantiles(): { p50: number; p95: number } {
+  const database = getDb();
+  const rows = database
+    .prepare(`SELECT ts, mint FROM migration_events ORDER BY ts DESC LIMIT 200`)
+    .all() as Array<{ ts: number; mint: string }>;
+  const lags: number[] = [];
+  for (const row of rows) {
+    const cand = database
+      .prepare(`SELECT updated_at FROM candidates WHERE mint = ? ORDER BY updated_at DESC LIMIT 1`)
+      .get(row.mint) as { updated_at?: string } | undefined;
+    if (!cand?.updated_at) continue;
+    const candTs = Date.parse(cand.updated_at);
+    if (!Number.isFinite(candTs)) continue;
+    const lag = Math.max(0, candTs - row.ts);
+    lags.push(lag);
+  }
+  if (lags.length === 0) return { p50: 0, p95: 0 };
+  lags.sort((a, b) => a - b);
+  const q = (p: number) => lags[Math.min(lags.length - 1, Math.max(0, Math.floor((lags.length - 1) * p)))];
+  return { p50: q(0.5), p95: q(0.95) };
+}
+
+export function getRugGuardStats(): { passRate: number; avgRugProb: number } {
+  const database = getDb();
+  const rows = database
+    .prepare(`SELECT mint, rug_prob, reasons_json FROM rug_verdicts ORDER BY ts DESC LIMIT 200`)
+    .all() as Array<{ mint: string; rug_prob: number; reasons_json: string }>;
+  if (rows.length === 0) return { passRate: 0, avgRugProb: 0 };
+  let passes = 0;
+  let total = 0;
+  let sum = 0;
+  for (const r of rows) {
+    total += 1;
+    sum += r.rug_prob ?? 0;
+    try {
+      const reasons = JSON.parse(r.reasons_json) as string[];
+      const hasActiveAuth = reasons.includes('mint_or_freeze_active');
+      if (!hasActiveAuth) passes += 1;
+    } catch {
+      passes += 1;
+    }
+  }
+  return { passRate: total > 0 ? passes / total : 0, avgRugProb: sum / Math.max(1, total) };
+}
+
+// ---- Phase B helpers ----
+export function insertFillPrediction(pred: { ts: number; route: string; pFill: number; expSlipBps: number; expTimeMs: number }, ctx: Record<string, unknown>): void {
+  const database = getDb();
+  database
+    .prepare(`INSERT INTO fill_preds (ts, route, p_fill, exp_slip_bps, exp_time_ms, ctx_json) VALUES (@ts, @route, @pFill, @expSlipBps, @expTimeMs, @ctx)`)
+    .run({ ...pred, ctx: JSON.stringify(ctx) });
+}
+
+export function insertFeeDecision(dec: { ts: number; cuPrice: number; cuLimit: number; slippageBps: number }, ctx: Record<string, unknown>): void {
+  const database = getDb();
+  database
+    .prepare(`INSERT INTO fee_decisions (ts, cu_price, cu_limit, slippage_bps, ctx_json) VALUES (@ts, @cuPrice, @cuLimit, @slippageBps, @ctx)`)
+    .run({ ...dec, ctx: JSON.stringify(ctx) });
+}
+
+export function insertExecOutcome(row: { ts: number; quotePrice: number; execPrice?: number | null; filled: number; route?: string | null; cuPrice?: number | null; slippageReq?: number | null; slippageReal?: number | null; timeToLandMs?: number | null; errorCode?: string | null; notes?: string | null }): void {
+  const database = getDb();
+  database
+    .prepare(`INSERT INTO exec_outcomes (ts, quote_price, exec_price, filled, route, cu_price, slippage_bps_req, slippage_bps_real, time_to_land_ms, error_code, notes, priority_fee_lamports, amount_in, amount_out, fee_lamports_total)
+              VALUES (@ts, @quotePrice, @execPrice, @filled, @route, @cuPrice, @slippageReq, @slippageReal, @timeToLandMs, @errorCode, @notes, @priorityFeeLamports, @amountIn, @amountOut, @feeLamportsTotal)`)
+    .run({ ...row });
+}
+
+export function getExecSummary(): { landedRate: number; avgSlipBps: number; p50Ttl: number; p95Ttl: number } {
+  const database = getDb();
+  const rows = database
+    .prepare(`SELECT slippage_bps_real AS slip, time_to_land_ms AS ttl, filled FROM exec_outcomes ORDER BY ts DESC LIMIT 300`)
+    .all() as Array<{ slip: number | null; ttl: number | null; filled: number }>;
+  if (rows.length === 0) return { landedRate: 0, avgSlipBps: 0, p50Ttl: 0, p95Ttl: 0 };
+  let filled = 0;
+  let sumSlip = 0;
+  const ttls: number[] = [];
+  for (const r of rows) {
+    if (r.filled) filled += 1;
+    if (Number.isFinite(r.slip ?? NaN)) sumSlip += (r.slip as number);
+    if (Number.isFinite(r.ttl ?? NaN)) ttls.push(r.ttl as number);
+  }
+  ttls.sort((a, b) => a - b);
+  const q = (p: number) => ttls[Math.min(ttls.length - 1, Math.max(0, Math.floor((ttls.length - 1) * p)))];
+  return { landedRate: filled / rows.length, avgSlipBps: sumSlip / Math.max(1, rows.length), p50Ttl: q(0.5) || 0, p95Ttl: q(0.95) || 0 };
+}
+
+export function upsertPrice(ts: number, symbol: string, usd: number): void {
+  const database = getDb();
+  database
+    .prepare(`INSERT INTO prices (ts, symbol, usd) VALUES (@ts, @symbol, @usd)`)
+    .run({ ts, symbol, usd });
+}
+
+export function getNearestPrice(ts: number, symbol: string): number | null {
+  const database = getDb();
+  const row = database
+    .prepare(`SELECT usd FROM prices WHERE symbol = @symbol AND ts <= @ts ORDER BY ts DESC LIMIT 1`)
+    .get({ symbol, ts }) as { usd?: number } | undefined;
+  return typeof row?.usd === 'number' ? row.usd : null;
+}
+
+export function getPnLSummary(): { netUsd: number; grossUsd: number; feeUsd: number; slipUsd: number } {
+  const database = getDb();
+  const rows = database
+    .prepare(`SELECT ts, amount_in, slippage_bps_real, fee_lamports_total FROM exec_outcomes WHERE filled = 1 ORDER BY ts DESC LIMIT 1000`)
+    .all() as Array<{ ts: number; amount_in: number | null; slippage_bps_real: number | null; fee_lamports_total: number | null }>;
+  let feeUsd = 0; let slipUsd = 0;
+  for (const r of rows) {
+    const solUsd = getNearestPrice(r.ts, 'SOL') ?? 0;
+    const inSol = (r.amount_in ?? 0) / 1_000_000_000;
+    feeUsd += (r.fee_lamports_total ?? 0) / 1_000_000_000 * solUsd;
+    slipUsd += (Math.abs(r.slippage_bps_real ?? 0) / 10000) * inSol * solUsd;
+  }
+  // Gross from sizing_outcomes
+  const srows = database.prepare(`SELECT pnl_usd FROM sizing_outcomes ORDER BY ts DESC LIMIT 1000`).all() as Array<{ pnl_usd: number }>;
+  const grossUsd = srows.reduce((a, r) => a + (r.pnl_usd ?? 0), 0);
+  const netUsd = grossUsd - feeUsd - slipUsd;
+  return { netUsd, grossUsd, feeUsd, slipUsd };
+}
+
+// ---- Phase C helpers ----
+export function insertHazardState(h: { ts: number; mint: string; hazard: number; trailBps: number; ladder: Array<[number, number]> }): void {
+  const database = getDb();
+  database
+    .prepare(`INSERT INTO hazard_states (ts, mint, hazard, trail_bps, ladder_json) VALUES (@ts, @mint, @hazard, @trailBps, @ladder)`)
+    .run({ ts: h.ts, mint: h.mint, hazard: h.hazard, trailBps: h.trailBps, ladder: JSON.stringify(h.ladder) });
+}
+
+export function insertSizingDecision(dec: { ts: number; mint: string; arm: string; notional: number }, ctx: Record<string, unknown>): void {
+  const database = getDb();
+  database
+    .prepare(`INSERT INTO sizing_decisions (ts, mint, arm, notional, ctx_json) VALUES (@ts, @mint, @arm, @notional, @ctx)`)
+    .run({ ...dec, ctx: JSON.stringify(ctx) });
+}
+
+export function insertSizingOutcome(row: { ts: number; mint: string; notional: number; pnlUsd: number; maeBps: number; closed: number }): void {
+  const database = getDb();
+  database
+    .prepare(`INSERT INTO sizing_outcomes (ts, mint, notional, pnl_usd, mae_bps, closed) VALUES (@ts, @mint, @notional, @pnlUsd, @maeBps, @closed)`)
+    .run(row);
+}
+
+export function getRiskBudget(): { dailyLossCapUsd: number; usedUsd: number; remainingUsd: number } {
+  const database = getDb();
+  const cfg = getConfig();
+  const since = new Date(); since.setUTCHours(0,0,0,0);
+  const rows = database
+    .prepare(`SELECT pnl_usd FROM sizing_outcomes WHERE ts >= ?`)
+    .all(since.getTime()) as Array<{ pnl_usd: number }>;
+  const used = rows.reduce((a, r) => (r.pnl_usd < 0 ? a + Math.abs(r.pnl_usd) : a), 0);
+  const cap = (cfg as any).sizing?.dailyLossCapUsd ?? 0;
+  const remaining = Math.max(0, cap - used);
+  return { dailyLossCapUsd: cap, usedUsd: used, remainingUsd: remaining };
+}
+
+export function getSizingDistribution(): Array<{ arm: string; share: number }> {
+  const database = getDb();
+  const rows = database
+    .prepare(`SELECT arm, COUNT(1) AS n FROM sizing_decisions WHERE arm IS NOT NULL AND arm != '' AND ts >= ? GROUP BY arm`)
+    .all(Date.now() - 24*60*60*1000) as Array<{ arm: string; n: number }>;
+  const total = rows.reduce((a, r) => a + (r.n || 0), 0) || 1;
+  return rows.map((r) => ({ arm: r.arm, share: (r.n || 0) / total }));
+}
+
+// ---- Phase D helpers ----
+export function createBacktestRun(params: Record<string, unknown>, notes?: string): number {
+  const database = getDb();
+  const res = database
+    .prepare(`INSERT INTO backtest_runs (started_ts, params_json, notes) VALUES (@ts, @params, @notes)`)
+    .run({ ts: Date.now(), params: JSON.stringify(params), notes: notes ?? null });
+  // better-sqlite3 returns lastInsertRowid as a bigint/number
+  return Number(res.lastInsertRowid);
+}
+
+export function finishBacktestRun(runId: number): void {
+  const database = getDb();
+  database.prepare(`UPDATE backtest_runs SET finished_ts = @ts WHERE id = @id`).run({ ts: Date.now(), id: runId });
+}
+
+export function insertBacktestResult(runId: number, metric: string, value: number, segment?: string): void {
+  const database = getDb();
+  database
+    .prepare(`INSERT OR REPLACE INTO backtest_results (run_id, metric, value, segment) VALUES (@runId, @metric, @value, @segment)`)
+    .run({ runId, metric, value, segment: segment ?? 'overall' });
+}
+
+export function insertShadowFeeDecision(row: { ts: number; mint: string; chosenArm: number; baselineArm?: number | null; deltaRewardEst?: number | null }, ctx: Record<string, unknown>): void {
+  const database = getDb();
+  database
+    .prepare(`INSERT INTO shadow_decisions_fee (ts, mint, chosen_arm, baseline_arm, delta_reward_est, ctx_json) VALUES (@ts, @mint, @chosenArm, @baselineArm, @deltaRewardEst, @ctx)`)
+    .run({ ...row, baselineArm: row.baselineArm ?? null, deltaRewardEst: row.deltaRewardEst ?? null, ctx: JSON.stringify(ctx) });
+}
+
+export function insertShadowSizingDecision(row: { ts: number; mint: string; chosenArm: string; baselineArm?: string | null; deltaRewardEst?: number | null }, ctx: Record<string, unknown>): void {
+  const database = getDb();
+  database
+    .prepare(`INSERT INTO shadow_decisions_sizing (ts, mint, chosen_arm, baseline_arm, delta_reward_est, ctx_json) VALUES (@ts, @mint, @chosenArm, @baselineArm, @deltaRewardEst, @ctx)`)
+    .run({ ...row, baselineArm: row.baselineArm ?? null, deltaRewardEst: row.deltaRewardEst ?? null, ctx: JSON.stringify(ctx) });
 }

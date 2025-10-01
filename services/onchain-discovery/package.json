@@ -24,6 +24,7 @@
     "@trenches/persistence": "workspace:*",
     "@trenches/shared": "workspace:*",
     "@trenches/util": "workspace:*",
+    "eventsource": "^2.0.2",
     "graphql-ws": "^5.14.1",
     "ws": "^8.16.0"
   }

@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import EventSource from 'eventsource';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -213,6 +214,28 @@ async function bootstrap() {
   logger.info({ address }, 'onchain discovery listening');
 
   await raydiumWatcher.start();
+
+  // Optionally consume migrations as high-priority seeds
+  if ((config as any).features?.migrationWatcher !== false) {
+    const url = `http://127.0.0.1:${(config as any).services?.migrationWatcher?.port ?? 4018}/events/migrations`;
+    try {
+      const source = new EventSource(url);
+      source.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data) as { ts: number; mint: string; pool: string; source: string; initSig: string };
+          void handleRawPairEvent({ source: payload.source, mint: payload.mint, poolAddress: payload.pool, ts: payload.ts });
+        } catch (err) {
+          logger.error({ err }, 'failed to parse migration event');
+        }
+      };
+      source.onerror = (err) => {
+        logger.error({ err }, 'migration watcher stream error');
+      };
+      logger.info({ url }, 'connected to migration watcher');
+    } catch (err) {
+      logger.error({ err, url }, 'failed to connect migration watcher');
+    }
+  }
 
   const trendingIntervalMs = Math.max(10_000, config.caching.dexscreenerTrendingTtlSec * 1000);
   const birdTrendingIntervalMs = Math.max(30_000, config.caching.birdeyeTrendingTtlSec * 1000);

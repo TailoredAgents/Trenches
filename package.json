@@ -12,7 +12,24 @@
     "lint": "eslint . --ext .ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev": "pnpm -r --parallel run dev"
+    "dev": "pnpm -r --parallel run dev",
+    "smoke": "tsx tools/smoke/sse-smoke.ts"
+    ,
+    "smoke:exec": "tsx tools/smoke/execution-smoke.ts"
+    ,
+    "smoke:survival": "tsx tools/smoke/survival-smoke.ts",
+    "smoke:sizing": "tsx tools/smoke/sizing-smoke.ts"
+    ,
+    "backtest": "tsx tools/backtest/src/cli.ts",
+    "ope": "tsx tools/ope/src/ope.ts",
+    "smoke:backtest": "pnpm backtest --from 2025-01-01 --to 2025-01-02",
+    "smoke:ope": "pnpm ope --from 2025-01-01 --to 2025-01-02 --policy fee",
+    "smoke:alpha": "tsx tools/smoke/alpha-smoke.ts",
+    "smoke:fillnet": "tsx tools/smoke/fillnet-smoke.ts",
+    "smoke:pnl": "tsx tools/smoke/pnl-smoke.ts",
+    "train:fillnet": "tsx training/fillnet/train.ts",
+    "train:alpha": "tsx training/alpha_ranker/train.ts",
+    "train:rugguard": "tsx training/rugguard/train.ts"
   },
   "devDependencies": {
     "@types/eventsource": "^1.1.11",

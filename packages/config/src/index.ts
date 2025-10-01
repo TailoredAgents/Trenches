@@ -43,6 +43,7 @@ const baseConfig: TrenchesConfig = configSchema.parse({
     policyEngine: { port: 4015 },
     positionManager: { port: 4016 },
     narrativeMiner: { port: 4017 },
+    migrationWatcher: { port: 4018 },
     metrics: { port: 8090 }
   },
   gating: {
@@ -231,6 +232,7 @@ const envMap: EnvMapping[] = [
   ['services.policyEngine.port', 'POLICY_ENGINE_PORT', (v) => Number(v)],
   ['services.positionManager.port', 'POSITION_MANAGER_PORT', (v) => Number(v)],
   ['services.narrativeMiner.port', 'NARRATIVE_MINER_PORT', (v) => Number(v)],
+  ['services.migrationWatcher.port', 'MIGRATION_WATCHER_PORT', (v) => Number(v)],
   ['services.metrics.port', 'HEALTH_PORT', (v) => Number(v)],
   ['rpc.primaryUrl', 'SOLANA_PRIMARY_RPC_URL', (v) => v],
   ['rpc.secondaryUrl', 'SOLANA_SECONDARY_RPC_URL', (v) => v],
@@ -245,6 +247,10 @@ const envMap: EnvMapping[] = [
   ['dataProviders.blueskyJetstreamUrl', 'BLUESKY_JETSTREAM_URL', (v) => v],
   ['dataProviders.gdeltPulseUrl', 'GDELT_PULSE_URL', (v) => v],
   ['providers.solanatracker.baseUrl', 'SOLANATRACKER_BASE_URL', (v) => v],
+  ['addresses.pumpfunProgram', 'PUMPFUN_PROGRAM_ID', (v) => v],
+  ['addresses.pumpswapProgram', 'PUMPSWAP_PROGRAM_ID', (v) => v],
+  ['addresses.raydiumAmmV4', 'RAYDIUM_AMM_V4_PROGRAM_ID', (v) => v],
+  ['addresses.raydiumCpmm', 'RAYDIUM_CPMM_PROGRAM_ID', (v) => v],
   ['persistence.sqlitePath', 'SQLITE_DB_PATH', (v) => v],
   ['persistence.parquetDir', 'PARQUET_OUTPUT_DIR', (v) => v],
   ['security.killSwitchToken', 'KILL_SWITCH_TOKEN', (v) => v],
@@ -266,7 +272,56 @@ const envMap: EnvMapping[] = [
   ['topics.test.enabled', 'NARRATIVE_TEST_ENABLED', (v) => v === 'true'],
   ['topics.test.seed', 'NARRATIVE_TEST_SEED', (v) => Number(v)],
   ['topics.test.vectorizerModule', 'NARRATIVE_TEST_VECTORIZER_MODULE', (v) => v]
+  ,
+  ['execution.minFillProb', 'EXEC_MIN_FILL_PROB', (v) => Number(v)],
+  ['execution.maxSlipBps', 'EXEC_MAX_SLIP_BPS', (v) => Number(v)],
+  ['execution.routeRetryMs', 'EXEC_ROUTE_RETRY_MS', (v) => Number(v)],
+  ['execution.blockhashStaleMs', 'EXEC_BLOCKHASH_STALE_MS', (v) => Number(v)],
+  ['execution.migrationPreset.enabled', 'EXEC_MIGRATION_PRESET_ENABLED', (v) => v === 'true'],
+  ['execution.migrationPreset.durationMs', 'EXEC_MIGRATION_PRESET_DURATION_MS', (v) => Number(v)],
+  ['execution.migrationPreset.cuPriceBump', 'EXEC_MIGRATION_PRESET_CUPRICE_BUMP', (v) => Number(v)],
+  ['execution.migrationPreset.minSlippageBps', 'EXEC_MIGRATION_PRESET_MIN_SLIPPAGE_BPS', (v) => Number(v)],
+  ['execution.migrationPreset.decayMs', 'EXEC_MIGRATION_PRESET_DECAY_MS', (v) => Number(v)],
+  ['execution.quarantine.failRate', 'EXEC_ROUTE_QUARANTINE_FAIL_RATE', (v) => Number(v)],
+  ['execution.quarantine.minAttempts', 'EXEC_ROUTE_QUARANTINE_MIN_ATTEMPTS', (v) => Number(v)],
+  ['jito.bundleUrl', 'JITO_BUNDLE_URL', (v) => v],
+  ['jito.tipLamportsMin', 'JITO_TIP_MIN', (v) => Number(v)],
+  ['jito.tipLamportsMax', 'JITO_TIP_MAX', (v) => Number(v)]
 ];
+
+// JSON env caster for feeArms
+try {
+  (envMap as any).push(['execution.feeArms', 'EXEC_FEE_ARMS', (v: string) => {
+    try { const arr = JSON.parse(v); return Array.isArray(arr) ? arr : []; } catch { return []; }
+  }]);
+} catch {}
+
+try {
+  (envMap as any).push(['alpha.topK', 'ALPHA_TOPK', (v: string) => Number(v)]);
+  (envMap as any).push(['alpha.minScore', 'ALPHA_MIN_SCORE', (v: string) => Number(v)]);
+  (envMap as any).push(['fillnet.modelPath', 'FILLNET_MODEL_PATH', (v: string) => v]);
+  (envMap as any).push(['fillnet.minFillProb', 'FILLNET_MIN_FILL_PROB', (v: string) => Number(v)]);
+  (envMap as any).push(['pnl.useUsd', 'PNL_USE_USD', (v: string) => v === 'true']);
+  (envMap as any).push(['pnl.includePriorityFee', 'PNL_INCLUDE_PRIORITY_FEE', (v: string) => v === 'true']);
+} catch {}
+
+// Sizing and survival env overrides
+try {
+  (envMap as any).push(['sizing.baseUnitUsd', 'SIZING_BASE_UNIT_USD', (v: string) => Number(v)]);
+  (envMap as any).push(['sizing.arms', 'SIZING_ARMS_JSON', (v: string) => { try { const a = JSON.parse(v); return Array.isArray(a) ? a : []; } catch { return []; } }]);
+  (envMap as any).push(['sizing.dailyLossCapUsd', 'SIZING_DAILY_LOSS_CAP_USD', (v: string) => Number(v)]);
+  (envMap as any).push(['sizing.perMintCapUsd', 'SIZING_PER_MINT_CAP_USD', (v: string) => Number(v)]);
+  (envMap as any).push(['sizing.coolOffL', 'SIZING_COOL_OFFL', (v: string) => Number(v)]);
+  (envMap as any).push(['survival.baseTrailBps', 'SURV_BASE_TRAIL_BPS', (v: string) => Number(v)]);
+  (envMap as any).push(['survival.minTrailBps', 'SURV_MIN_TRAIL_BPS', (v: string) => Number(v)]);
+  (envMap as any).push(['survival.maxTrailBps', 'SURV_MAX_TRAIL_BPS', (v: string) => Number(v)]);
+  (envMap as any).push(['survival.hardStopMaxLossBps', 'SURV_HARD_STOP_MAX_LOSS_BPS', (v: string) => Number(v)]);
+  (envMap as any).push(['survival.ladderLevels', 'SURV_LADDER_LEVELS_JSON', (v: string) => { try { const a = JSON.parse(v); return Array.isArray(a) ? a : []; } catch { return []; } }]);
+  (envMap as any).push(['survival.hazardTighten', 'SURV_HAZARD_TIGHTEN', (v: string) => Number(v)]);
+  (envMap as any).push(['survival.hazardPanic', 'SURV_HAZARD_PANIC', (v: string) => Number(v)]);
+  (envMap as any).push(['shadow.fee.probFloor', 'SHADOW_FEE_PROB_FLOOR', (v: string) => Number(v)]);
+  (envMap as any).push(['shadow.sizing.probFloor', 'SHADOW_SIZING_PROB_FLOOR', (v: string) => Number(v)]);
+} catch {}
 
 function setPath(target: Record<string, any>, dottedKey: string, value: unknown): void {
   const segments = dottedKey.split('.');

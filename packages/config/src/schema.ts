@@ -68,6 +68,7 @@ export const configSchema = z.object({
     policyEngine: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4015 }),
     positionManager: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4016 }),
     narrativeMiner: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4017 }),
+    migrationWatcher: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4018 }),
     metrics: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 8090 })
   }),
   gating: z.object({
@@ -275,7 +276,153 @@ export const configSchema = z.object({
         .object({ topicBoost: z.number().min(0).max(1).default(0.03), influencerBoost: z.number().min(0).max(1).default(0.02), maxBoost: z.number().min(0).max(1).default(0.06) })
         .default({ topicBoost: 0.03, influencerBoost: 0.02, maxBoost: 0.06 })
     })
-    .default({ enabled: true, baseUrl: 'https://api.lunarcrush.com', pollSec: 180, endpoints: { topics: '/v2', influencers: '/v2' }, sssBias: { topicBoost: 0.03, influencerBoost: 0.02, maxBoost: 0.06 } })
+    .default({ enabled: true, baseUrl: 'https://api.lunarcrush.com', pollSec: 180, endpoints: { topics: '/v2', influencers: '/v2' }, sssBias: { topicBoost: 0.03, influencerBoost: 0.02, maxBoost: 0.06 } }),
+  features: z
+    .object({
+      migrationWatcher: z.boolean().default(true),
+      rugGuard: z.boolean().default(true),
+      alphaRanker: z.boolean().default(true),
+      fillNet: z.boolean().default(true),
+      feeBandit: z.boolean().default(true),
+      constrainedSizing: z.boolean().default(true),
+      survivalStops: z.boolean().default(true),
+      offlinePolicyShadow: z.boolean().default(true),
+      jitoEnabled: z.boolean().default(false),
+      parquetExport: z.boolean().default(false)
+    })
+    .default({
+      migrationWatcher: true,
+      rugGuard: true,
+      alphaRanker: true,
+      fillNet: true,
+      feeBandit: true,
+      constrainedSizing: true,
+      survivalStops: true,
+      offlinePolicyShadow: true,
+      jitoEnabled: false,
+      parquetExport: false
+    }),
+  addresses: z
+    .object({
+      pumpfunProgram: z.string().default(''),
+      pumpswapProgram: z.string().default(''),
+      raydiumAmmV4: z.string().default('675kPX9MHTjS2bSadfieDmpub5hm111B9S9N6fRqhNW'),
+      raydiumCpmm: z.string().default('')
+    })
+    .default({ pumpfunProgram: '', pumpswapProgram: '', raydiumAmmV4: '675kPX9MHTjS2bSadfieDmpub5hm111B9S9N6fRqhNW', raydiumCpmm: '' }),
+  execution: z.object({
+    tipStrategy: z.enum(['auto', 'manual']).default('auto'),
+    computeUnitPriceMode: z.enum(['auto_oracle', 'manual']).default('auto_oracle'),
+    simpleMode: z.boolean().default(true),
+    jitoEnabled: z.boolean().default(false),
+    secondaryRpcEnabled: z.boolean().default(false),
+    wsEnabled: z.boolean().default(false),
+    feeArms: z.array(z.object({ cuPrice: z.number().int().min(0), slippageBps: z.number().int().positive() })).default([
+      { cuPrice: 0, slippageBps: 50 },
+      { cuPrice: 1000, slippageBps: 75 },
+      { cuPrice: 3000, slippageBps: 100 },
+      { cuPrice: 6000, slippageBps: 125 },
+      { cuPrice: 10000, slippageBps: 150 }
+    ]),
+    minFillProb: z.number().min(0).max(1).default(0.9),
+    maxSlipBps: z.number().int().positive().default(250),
+    routeRetryMs: z.number().int().positive().default(900),
+    blockhashStaleMs: z.number().int().positive().default(2500),
+    migrationPreset: z
+      .object({
+        enabled: z.boolean().default(true),
+        durationMs: z.number().int().positive().default(60000),
+        cuPriceBump: z.number().int().nonnegative().default(3000),
+        minSlippageBps: z.number().int().positive().default(100),
+        decayMs: z.number().int().nonnegative().default(30000)
+      })
+      .default({ enabled: true, durationMs: 60000, cuPriceBump: 3000, minSlippageBps: 100, decayMs: 30000 }),
+    quarantine: z
+      .object({ failRate: z.number().min(0).max(1).default(0.4), minAttempts: z.number().int().positive().default(5) })
+      .default({ failRate: 0.4, minAttempts: 5 })
+  }).default({
+    tipStrategy: 'auto',
+    computeUnitPriceMode: 'auto_oracle',
+    simpleMode: true,
+    jitoEnabled: false,
+    secondaryRpcEnabled: false,
+    wsEnabled: false,
+    feeArms: [
+      { cuPrice: 0, slippageBps: 50 },
+      { cuPrice: 1000, slippageBps: 75 },
+      { cuPrice: 3000, slippageBps: 100 },
+      { cuPrice: 6000, slippageBps: 125 },
+      { cuPrice: 10000, slippageBps: 150 }
+    ],
+    minFillProb: 0.9,
+    maxSlipBps: 250,
+    routeRetryMs: 900,
+    blockhashStaleMs: 2500,
+    migrationPreset: { enabled: true, durationMs: 60000, cuPriceBump: 3000, minSlippageBps: 100, decayMs: 30000 },
+    quarantine: { failRate: 0.4, minAttempts: 5 }
+  }),
+  jito: z.object({
+    tipLamportsMin: z.number().int().min(0).default(0),
+    tipLamportsMax: z.number().int().min(0).default(0),
+    bundleUrl: z.string().default('')
+  }).default({ tipLamportsMin: 0, tipLamportsMax: 0, bundleUrl: '' }),
+  sizing: z
+    .object({
+      baseUnitUsd: z.number().positive().default(100),
+      arms: z
+        .array(
+          z.object({ type: z.enum(['equity_frac']), value: z.number().positive() })
+        )
+        .default([
+          { type: 'equity_frac', value: 0.005 },
+          { type: 'equity_frac', value: 0.01 },
+          { type: 'equity_frac', value: 0.02 }
+        ]),
+      dailyLossCapUsd: z.number().nonnegative().default(500),
+      perMintCapUsd: z.number().nonnegative().default(400),
+      coolOffL: z.number().int().nonnegative().default(2)
+    })
+    .default({ baseUnitUsd: 100, arms: [{ type: 'equity_frac', value: 0.005 }, { type: 'equity_frac', value: 0.01 }, { type: 'equity_frac', value: 0.02 }], dailyLossCapUsd: 500, perMintCapUsd: 400, coolOffL: 2 }),
+  survival: z
+    .object({
+      baseTrailBps: z.number().int().positive().default(120),
+      minTrailBps: z.number().int().positive().default(60),
+      maxTrailBps: z.number().int().positive().default(250),
+      hardStopMaxLossBps: z.number().int().positive().default(350),
+      ladderLevels: z.array(z.number().min(0)).default([0.05, 0.12, 0.22]),
+      hazardTighten: z.number().min(0).max(1).default(0.65),
+      hazardPanic: z.number().min(0).max(1).default(0.85)
+    })
+    .default({ baseTrailBps: 120, minTrailBps: 60, maxTrailBps: 250, hardStopMaxLossBps: 350, ladderLevels: [0.05, 0.12, 0.22], hazardTighten: 0.65, hazardPanic: 0.85 })
+  ,
+  shadow: z
+    .object({
+      fee: z.object({ method: z.string().default('weighted_bc'), probFloor: z.number().min(0).max(1).default(0.05) }).default({ method: 'weighted_bc', probFloor: 0.05 }),
+      sizing: z.object({ method: z.string().default('weighted_bc'), probFloor: z.number().min(0).max(1).default(0.05) }).default({ method: 'weighted_bc', probFloor: 0.05 })
+    })
+    .default({ fee: { method: 'weighted_bc', probFloor: 0.05 }, sizing: { method: 'weighted_bc', probFloor: 0.05 } })
+  ,
+  alpha: z
+    .object({
+      horizons: z.array(z.enum(['10m','60m','24h'])).default(['10m','60m','24h']),
+      topK: z.number().int().positive().default(12),
+      minScore: z.number().min(0).max(1).default(0.52)
+    })
+    .default({ horizons: ['10m','60m','24h'], topK: 12, minScore: 0.52 }),
+  fillnet: z
+    .object({
+      modelPath: z.string().default('models/fillnet_v2.json'),
+      minFillProb: z.number().min(0).max(1).default(0.92),
+      maxSlipBps: z.number().int().positive().default(250)
+    })
+    .default({ modelPath: 'models/fillnet_v2.json', minFillProb: 0.92, maxSlipBps: 250 }),
+  pnl: z
+    .object({
+      useUsd: z.boolean().default(true),
+      solPriceSource: z.enum(['birdeye']).default('birdeye'),
+      includePriorityFee: z.boolean().default(true)
+    })
+    .default({ useUsd: true, solPriceSource: 'birdeye', includePriorityFee: true })
 });
 
 export type TrenchesConfig = z.infer<typeof configSchema>;

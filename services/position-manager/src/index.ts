@@ -9,7 +9,7 @@ import { Connection } from '@solana/web3.js';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
 import { getRegistry, registerGauge } from '@trenches/metrics';
-import { upsertPosition, listOpenPositions, getCandidateByMint, logTradeEvent } from '@trenches/persistence';
+import { upsertPosition, listOpenPositions, getCandidateByMint, logTradeEvent, insertSizingOutcome } from '@trenches/persistence';
 import { TokenCandidate, TradeEvent, OrderPlan } from '@trenches/shared';
 import { BirdeyePriceOracle } from './birdeye';
 import { getMintDecimals } from './mint';
@@ -86,7 +86,7 @@ async function bootstrap() {
   const executorFeed = `http://127.0.0.1:${config.services.executor.port}/events/trades`;
   const disposeStream = startTradeStream(executorFeed, async (event) => {
     if (event.t === 'fill') {
-      await handleFillEvent(event, connection, positions);
+      await handleFillEvent(event, connection, positions, oracle);
     }
   });
 
@@ -174,7 +174,8 @@ function createEmptyState(mint: string, decimals: number): PositionState {
 async function handleFillEvent(
   event: Extract<TradeEvent, { t: 'fill' }>,
   connection: Connection,
-  positions: Map<string, { state: PositionState; candidate?: TokenCandidate }>
+  positions: Map<string, { state: PositionState; candidate?: TokenCandidate }>,
+  oracle: BirdeyePriceOracle
 ): Promise<void> {
   const mint = event.mint;
   const decimals = await getMintDecimals(connection, mint);
@@ -186,6 +187,7 @@ async function handleFillEvent(
     positions.set(mint, entry);
   }
   const state = entry.state;
+  const prevQty = state.quantity;
 
   if (isBuy) {
     const totalCost = state.avgPrice * state.quantity + event.px * qtyTokens;
@@ -209,6 +211,13 @@ async function handleFillEvent(
       state.trailActive = false;
       state.highestPrice = state.avgPrice;
       positionsClosed.inc();
+      // Log sizing outcome on close (approximate notional and pnl in USD)
+      try {
+        const solUsd = await oracle.getPrice('So11111111111111111111111111111111111111112');
+        const pnlUsd = (state.realizedPnl ?? 0) * (typeof solUsd === 'number' ? solUsd : 0);
+        const notionalUsd = sellQty * state.avgPrice * (typeof solUsd === 'number' ? solUsd : 0);
+        insertSizingOutcome({ ts: Date.now(), mint, notional: notionalUsd, pnlUsd, maeBps: 0, closed: 1 });
+      } catch {}
     }
   }
   state.lastPrice = event.px;
@@ -307,6 +316,62 @@ async function evaluatePosition(params: {
 
   const ladders = config.ladders.multiplierPercents ?? [50, 100, 200, 400];
   const ladderShares = [0.25, 0.25, 0.25, 1];
+
+  // Survival-Stops v1 (if enabled)
+  try {
+    if ((config as any).features?.survivalStops) {
+      const cand = getCandidateByMint(mint) ?? entry.candidate;
+      const pnlPct = (price - state.avgPrice) / Math.max(state.avgPrice, 1e-9);
+      const spreadBps = cand?.spreadBps ?? 0;
+      const volatilityBps = cand?.spreadBps ?? 0;
+      const buys = cand?.buys60 ?? 0; const sells = cand?.sells60 ?? 1; const flowRatio = sells > 0 ? buys / sells : 1;
+      const slipGapBps = 0;
+      const rugProb = (cand as any)?.rugProb as number | undefined;
+      const { computeStops } = await import('./survival_stops');
+      const hs = computeStops({ mint, avgPrice: state.avgPrice, highestPrice: state.highestPrice, lastPrice: price }, {
+        pnlPct,
+        ageSec: 0,
+        spreadBps,
+        volatilityBps,
+        flowRatio,
+        slipGapBps,
+        rugProb
+      });
+      // Panic flatten
+      if (hs.hazard >= ((config as any).survival?.hazardPanic ?? 0.85)) {
+        await triggerExit({ reason: 'autokill', share: 1, mint, entry, price, config, connection });
+        return;
+      }
+      // Replace trail logic with hazard-trail
+      const drop = 1 - price / Math.max(state.highestPrice, price);
+      const trailPctDyn = Math.max(0.01, hs.sellTrailBps / 10000);
+      if (!state.trailActive && pnlPct >= (config.ladders.trailActivatePct / 100)) {
+        state.trailActive = true;
+        trailingActivations.inc();
+      }
+      if (state.trailActive && drop >= trailPctDyn) {
+        await triggerExit({ reason: 'trailing_stop', share: 1, mint, entry, price, config, connection });
+        state.trailActive = false;
+        return;
+      }
+      // Optional: compress ladder levels on tighten hazard
+      const tight = hs.hazard >= ((config as any).survival?.hazardTighten ?? 0.65);
+      if (tight) {
+        const lvl = (config as any).survival?.ladderLevels ?? [0.05, 0.12, 0.22];
+        // Map survival ladder fractions to price targets
+        for (let i = 0; i < lvl.length; i++) {
+          if (state.ladderHits.has(i)) continue;
+          const targetPrice = state.avgPrice * (1 + lvl[i]);
+          if (price >= targetPrice) {
+            await triggerExit({ reason: `ladder_${Math.round(lvl[i]*10000)/100}`, share: i === lvl.length - 1 ? 1 : 0.25, mint, entry, price, config, connection });
+            state.ladderHits.add(i);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    logger.error({ err, mint }, 'survival-stops eval failed');
+  }
   for (let i = 0; i < ladders.length && i < ladderShares.length; i += 1) {
     if (state.ladderHits.has(i)) {
       continue;
