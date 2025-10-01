@@ -340,8 +340,8 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
             <ModeBadge mode={undefined} />
             <span className="badge">SSE: {eventStreamStatus}</span>
             <input
+              className="input"
               placeholder="Auth token"
-              style={{ padding: 6, border: '1px solid #2f3a5f', background: '#0f172a', color: '#e2e8f0' }}
               value={token}
               onChange={(e) => setToken(e.target.value)}
             />
@@ -351,7 +351,7 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
             <button className="btn" disabled={controlsDisabled} onClick={handleResume}>
               Resume
             </button>
-            <button className="btn" disabled={controlsDisabled} onClick={handleFlatten}>
+            <button className="btn warn" disabled={controlsDisabled} onClick={handleFlatten}>
               Flatten
             </button>
             <div className="btn-group">
