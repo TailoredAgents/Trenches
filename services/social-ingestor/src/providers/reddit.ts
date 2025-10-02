@@ -3,6 +3,7 @@ import { SocialPost } from '@trenches/shared';
 import { createLogger } from '@trenches/logger';
 import { storeSocialPost } from '@trenches/persistence';
 import { SourceDependencies, SocialSource, SourceStatus } from '../types';
+import { sourceEventsTotal, sourceErrorsTotal, sourceRateLimitedTotal } from '../metrics';
 
 const logger = createLogger('social:reddit');
 
@@ -141,10 +142,12 @@ class RedditSource implements SocialSource {
     if (response.status === 429) {
       const retryAfter = Number(response.headers.get('retry-after') ?? '5');
       logger.warn({ subreddit, retryAfter }, 'reddit rate limited');
+      sourceRateLimitedTotal.inc({ source: this.name });
       await delay(retryAfter * 1000);
       return;
     }
     if (!response.ok) {
+      sourceErrorsTotal.inc({ source: this.name, code: String(response.status) });
       throw new Error(`reddit API error ${response.status}`);
     }
     const payload = (await response.json()) as RedditListing;
@@ -182,6 +185,7 @@ class RedditSource implements SocialSource {
         logger.error({ err }, 'failed to persist reddit post');
       }
       this.deps.emitter.emit('post', socialPost);
+      sourceEventsTotal.inc({ source: this.name });
     }
   }
 
@@ -227,5 +231,4 @@ function extractSubredditTopics(post: RedditPost): string[] {
   }
   return Array.from(topics);
 }
-
 

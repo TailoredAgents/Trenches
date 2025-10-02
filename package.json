@@ -31,6 +31,7 @@
     "smoke:ope": "pnpm ope --from 2025-01-01 --to 2025-01-02 --policy fee",
     "smoke:backtest:polish": "tsx tools/smoke/backtest-smoke.ts",
     "smoke:ope:both": "tsx tools/smoke/ope-smoke.ts",
+    "smoke:creds": "tsx tools/smoke/creds-smoke.ts",
     "smoke:alpha": "tsx tools/smoke/alpha-smoke.ts",
     "smoke:fillnet": "tsx tools/smoke/fillnet-smoke.ts",
     "smoke:pnl": "tsx tools/smoke/pnl-smoke.ts",

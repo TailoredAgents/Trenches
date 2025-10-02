@@ -3,6 +3,7 @@ import { SocialPost } from '@trenches/shared';
 import { createLogger } from '@trenches/logger';
 import { storeSocialPost } from '@trenches/persistence';
 import { SourceDependencies, SocialSource, SourceStatus } from '../types';
+import { sourceEventsTotal, sourceErrorsTotal } from '../metrics';
 
 const logger = createLogger('social:telegram');
 
@@ -93,6 +94,7 @@ class TelegramSource implements SocialSource {
     } catch (err) {
       const error = err as Error;
       logger.error({ err: error }, 'failed to start telegram source');
+      sourceErrorsTotal.inc({ source: this.name, code: 'start' });
       this.updateStatus({ state: 'error', detail: error.message });
     }
   }
@@ -172,6 +174,7 @@ class TelegramSource implements SocialSource {
       logger.error({ err }, 'failed to persist telegram message');
     }
     this.deps.emitter.emit('post', post);
+    sourceEventsTotal.inc({ source: this.name });
   }
 
   private updateStatus(status: Partial<SourceStatus>): void {

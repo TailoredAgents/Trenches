@@ -153,11 +153,25 @@ async function bootstrap() {
     let pnlSummary = { netUsd: 0, grossUsd: 0, feeUsd: 0, slipUsd: 0 };
     let routes: Array<{ route: string; penalty: number }> = [];
     let leaders: Array<{ pool: string; hits: number }> = [];
+    let providersBlock: any = undefined;
     try {
       const { getExecSummary, getRiskBudget, getSizingDistribution } = await import('@trenches/persistence');
       execution = getExecSummary();
       riskBudget = getRiskBudget();
       sizingDist = getSizingDistribution();
+    } catch {}
+    // Provider health (social-ingestor + onchain birdeye key)
+    try {
+      const si = await fetch(`http://127.0.0.1:${config.services.socialIngestor.port}/healthz`);
+      const siJson = (await si.json()) as { sources?: Array<{ name: string; status: any }> };
+      const od = await fetch(`http://127.0.0.1:${config.services.onchainDiscovery.port}/healthz`);
+      const odJson = (await od.json()) as { birdeyeApiKey?: boolean };
+      const mapped: Record<string, any> = {};
+      for (const entry of siJson.sources ?? []) {
+        mapped[entry.name] = entry.status ?? {};
+      }
+      mapped.birdeye = { apiKey: Boolean((odJson as any).birdeyeApiKey) };
+      providersBlock = mapped;
     } catch {}
     try {
       // Avg hazard from last 100 hazard states
@@ -190,7 +204,7 @@ async function bootstrap() {
       pnlSummary = getPnLSummary();
     } catch {}
 
-    const snapshot: Snapshot & { latestMigrations?: any; migrationLag?: any; rugGuard?: any; execution?: any; riskBudget?: any; sizing?: any; survival?: any; backtest?: any; shadow?: any; routes?: any; leaders?: any; leader?: any } = {
+    const snapshot: Snapshot & { latestMigrations?: any; migrationLag?: any; rugGuard?: any; execution?: any; riskBudget?: any; sizing?: any; survival?: any; backtest?: any; shadow?: any; routes?: any; leaders?: any; leader?: any; providers?: any } = {
       status,
       pnl: { day: pnlDay, week: pnlWeek, month: pnlMonth, prices },
       topics,
@@ -206,6 +220,7 @@ async function bootstrap() {
       survival,
       backtest,
       shadow,
+      providers: providersBlock,
       pnlSummary,
       routes,
       leaders

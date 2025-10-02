@@ -16,3 +16,21 @@ export const jetstreamLastEventTs: Gauge<string> = registerGauge({
   help: 'Unix timestamp of last Jetstream event'
 });
 
+// Generic per-provider metrics
+export const sourceEventsTotal: Counter<string> = registerCounter({
+  name: 'source_events_total',
+  help: 'Total source events received',
+  labelNames: ['source']
+});
+
+export const sourceErrorsTotal: Counter<string> = registerCounter({
+  name: 'source_errors_total',
+  help: 'Total source errors',
+  labelNames: ['source', 'code']
+});
+
+export const sourceRateLimitedTotal: Counter<string> = registerCounter({
+  name: 'source_rate_limited_total',
+  help: 'Source rate limited occurrences',
+  labelNames: ['source']
+});

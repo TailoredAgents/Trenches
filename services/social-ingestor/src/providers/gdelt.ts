@@ -3,6 +3,7 @@ import { SocialPost } from '@trenches/shared';
 import { createLogger } from '@trenches/logger';
 import { storeSocialPost } from '@trenches/persistence';
 import { SourceDependencies, SocialSource, SourceStatus } from '../types';
+import { sourceEventsTotal, sourceErrorsTotal } from '../metrics';
 
 const logger = createLogger('social:gdelt');
 
@@ -58,6 +59,7 @@ class GdeltSource implements SocialSource {
       } catch (err) {
         const error = err as Error;
         logger.error({ err: error }, 'gdelt poll failed');
+        sourceErrorsTotal.inc({ source: this.name, code: 'poll' });
         this.updateStatus({ state: 'error', detail: error.message, lastErrorAt: new Date().toISOString() });
         await delay(Math.min(this.cfg.pollIntervalSec * 1000, 60_000));
       }
@@ -69,6 +71,7 @@ class GdeltSource implements SocialSource {
     const url = this.options.baseUrl;
     const response = await fetch(url, { keepalive: false });
     if (!response.ok) {
+      sourceErrorsTotal.inc({ source: this.name, code: String(response.status) });
       throw new Error(`gdelt pulse error ${response.status}`);
     }
     let payload: GdeltResponse | null = null;
@@ -107,6 +110,7 @@ class GdeltSource implements SocialSource {
         logger.error({ err }, 'failed to persist gdelt article');
       }
       this.deps.emitter.emit('post', post);
+      sourceEventsTotal.inc({ source: this.name });
     }
   }
 

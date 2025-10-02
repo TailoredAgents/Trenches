@@ -702,6 +702,26 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
       </section>
 
       <section className="card" style={{ gridColumn: 'span 4 / span 4' }}>
+        <h2>Providers</h2>
+        <div className="list">
+          {(() => {
+            const prov = (snapshot as any)?.providers as Record<string, any> | undefined;
+            if (!prov || Object.keys(prov).length === 0) return <div className="empty-state">No provider data.</div>;
+            const entries = Object.entries(prov);
+            return entries.map(([name, st]) => {
+              const ok = name === 'birdeye' ? Boolean((st as any)?.apiKey) : ((st as any)?.state === 'running');
+              return (
+                <div key={name} className="list-item" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <div>{name}</div>
+                  <span className="badge" style={{ background: ok ? '#1d4ed8' : '#b45309' }}>{ok ? 'OK' : 'WARN'}</span>
+                </div>
+              );
+            });
+          })()}
+        </div>
+      </section>
+
+      <section className="card" style={{ gridColumn: 'span 4 / span 4' }}>
         <h2>Survival</h2>
         <div className="metric-grid">
           <div className="metric-tile"><span>Avg Hazard</span><div className="metric-value">{formatNumber(surv?.avgHazard, 2)}</div></div>

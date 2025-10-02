@@ -4,7 +4,7 @@ import { SocialPost } from '@trenches/shared';
 import { createLogger } from '@trenches/logger';
 import { storeSocialPost } from '@trenches/persistence';
 import { SourceDependencies, SocialSource, SourceStatus } from '../types';
-import { jetstreamEventsTotal, jetstreamErrorsTotal, jetstreamLastEventTs } from '../metrics';
+import { jetstreamEventsTotal, jetstreamErrorsTotal, jetstreamLastEventTs, sourceEventsTotal, sourceErrorsTotal } from '../metrics';
 
 const logger = createLogger('social:bluesky');
 
@@ -130,11 +130,13 @@ class BlueskySource implements SocialSource {
         const payload = JSON.parse(data.toString()) as JetstreamEvent;
         const now = Math.floor(Date.now() / 1000);
         jetstreamEventsTotal.inc();
+        sourceEventsTotal.inc({ source: this.name });
         jetstreamLastEventTs.set(now);
         this.updateStatus({ lastSuccessAt: new Date().toISOString(), lastEventTs: now });
         void this.handleMessage(payload);
       } catch (err) {
         jetstreamErrorsTotal.inc();
+        sourceErrorsTotal.inc({ source: this.name, code: 'parse' });
         logger.error({ err }, 'failed to parse jetstream payload');
       }
     });
@@ -154,6 +156,7 @@ class BlueskySource implements SocialSource {
 
     this.socket.on('error', (err) => {
       jetstreamErrorsTotal.inc();
+      sourceErrorsTotal.inc({ source: this.name, code: 'socket' });
       logger.error({ err }, 'jetstream socket error');
       this.updateStatus({ state: 'error', detail: (err as Error).message, lastErrorAt: new Date().toISOString() });
     });

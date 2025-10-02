@@ -192,7 +192,7 @@ async function bootstrap() {
   app.get('/healthz', async () => ({
     status: 'ok',
     dexscreener: true,
-    birdeye: Boolean(process.env.BIRDEYE_API_KEY),
+    birdeyeApiKey: Boolean(process.env.BIRDEYE_API_KEY),
     providers: {
       solanatracker: stProvider.getHealth()
     }

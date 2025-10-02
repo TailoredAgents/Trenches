@@ -4,6 +4,7 @@ import { createLogger } from '@trenches/logger';
 import { storeSocialPost } from '@trenches/persistence';
 import { TtlCache } from '@trenches/util';
 import { SourceDependencies, SocialSource, SourceStatus } from '../types';
+import { sourceErrorsTotal, sourceRateLimitedTotal, sourceEventsTotal } from '../metrics';
 
 const logger = createLogger('social:neynar');
 
@@ -101,6 +102,9 @@ class NeynarSource implements SocialSource {
       'Content-Type': 'application/json',
       'api-key': this.options.apiKey ?? ''
     };
+    if (this.options.apiKey) {
+      headers['Authorization'] = `Bearer ${this.options.apiKey}`;
+    }
     const baseUrl = this.options.baseUrl.replace(/\/$/, '');
 
     const promises: Promise<void>[] = [];
@@ -119,6 +123,10 @@ class NeynarSource implements SocialSource {
     try {
       const response = await fetch(url, { headers, keepalive: false });
       if (!response.ok) {
+        if (response.status === 429) {
+          sourceRateLimitedTotal.inc({ source: this.name });
+        }
+        sourceErrorsTotal.inc({ source: this.name, code: String(response.status) });
         throw new Error(`Neynar API ${label} responded ${response.status}`);
       }
       const payload = (await response.json()) as { result?: { casts?: NeynarCast[] } };
@@ -143,10 +151,12 @@ class NeynarSource implements SocialSource {
         LAST_POLLED_CACHE.set(key, publishedAt);
         const post = this.castToPost(cast, label);
         await this.dispatch(post);
+        sourceEventsTotal.inc({ source: this.name });
       }
     } catch (err) {
       const error = err as Error;
       logger.error({ err: error, url, label }, 'neynar fetch error');
+      sourceErrorsTotal.inc({ source: this.name, code: 'fetch_error' });
       throw error;
     }
   }
