@@ -1,5 +1,5 @@
 #!/usr/bin/env tsx
-import EventSource from 'eventsource';
+import { createSSEClient, createInMemoryLastEventIdStore, TtlCache } from '@trenches/util';
 
 type Migration = { ts: number; mint: string; pool: string; source: string };
 type Candidate = { t: string; mint: string };
@@ -19,17 +19,24 @@ function quantile(arr: number[], p: number): number {
 }
 
 function start() {
-  const srcM = new EventSource(migrationsUrl);
-  const srcC = new EventSource(candidatesUrl);
-  const srcS = new EventSource(safeUrl);
-  srcM.onmessage = (e) => {
+  const storeM = createInMemoryLastEventIdStore();
+  const storeC = createInMemoryLastEventIdStore();
+  const storeS = createInMemoryLastEventIdStore();
+  const dedup = new TtlCache<string, boolean>(60 * 1000);
+  const srcM = createSSEClient(migrationsUrl, {
+    lastEventIdStore: storeM,
+    onEvent: (e) => {
+      if (!e?.data || e.data === 'ping') return;
+      try {
+        const m = JSON.parse(e.data) as Migration;
+        recent.set(m.mint, m.ts);
+      } catch {}
+    }
+  });
+  const handleCand = (data: string, id?: string) => {
     try {
-      const m = JSON.parse(e.data) as Migration;
-      recent.set(m.mint, m.ts);
-    } catch {}
-  };
-  const handleCand = (data: string) => {
-    try {
+      if (id && dedup.get(id)) return;
+      if (id) dedup.set(id, true);
       const c = JSON.parse(data) as Candidate;
       if (c && c.mint && recent.has(c.mint)) {
         const mTs = recent.get(c.mint)!;
@@ -41,14 +48,20 @@ function start() {
       }
     } catch {}
   };
-  srcC.onmessage = (e) => handleCand(e.data);
-  srcS.onmessage = (e) => handleCand(e.data);
+  const srcC = createSSEClient(candidatesUrl, {
+    lastEventIdStore: storeC,
+    onEvent: (e) => { if (!e?.data || e.data === 'ping') return; handleCand(e.data, e.lastEventId); }
+  });
+  const srcS = createSSEClient(safeUrl, {
+    lastEventIdStore: storeS,
+    onEvent: (e) => { if (!e?.data || e.data === 'ping') return; handleCand(e.data, e.lastEventId); }
+  });
 
   process.on('SIGINT', () => {
     console.log('final p50', quantile(lags, 0.5), 'ms p95', quantile(lags, 0.95), 'ms');
+    srcM.dispose(); srcC.dispose(); srcS.dispose();
     process.exit(0);
   });
 }
 
 start();
-

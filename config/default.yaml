@@ -296,3 +296,9 @@ features:
   offlinePolicyShadow: true
   jitoEnabled: false
   parquetExport: false
+  
+priceUpdater:
+  enabled: true
+  intervalMs: 60000
+  staleWarnSec: 300
+  pythSolUsdPriceAccount: ""

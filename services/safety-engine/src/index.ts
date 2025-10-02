@@ -17,7 +17,7 @@ import { safetyEvaluations, safetyPasses, safetyBlocks, ocrsGauge, evaluationDur
 import { checkTokenSafety } from './tokenSafety';
 import { checkLpSafety } from './lpSafety';
 import { checkHolderSkew } from './holderSafety';
-import { computeOcrs } from './ocrs';
+// OCRS deprecated: RugGuard is the sole gate
 import { classify, candidateToFeatures } from './rugguard';
 import { SafetyEvaluation } from './types';
 const logger = createLogger('safety-engine');
@@ -74,7 +74,7 @@ async function bootstrap() {
       const decorated: TokenCandidate = {
         ...candidate,
         safety: { ok: result.ok, reasons: result.reasons },
-        ocrs: result.ocrs,
+        ocrs: 0,
         rugProb: (result as any).rugProb ?? undefined
       };
       try {
@@ -194,15 +194,7 @@ async function evaluateCandidate(
     reasons.push(...holderResult.reasons);
   }
 
-  const ocrsPayload = computeOcrs({
-    candidate,
-    whaleFlag: holderResult.whaleFlag,
-    holdersScore: holderResult.ok
-      ? 1
-      : Math.max(0, 1 - holderResult.topTenShare / config.safety.holderTopCap)
-  });
-
-  const gatingReasons = evaluateGating({ ...candidate, ocrs: ocrsPayload.score }, config);
+  const gatingReasons = evaluateGating(candidate, config);
   reasons.push(...gatingReasons);
 
   const featureFlags = (config as any).features ?? {};
@@ -236,9 +228,9 @@ async function evaluateCandidate(
   const evaluation: SafetyEvaluation = {
     ok,
     reasons,
-    ocrs: ocrsPayload.score,
+    ocrs: 0,
     whaleFlag: holderResult.whaleFlag,
-    features: ocrsPayload.features,
+    features: {},
     rugProb
   };
 
@@ -267,9 +259,6 @@ function evaluateGating(candidate: TokenCandidate, config: ReturnType<typeof loa
   }
   if (candidate.spreadBps > config.gating.maxSpreadBps) {
     reasons.push('spread_too_high');
-  }
-  if (candidate.ocrs < config.gating.ocrsMin) {
-    reasons.push('ocrs_below_threshold');
   }
   return reasons;
 }

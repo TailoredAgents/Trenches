@@ -166,10 +166,7 @@ async function bootstrap() {
       plansSuppressed.inc({ reason: 'safety_not_ok' });
       return;
     }
-    if (candidate.ocrs < config.policy.minOcrs) {
-      plansSuppressed.inc({ reason: 'ocrs_below_policy' });
-      return;
-    }
+    // Legacy OCRS gating removed; RugGuard is the sole gate
 
     if (!walletReady) {
       plansSuppressed.inc({ reason: 'wallet_unavailable' });

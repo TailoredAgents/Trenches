@@ -40,7 +40,8 @@
     "train:alpha": "tsx training/alpha_ranker/train.ts",
     "train:rugguard": "tsx training/rugguard/train.ts",
     "smoke:route-quarantine": "tsx tools/smoke/route-quarantine-smoke.ts",
-    "soak:summary": "tsx tools/soak/soak-summary.ts --db ${PERSISTENCE_SQLITE_PATH:-./data/agent.db}",
+    "soak:summary": "tsx tools/soak/soak-summary.ts --db ${PERSISTENCE_SQLITE_PATH:-./data/trenches.db}",
+    "lint:sse": "node -e \"const {execSync}=require('child_process'); try{const out=execSync('rg -n \\\"new EventSource\\(\\\"', {stdio:['ignore','pipe','ignore']}).toString(); if(out.trim()){ console.log('SSE audit warning: direct new EventSource found. Use createSSEClient.\\n'+out);} }catch(e){}\"",
     "smoke:leader-wallets": "tsx tools/smoke/leader-wallets-smoke.ts"
   },
   "devDependencies": {

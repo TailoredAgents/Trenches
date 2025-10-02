@@ -615,6 +615,17 @@ MIGRATIONS.push({
     ]
   });
 
+// Housekeeping indices for performance
+MIGRATIONS.push({
+  id: '0016_housekeeping_indices',
+  statements: [
+    `CREATE INDEX IF NOT EXISTS idx_sizing_decisions_mint_ts ON sizing_decisions(mint, ts);`,
+    `CREATE INDEX IF NOT EXISTS idx_sizing_outcomes_mint_ts ON sizing_outcomes(mint, ts);`,
+    `CREATE INDEX IF NOT EXISTS idx_exec_outcomes_route_ts ON exec_outcomes(route, ts);`,
+    `CREATE INDEX IF NOT EXISTS idx_leader_hits_wallet_ts ON leader_hits(wallet, ts);`
+  ]
+});
+
 let db: DatabaseConstructor.Database | null = null;
 
 const candidateWriteQueue = createWriteQueue('candidates');
