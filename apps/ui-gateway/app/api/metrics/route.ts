@@ -32,16 +32,26 @@ type PrevState = { t: number; counters: Record<string, number> };
 let prev: PrevState | null = null;
 
 export async function GET(_req: NextRequest) {
-  const [pmText, siText, odText] = await Promise.all([
+  const [pmText, siText, odText, execText] = await Promise.all([
     scrape('http://127.0.0.1:4016/metrics'),
     scrape('http://127.0.0.1:4012/metrics'),
-    scrape('http://127.0.0.1:4013/metrics')
+    scrape('http://127.0.0.1:4013/metrics'),
+    scrape('http://127.0.0.1:4011/metrics')
   ]);
   const now = Date.now();
   const pm = pmText ? parseProm(pmText) : {};
   const si = siText ? parseProm(siText) : {};
   const od = odText ? parseProm(odText) : {};
+  const execMetrics = execText ? parseProm(execText) : {};
 
+  const presetActiveGauge = Number(execMetrics['executor_migration_preset_active'] ?? 0);
+  const presetActive = Number.isFinite(presetActiveGauge) && presetActiveGauge > 0;
+  const presetUsesTotal = Object.entries(execMetrics).reduce((sum, entry) => {
+    const [key, value] = entry;
+    if (!key.startsWith('executor_migration_preset_uses_total')) return sum;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? sum + parsed : sum;
+  }, 0);
   const exposure = pm['position_manager_total_size_sol'] ?? 0;
   const opened = pm['positions_opened_total'] ?? 0;
   const trailing = pm['position_trailing_activated_total'] ?? 0;
@@ -125,6 +135,7 @@ export async function GET(_req: NextRequest) {
       opened,
       trailing,
       exits,
+      execution: { presetActive, presetUsesTotal },
       apiRpm: {
         social: socialRpm,
         dexscreener: dexscreenerRpm,

@@ -84,7 +84,8 @@ export const migrationPresetActive = registerGauge({
 
 export const migrationPresetUses = registerCounter({
   name: 'executor_migration_preset_uses_total',
-  help: 'Number of times migration preset adjusted fees/slippage'
+  help: 'Number of times migration preset adjusted fees/slippage',
+  labelNames: ['mint', 'route']
 });
 
 export const routePenaltyGauge = registerGauge({

@@ -27,6 +27,7 @@
     "smoke:alpha": "tsx tools/smoke/alpha-smoke.ts",
     "smoke:fillnet": "tsx tools/smoke/fillnet-smoke.ts",
     "smoke:pnl": "tsx tools/smoke/pnl-smoke.ts",
+    "smoke:migration-preset": "tsx tools/smoke/migration-preset-smoke.ts",
     "train:fillnet": "tsx training/fillnet/train.ts",
     "train:alpha": "tsx training/alpha_ranker/train.ts",
     "train:rugguard": "tsx training/rugguard/train.ts"

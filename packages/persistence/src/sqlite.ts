@@ -1542,6 +1542,26 @@ export function listRecentMigrationEvents(limit = 20): Array<{ ts: number; mint:
   return rows.map((r) => ({ ts: r.ts, mint: r.mint, pool: r.pool, source: r.source, initSig: r.init_sig }));
 }
 
+export function getLatestMigrationEvent(filter: { mint: string; pool?: string | null }): { ts: number; mint: string; pool: string | null } | undefined {
+  const database = getDb();
+  const { mint, pool } = filter;
+  const byMint = database
+    .prepare(`SELECT ts, mint, pool FROM migration_events WHERE mint = ? ORDER BY ts DESC LIMIT 1`)
+    .get(mint) as { ts: number; mint: string; pool: string | null } | undefined;
+  if (byMint) {
+    return { ts: byMint.ts, mint: byMint.mint, pool: byMint.pool ?? null };
+  }
+  if (pool) {
+    const byPool = database
+      .prepare(`SELECT ts, mint, pool FROM migration_events WHERE pool = ? ORDER BY ts DESC LIMIT 1`)
+      .get(pool) as { ts: number; mint: string; pool: string | null } | undefined;
+    if (byPool) {
+      return { ts: byPool.ts, mint: byPool.mint, pool: byPool.pool ?? null };
+    }
+  }
+  return undefined;
+}
+
 export function insertRugVerdict(v: { ts: number; mint: string; rugProb: number; reasons: string[] }): void {
   const database = getDb();
   database

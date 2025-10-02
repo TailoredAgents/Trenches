@@ -13,10 +13,11 @@ import { TokenCandidate, OrderPlan, TradeEvent } from '@trenches/shared';
 import { WalletProvider } from './wallet';
 import { JupiterClient } from './jupiter';
 import { TransactionSender } from './sender';
-import { ordersReceived, ordersFailed, ordersSubmitted, simpleModeGauge, flagJitoEnabled, flagSecondaryRpcEnabled, flagWsEnabled, landedRateGauge, slipAvgGauge, timeToLandHistogram, retriesTotal, fallbacksTotal, migrationPresetActive, migrationPresetUses, routePenaltyGauge } from './metrics';
+import { ordersReceived, ordersFailed, ordersSubmitted, simpleModeGauge, flagJitoEnabled, flagSecondaryRpcEnabled, flagWsEnabled, landedRateGauge, slipAvgGauge, timeToLandHistogram, retriesTotal, fallbacksTotal, routePenaltyGauge } from './metrics';
 import { predictFill } from './fillnet';
 import { decideFees, updateArm } from './fee-bandit';
 import { ExecutorEventBus } from './eventBus';
+import { applyMigrationPresetAdjustment, MigrationPresetConfig } from './migrationPreset';
 import { createRpcConnection, createSSEClient, createInMemoryLastEventIdStore } from '@trenches/util';
 
 const logger = createLogger('executor');
@@ -279,27 +280,26 @@ async function executePlan(opts: {
 
   let slippageToUse = feeDecision.slippageBps;
   let cuPriceToUse = feeDecision.cuPrice;
-  try {
-    const preset = (cfg as any).execution?.migrationPreset ?? { enabled: true, durationMs: 60000, decayMs: 30000, cuPriceBump: 3000, minSlippageBps: 100 };
-    if (preset.enabled) {
-      const ageMs = Math.max(0, (candidate.ageSec ?? 9999) * 1000);
-      let bump = 0; let minSlip = 0;
-      if (ageMs <= preset.durationMs) {
-        bump = preset.cuPriceBump; minSlip = preset.minSlippageBps; migrationPresetActive.set(1);
-      } else if (ageMs <= preset.durationMs + preset.decayMs) {
-        const f = 1 - (ageMs - preset.durationMs) / Math.max(1, preset.decayMs);
-        bump = Math.round(preset.cuPriceBump * f); minSlip = Math.round(preset.minSlippageBps * f); migrationPresetActive.set(1);
-      } else {
-        migrationPresetActive.set(0);
-      }
-      if (bump > 0 || minSlip > 0) {
-        cuPriceToUse = cuPriceToUse + bump;
-        slippageToUse = Math.max(slippageToUse, minSlip);
-        migrationPresetUses.inc();
-      }
-    }
-  } catch {}
 
+  const presetConfig = ((cfg as any).execution?.migrationPreset ?? {
+    enabled: true,
+    durationMs: 60000,
+    cuPriceBump: 3000,
+    minSlippageBps: 100,
+    decayMs: 30000
+  }) as MigrationPresetConfig;
+
+  const presetResult = applyMigrationPresetAdjustment({
+    preset: presetConfig,
+    mint: candidate.mint,
+    pool: candidate.poolAddress ?? candidate.lpMint ?? null,
+    route: plan.route,
+    baseCuPrice: cuPriceToUse,
+    baseSlippageBps: slippageToUse
+  });
+
+  cuPriceToUse = presetResult.cuPrice;
+  slippageToUse = presetResult.slippageBps;
   const quote = await jupiter.fetchQuote(
     {
       inputMint,

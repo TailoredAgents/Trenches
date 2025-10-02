@@ -129,6 +129,7 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
       dexscreenerTypes?: Record<string, number>;
       birdeyeTypes?: Record<string, number>;
     };
+    execution?: { presetActive?: boolean; presetUsesTotal?: number };
   } | null>(null);
   const [policy, setPolicy] = useState<{ congestion?: string } | null>(null);
   const [exposureHist, setExposureHist] = useState<number[]>([]);
@@ -146,6 +147,7 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
           trailing?: number;
           opened?: number;
           apiRpm?: { social?: Record<string, number>; dexscreener?: number; birdeye?: number };
+          execution?: { presetActive?: boolean; presetUsesTotal?: number };
         };
         if (!cancelled) {
           setMetrics(j as any);
@@ -203,6 +205,7 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
             dexscreenerTypes?: Record<string, number>;
             birdeyeTypes?: Record<string, number>;
           };
+          execution?: { presetActive?: boolean; presetUsesTotal?: number };
         };
         if (!cancelled) setMetrics(j);
       } catch (err) { /* ignore */ }
@@ -224,6 +227,7 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
           trailing?: number;
           opened?: number;
           apiRpm?: { social?: Record<string, number>; dexscreener?: number; birdeye?: number };
+          execution?: { presetActive?: boolean; presetUsesTotal?: number };
         };
         if (!cancelled) {
           setMetrics(j as any);
@@ -545,7 +549,12 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
       </section>
 
       <section className="card" style={{ gridColumn: 'span 4 / span 4' }}>
-        <h2>Execution</h2>
+        <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          Execution
+          {metrics?.execution?.presetActive ? (
+            <span className="badge" style={{ fontSize: 11 }}>Preset Active</span>
+          ) : null}
+        </h2>
         <div className="metric-grid">
           <div className="metric-tile">
             <span>Landed Rate</span>
