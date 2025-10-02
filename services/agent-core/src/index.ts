@@ -172,7 +172,7 @@ async function bootstrap() {
       shadow.sizingDisagreePct = sizPairs.length ? sizPairs.filter(([b,c]) => b !== c).length / sizPairs.length : 0;
     } catch {}
 
-    const snapshot: Snapshot & { latestMigrations?: any; migrationLag?: any; rugGuard?: any; execution?: any; riskBudget?: any; sizing?: any; survival?: any; backtest?: any; shadow?: any; routes?: any; leaders?: any } = {
+    const snapshot: Snapshot & { latestMigrations?: any; migrationLag?: any; rugGuard?: any; execution?: any; riskBudget?: any; sizing?: any; survival?: any; backtest?: any; shadow?: any; routes?: any; leaders?: any; leader?: any } = {
       status,
       pnl: { day: pnlDay, week: pnlWeek, month: pnlMonth },
       topics,
@@ -383,3 +383,7 @@ bootstrap().catch((err) => {
   logger.error({ err }, 'agent core failed to start');
   process.exit(1);
 });
+
+
+
+

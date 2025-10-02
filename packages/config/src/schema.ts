@@ -69,6 +69,7 @@ export const configSchema = z.object({
     positionManager: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4016 }),
     narrativeMiner: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4017 }),
     migrationWatcher: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4018 }),
+    leaderWallets: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4019 }),
     metrics: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 8090 })
   }),
   gating: z.object({
@@ -397,6 +398,17 @@ export const configSchema = z.object({
       sizing: z.object({ method: z.string().default('weighted_bc'), probFloor: z.number().min(0).max(1).default(0.05) }).default({ method: 'weighted_bc', probFloor: 0.05 })
     })
     .default({ fee: { method: 'weighted_bc', probFloor: 0.05 }, sizing: { method: 'weighted_bc', probFloor: 0.05 } })
+  ,
+  leaderWallets: z
+    .object({
+      enabled: z.boolean().default(true),
+      watchMinutes: z.number().int().positive().default(5),
+      minHitsForBoost: z.number().int().nonnegative().default(1),
+      scoreHalfLifeDays: z.number().positive().default(14),
+      rankBoost: z.number().min(0).default(0.03),
+      sizeTierBoost: z.number().int().nonnegative().default(1)
+    })
+    .default({ enabled: true, watchMinutes: 5, minHitsForBoost: 1, scoreHalfLifeDays: 14, rankBoost: 0.03, sizeTierBoost: 1 })
   ,
   alpha: z
     .object({

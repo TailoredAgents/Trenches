@@ -37,7 +37,8 @@
     "train:alpha": "tsx training/alpha_ranker/train.ts",
     "train:rugguard": "tsx training/rugguard/train.ts",
     "smoke:route-quarantine": "tsx tools/smoke/route-quarantine-smoke.ts",
-    "soak:summary": "tsx tools/soak/soak-summary.ts --db ${PERSISTENCE_SQLITE_PATH:-./data/agent.db}"
+    "soak:summary": "tsx tools/soak/soak-summary.ts --db ${PERSISTENCE_SQLITE_PATH:-./data/agent.db}",
+    "smoke:leader-wallets": "tsx tools/smoke/leader-wallets-smoke.ts"
   },
   "devDependencies": {
     "@types/eventsource": "^1.1.11",

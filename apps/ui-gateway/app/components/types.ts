@@ -13,6 +13,9 @@ export interface AgentSnapshot {
     sells: number;
     uniques: number;
     safetyOk: boolean;
+    pool?: string | null;
+    leaderHits?: number;
+    leaderBoostEligible?: boolean;
   }>;
   positions?: Array<{
     mint: string;
@@ -33,6 +36,10 @@ export interface AgentSnapshot {
   execution?: { landedRate: number; avgSlipBps: number; p50Ttl: number; p95Ttl: number };
   backtest?: { lastRunId: number; lastOverallNetPnl: number; landedRate: number; avgSlipBps: number; p50Ttl: number; p95Ttl: number };
   shadow?: { feeDisagreePct: number; sizingDisagreePct: number };
+  leader?: {
+    recentHits: Array<{ pool: string; hits: number; lastSeenTs: number }>;
+    topWallets: Array<{ wallet: string; score: number; lastSeenTs: number }>;
+  };
 }
 
 export interface AgentEvent {
@@ -40,3 +47,5 @@ export interface AgentEvent {
   type: string;
   payload: unknown;
 }
+
+export type LeaderWalletHitSummary = { pool: string; hits: number; lastSeenTs: number };

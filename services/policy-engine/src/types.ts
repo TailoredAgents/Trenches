@@ -6,6 +6,7 @@ export type CandidateContext = {
   walletEquity: number;
   walletFree: number;
   dailySpendUsed: number;
+  leaderWalletBoost?: { applied: boolean; hits: number; wallets: string[] };
 };
 
 export type BanditAction = {

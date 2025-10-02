@@ -1,3 +1,4 @@
+import { computeLeaderBoostInfo, applyLeaderSizeBoost, LeaderWalletConfig } from './leader';
 import 'dotenv/config';
 import EventSource from 'eventsource';
 import { createSSEClient, createInMemoryLastEventIdStore } from '@trenches/util';
@@ -8,8 +9,8 @@ import fastifySse from 'fastify-sse-v2';
 import { Connection } from '@solana/web3.js';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
-import { getRegistry, registerGauge } from '@trenches/metrics';
-import { logTradeEvent, getDailyRealizedPnlSince, recordPolicyAction } from '@trenches/persistence';
+import { getRegistry, registerGauge, registerCounter } from '@trenches/metrics';
+import { logTradeEvent, getDailyRealizedPnlSince, recordPolicyAction, getDb } from '@trenches/persistence';
 import { TokenCandidate, TradeEvent, CongestionLevel, OrderPlan } from '@trenches/shared';
 import { PolicyEventBus } from './eventBus';
 import { plansEmitted, plansSuppressed, sizingDurationMs, walletEquityGauge, walletFreeGauge, banditRewardGauge } from './metrics';
@@ -34,8 +35,21 @@ const lastWalletGaugeRefresh = registerGauge({
   help: 'Unix timestamp of last wallet refresh'
 });
 
+const leaderBoostCounter = registerCounter({
+  name: 'policy_leader_boost_total',
+  help: 'Plans that received leader wallet boost',
+  labelNames: ['mint']
+});
+
 async function bootstrap() {
   const config = loadConfig();
+  const leaderConfig: LeaderWalletConfig = config.leaderWallets ?? { enabled: false, watchMinutes: 5, minHitsForBoost: 1, rankBoost: 0.03, sizeTierBoost: 1 };
+  const leaderCapsConfig = {
+    perNameCapFraction: config.wallet.perNameCapFraction,
+    perNameCapMaxSol: config.wallet.perNameCapMaxSol,
+    lpImpactCapFraction: config.wallet.lpImpactCapFraction,
+    flowCapFraction: config.wallet.flowCapFraction
+  };
   const app = Fastify({ logger: false });
   const bus = new PolicyEventBus();
 
@@ -114,19 +128,27 @@ async function bootstrap() {
   const alphaMin = (config as any).alpha?.minScore ?? 0.52;
   const alphaMap = new Map<string, number>();
   const disposeStream = startCandidateStream(safeFeedUrl, async (candidate) => {
+    const now = Date.now();
+    const leaderInfo = computeLeaderBoostInfo(candidate, leaderConfig, now);
     try {
       if ((config as any).features?.alphaRanker) {
-        const { getDb } = await import('@trenches/persistence');
         const db = getDb();
-        const row = db.prepare('SELECT score FROM scores WHERE mint = ? AND horizon = ? ORDER BY ts DESC LIMIT 1').get(candidate.mint, '10m') as { score?: number } | undefined;
-        const sc = row?.score ?? 0;
+        const row = db
+          .prepare('SELECT score FROM scores WHERE mint = ? AND horizon = ? ORDER BY ts DESC LIMIT 1')
+          .get(candidate.mint, '10m') as { score?: number } | undefined;
+        let sc = row?.score ?? 0;
+        if (leaderInfo.applied) {
+          sc += leaderConfig.rankBoost;
+        }
         alphaMap.set(candidate.mint, sc);
         if (sc < alphaMin) {
           plansSuppressed.inc({ reason: 'alpha_below_min' });
           return;
         }
-        // Keep only topK by score at decision time
-        const arr = Array.from(alphaMap.entries()).sort((a,b)=>b[1]-a[1]).slice(0, alphaTopK).map(([m])=>m);
+        const arr = Array.from(alphaMap.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, alphaTopK)
+          .map(([m]) => m);
         if (!arr.includes(candidate.mint)) {
           plansSuppressed.inc({ reason: 'alpha_not_topk' });
           return;
@@ -184,6 +206,11 @@ async function bootstrap() {
         })()
       : computeSizing(candidate, walletSnapshot, selection.action.sizeMultiplier));
 
+    const boostedSize = applyLeaderSizeBoost(sizing.size, candidate, walletSnapshot, leaderConfig, leaderInfo, leaderCapsConfig);
+    if (boostedSize > sizing.size) {
+      sizing.size = Number(boostedSize.toFixed(4));
+    }
+
     // Shadow sizing policy (offline)
     try {
       if ((config as any).features?.offlinePolicyShadow) {
@@ -221,10 +248,17 @@ async function bootstrap() {
         congestion: congestionLevel,
         walletEquity: walletSnapshot.equity,
         walletFree: walletSnapshot.free,
-        dailySpendUsed: walletSnapshot.spendUsed
+        dailySpendUsed: walletSnapshot.spendUsed,
+        leaderWalletBoost: leaderConfig.enabled
+          ? { applied: leaderInfo.applied, hits: leaderInfo.hits, wallets: leaderInfo.wallets }
+          : undefined
       },
       selection
     };
+
+    if (leaderInfo.applied) {
+      leaderBoostCounter.inc({ mint: candidate.mint });
+    }
 
     plansEmitted.inc();
     const reward = candidate.ocrs;
@@ -360,3 +394,18 @@ bootstrap().catch((err) => {
   logger.error({ err }, 'policy engine failed to start');
   process.exit(1);
 });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

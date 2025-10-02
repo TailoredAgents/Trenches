@@ -597,6 +597,23 @@ MIGRATIONS.push({
     ]
   });
 
+MIGRATIONS.push({
+    id: '0015_phase_f_leader_wallets',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS leader_wallets (
+        wallet TEXT PRIMARY KEY,
+        score REAL NOT NULL,
+        lastSeenTs INTEGER NOT NULL
+      );`,
+      `CREATE TABLE IF NOT EXISTS leader_hits (
+        pool TEXT NOT NULL,
+        wallet TEXT NOT NULL,
+        ts INTEGER NOT NULL,
+        PRIMARY KEY(pool, wallet, ts)
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_leader_hits_pool_ts ON leader_hits(pool, ts);`
+    ]
+  });
 
 let db: DatabaseConstructor.Database | null = null;
 
@@ -1424,11 +1441,13 @@ export function listRecentCandidates(limit = 30): Array<{
   sells: number;
   uniques: number;
   safetyOk: boolean;
+  pool?: string | null;
+  lpMint?: string | null;
 }> {
   const database = getDb();
   const rows = database
     .prepare(
-      `SELECT mint, name, ocrs, lp_sol AS lp, buys60 AS buys, sells60 AS sells, uniques60 AS uniques, safety_ok AS safety_ok
+      `SELECT mint, name, ocrs, lp_sol AS lp, buys60 AS buys, sells60 AS sells, uniques60 AS uniques, safety_ok AS safety_ok, pool_address AS pool, lp_mint AS lpMint
        FROM candidates
        ORDER BY updated_at DESC
        LIMIT @limit`
@@ -1442,6 +1461,8 @@ export function listRecentCandidates(limit = 30): Array<{
       sells: number;
       uniques: number;
       safety_ok: number;
+      pool?: string | null;
+      lpMint?: string | null;
     }>;
   return rows.map((r) => ({
     mint: r.mint,
@@ -1451,7 +1472,9 @@ export function listRecentCandidates(limit = 30): Array<{
     buys: r.buys ?? 0,
     sells: r.sells ?? 0,
     uniques: r.uniques ?? 0,
-    safetyOk: Boolean(r.safety_ok)
+    safetyOk: Boolean(r.safety_ok),
+    pool: r.pool ?? null,
+    lpMint: r.lpMint ?? null
   }));
 }
 
@@ -1594,6 +1617,37 @@ export function getRouteStats(windowStartTs: number): Array<{ route: string; att
   return rows;
 }
 
+export function insertLeaderHit(hit: { pool: string; wallet: string; ts: number }): boolean {
+  const database = getDb();
+  const result = database
+    .prepare(`INSERT OR IGNORE INTO leader_hits (pool, wallet, ts) VALUES (@pool, @wallet, @ts)`)
+    .run(hit);
+  return (result.changes ?? 0) > 0;
+}
+
+export function upsertLeaderScore(entry: { wallet: string; score: number; lastSeenTs: number }): void {
+  const database = getDb();
+  database
+    .prepare(`INSERT INTO leader_wallets (wallet, score, lastSeenTs) VALUES (@wallet, @score, @lastSeenTs)
+      ON CONFLICT(wallet) DO UPDATE SET score = excluded.score, lastSeenTs = excluded.lastSeenTs`)
+    .run(entry);
+}
+
+export function getRecentLeaderHits(pool: string, sinceTs: number): Array<{ wallet: string; ts: number }> {
+  const database = getDb();
+  const rows = database
+    .prepare(`SELECT wallet, ts FROM leader_hits WHERE pool = @pool AND ts >= @sinceTs ORDER BY ts DESC`)
+    .all({ pool, sinceTs }) as Array<{ wallet: string; ts: number }>;
+  return rows;
+}
+
+export function getTopLeaderWallets(limit = 10): Array<{ wallet: string; score: number; lastSeenTs: number }> {
+  const database = getDb();
+  const rows = database
+    .prepare(`SELECT wallet, score, lastSeenTs FROM leader_wallets ORDER BY score DESC LIMIT @limit`)
+    .all({ limit }) as Array<{ wallet: string; score: number; lastSeenTs: number }>;
+  return rows;
+}
 
 
 export function getLatestMigrationEvent(filter: { mint: string; pool?: string | null }): { ts: number; mint: string; pool: string | null } | undefined {

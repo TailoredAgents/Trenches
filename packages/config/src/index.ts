@@ -44,6 +44,7 @@ const baseConfig: TrenchesConfig = configSchema.parse({
     positionManager: { port: 4016 },
     narrativeMiner: { port: 4017 },
     migrationWatcher: { port: 4018 },
+    leaderWallets: { port: 4019 },
     metrics: { port: 8090 }
   },
   gating: {
@@ -197,7 +198,8 @@ const baseConfig: TrenchesConfig = configSchema.parse({
     reddit: { enabled: true, subreddits: ['solanamemes', 'memecoins', 'solana'], pollIntervalSec: 45 },
     telegram: { enabled: true, channels: [], downloadDir: './data/tdlib', pollIntervalSec: 10 },
     gdelt: { enabled: true, pollIntervalSec: 900 }
-  }
+  },
+  leaderWallets: { enabled: true, watchMinutes: 5, minHitsForBoost: 1, scoreHalfLifeDays: 14, rankBoost: 0.03, sizeTierBoost: 1 }
 });
 
 function parseJsonRecord(value: string): Record<string, string> {
@@ -324,6 +326,12 @@ try {
   (envMap as any).push(['survival.hazardPanic', 'SURV_HAZARD_PANIC', (v: string) => Number(v)]);
   (envMap as any).push(['shadow.fee.probFloor', 'SHADOW_FEE_PROB_FLOOR', (v: string) => Number(v)]);
   (envMap as any).push(['shadow.sizing.probFloor', 'SHADOW_SIZING_PROB_FLOOR', (v: string) => Number(v)]);
+  (envMap as any).push(['leaderWallets.enabled', 'LEADER_WALLETS_ENABLED', (v: string) => v === 'true']);
+  (envMap as any).push(['leaderWallets.watchMinutes', 'LEADER_WALLETS_WATCH_MINUTES', (v: string) => Number(v)]);
+  (envMap as any).push(['leaderWallets.minHitsForBoost', 'LEADER_WALLETS_MIN_HITS', (v: string) => Number(v)]);
+  (envMap as any).push(['leaderWallets.scoreHalfLifeDays', 'LEADER_WALLETS_SCORE_HALFLIFE_DAYS', (v: string) => Number(v)]);
+  (envMap as any).push(['leaderWallets.rankBoost', 'LEADER_WALLETS_RANK_BOOST', (v: string) => Number(v)]);
+  (envMap as any).push(['leaderWallets.sizeTierBoost', 'LEADER_WALLETS_SIZE_TIER_BOOST', (v: string) => Number(v)]);
 } catch {}
 
 function setPath(target: Record<string, any>, dottedKey: string, value: unknown): void {

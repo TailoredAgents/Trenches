@@ -319,6 +319,9 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
   const candidates = snapshot?.candidates ?? [];
   const topics = snapshot?.topics ?? [];
   const positions = snapshot?.positions ?? [];
+  const leaderData = snapshot?.leader;
+  const leaderHits = leaderData?.recentHits ?? [];
+  const leaderTopWallets = leaderData?.topWallets ?? [];
 
   const congestion = policy?.congestion ?? 'unknown';
 
@@ -443,12 +446,23 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
             {candidates.map((cand) => (
               <div key={cand.mint} className="list-item">
                 <div>
-                  <strong>{cand.name}</strong>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <strong>{cand.name}</strong>
+                    {cand.leaderBoostEligible ? (
+                      <span className="chip" style={{ background: '#10b981', color: '#0f172a' }}>leader-hit</span>
+                    ) : null}
+                  </div>
                   <div style={{ color: '#9aa5c4', fontSize: 12 }}>Mint: {cand.mint}</div>
+                  {cand.pool ? (
+                    <div style={{ color: '#9aa5c4', fontSize: 12 }}>Pool: {cand.pool}</div>
+                  ) : null}
                 </div>
-                <div style={{ textAlign: 'right' }}>
+                <div style={{ textAlign: 'right', minWidth: 180 }}>
                   <div className="chip" style={{ marginBottom: 6 }}>OCRS {formatNumber(cand.ocrs, 2)}</div>
-                  <div style={{ fontSize: 12 }}>{cand.buys} buys / {cand.sells} sells â€¢ uniques {cand.uniques}</div>
+                  <div style={{ fontSize: 12, color: '#9aa5c4' }}>{cand.buys} buys / {cand.sells} sells / uniques {cand.uniques}</div>
+                  {cand.leaderHits && cand.leaderHits > 0 ? (
+                    <div style={{ fontSize: 12, color: '#10b981', marginTop: 4 }}>Leader hits: {cand.leaderHits}</div>
+                  ) : null}
                 </div>
               </div>
             ))}
@@ -687,6 +701,38 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
       </section>
 
       <section className="card" style={{ gridColumn: 'span 4 / span 4' }}>
+        <h2>Leader Wallet Hits (recent)</h2>
+        <small>Latest pools triggered by leader wallets</small>
+        {leaderHits.length === 0 ? (
+          <div className="empty-state">No leader wallet hits observed.</div>
+        ) : (
+          <div className="list">
+            {leaderHits.map((hit) => (
+              <div key={hit.pool} className="list-item">
+                <div>
+                  <strong>{hit.pool}</strong>
+                  <div style={{ fontSize: 12, color: '#9aa5c4' }}>Last seen {new Date(hit.lastSeenTs).toLocaleTimeString()}</div>
+                </div>
+                <div className="chip">Hits {hit.hits}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        {leaderTopWallets.length ? (
+          <div style={{ marginTop: 12 }}>
+            <small>Top wallets</small>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+              {leaderTopWallets.map((row) => (
+                <span key={row.wallet} className="chip">
+                  {row.wallet.slice(0, 4)}…{row.wallet.slice(-4)} · {formatNumber(row.score ?? 0, 3)}
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="card" style={{ gridColumn: 'span 4 / span 4' }}>
         <h2>Sizing Distribution</h2>
         {(!sizingTop || sizingTop.length === 0) ? (
           <div className="empty-state">No decisions yet.</div>
@@ -883,3 +929,4 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
     </div>
   );
 }
+

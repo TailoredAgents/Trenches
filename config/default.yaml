@@ -21,6 +21,10 @@ services:
     port: 4016
   narrativeMiner:
     port: 4017
+  migrationWatcher:
+    port: 4018
+  leaderWallets:
+    port: 4019
   metrics:
     port: 8090
 gating:

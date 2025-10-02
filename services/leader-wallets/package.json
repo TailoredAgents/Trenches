@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "node -e \"console.log('skip leader-wallets build for preflight checkpoint')\"",
+    "build": "tsc -b",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts"
   },
@@ -16,6 +16,8 @@
     "fastify": "^4.28.0",
     "@trenches/config": "workspace:*",
     "@trenches/persistence": "workspace:*",
-    "@trenches/util": "workspace:*"
+    "@trenches/util": "workspace:*",
+    "@trenches/metrics": "workspace:*",
+    "@solana/web3.js": "^1.95.4"
   }
 }
