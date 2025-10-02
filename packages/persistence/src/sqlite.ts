@@ -166,6 +166,8 @@ const MIGRATIONS: Migration[] = [
 
         trail_active INTEGER NOT NULL DEFAULT 0,
 
+        mae_bps REAL NOT NULL DEFAULT 0,
+
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
 
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -567,6 +569,14 @@ MIGRATIONS.push({
   ]
 });
 
+
+
+MIGRATIONS.push({
+    id: '0013_preflight_mae',
+    statements: [
+      `ALTER TABLE positions ADD COLUMN mae_bps REAL NOT NULL DEFAULT 0;`
+    ]
+  });
 
 
 let db: DatabaseConstructor.Database | null = null;
@@ -1051,15 +1061,15 @@ export function logTradeEvent(event: TradeEvent) {
 
 
 
-export function upsertPosition(payload: { mint: string; quantity: number; averagePrice: number; realizedPnl?: number; unrealizedPnl?: number; state: string; ladderHits: string[]; trailActive: boolean }) {
+export function upsertPosition(payload: { mint: string; quantity: number; averagePrice: number; realizedPnl?: number; unrealizedPnl?: number; state: string; ladderHits: string[]; trailActive: boolean; maeBps?: number }) {
 
   const database = getDb();
 
   database
 
-    .prepare(`INSERT INTO positions (mint, quantity, average_price, realized_pnl, unrealized_pnl, state, ladder_hits, trail_active)
+    .prepare(`INSERT INTO positions (mint, quantity, average_price, realized_pnl, unrealized_pnl, state, ladder_hits, trail_active, mae_bps)
 
-              VALUES (@mint, @quantity, @averagePrice, @realizedPnl, @unrealizedPnl, @state, @ladderHits, @trailActive)
+              VALUES (@mint, @quantity, @averagePrice, @realizedPnl, @unrealizedPnl, @state, @ladderHits, @trailActive, @maeBps)
 
               ON CONFLICT(mint) DO UPDATE SET
 
@@ -1076,6 +1086,8 @@ export function upsertPosition(payload: { mint: string; quantity: number; averag
                 ladder_hits = excluded.ladder_hits,
 
                 trail_active = excluded.trail_active,
+
+                mae_bps = excluded.mae_bps,
 
                 updated_at = datetime('now')`)
 
@@ -1095,7 +1107,9 @@ export function upsertPosition(payload: { mint: string; quantity: number; averag
 
       ladderHits: JSON.stringify(payload.ladderHits),
 
-      trailActive: payload.trailActive ? 1 : 0
+      trailActive: payload.trailActive ? 1 : 0,
+
+      maeBps: payload.maeBps ?? 0
 
     });
 
@@ -1311,11 +1325,11 @@ export function upsertBanditState(input: { actionId: string; ainv: number[][]; b
 }
 
 
-export function listOpenPositions(): Array<{ mint: string; quantity: number; averagePrice: number; realizedPnl: number; unrealizedPnl: number; state: string; ladderHits: string[]; trailActive: boolean }> {
+export function listOpenPositions(): Array<{ mint: string; quantity: number; averagePrice: number; realizedPnl: number; unrealizedPnl: number; state: string; ladderHits: string[]; trailActive: boolean; maeBps: number }> {
   const database = getDb();
   const rows = database
-    .prepare(`SELECT mint, quantity, average_price, realized_pnl, unrealized_pnl, state, ladder_hits, trail_active FROM positions WHERE state != 'CLOSED'`)
-    .all() as Array<{ mint: string; quantity: number; average_price: number; realized_pnl: number; unrealized_pnl: number; state: string; ladder_hits: string; trail_active: number }>;
+    .prepare(`SELECT mint, quantity, average_price, realized_pnl, unrealized_pnl, state, ladder_hits, trail_active, mae_bps FROM positions WHERE state != 'CLOSED'`)
+    .all() as Array<{ mint: string; quantity: number; average_price: number; realized_pnl: number; unrealized_pnl: number; state: string; ladder_hits: string; trail_active: number; mae_bps: number | null }>;
   return rows.map((row) => ({
     mint: row.mint,
     quantity: row.quantity ?? 0,
@@ -1324,9 +1338,11 @@ export function listOpenPositions(): Array<{ mint: string; quantity: number; ave
     unrealizedPnl: row.unrealized_pnl ?? 0,
     state: row.state ?? 'OPEN',
     ladderHits: safeParseArray(row.ladder_hits),
-    trailActive: Boolean(row.trail_active)
+    trailActive: Boolean(row.trail_active),
+    maeBps: row.mae_bps ?? 0
   }));
 }
+
 
 export function getCandidateByMint(mint: string): TokenCandidate | undefined {
   const database = getDb();

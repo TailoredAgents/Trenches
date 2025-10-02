@@ -30,13 +30,38 @@ exports.loadBanditState = loadBanditState;
 exports.upsertBanditState = upsertBanditState;
 exports.listOpenPositions = listOpenPositions;
 exports.getCandidateByMint = getCandidateByMint;
+exports.listRecentCandidates = listRecentCandidates;
 exports.recordOrderPlan = recordOrderPlan;
 exports.recordFill = recordFill;
+exports.insertMigrationEvent = insertMigrationEvent;
+exports.listRecentMigrationEvents = listRecentMigrationEvents;
+exports.insertRugVerdict = insertRugVerdict;
+exports.insertScore = insertScore;
+exports.computeMigrationCandidateLagQuantiles = computeMigrationCandidateLagQuantiles;
+exports.getRugGuardStats = getRugGuardStats;
+exports.insertFillPrediction = insertFillPrediction;
+exports.insertFeeDecision = insertFeeDecision;
+exports.insertExecOutcome = insertExecOutcome;
+exports.getExecSummary = getExecSummary;
+exports.upsertPrice = upsertPrice;
+exports.getNearestPrice = getNearestPrice;
+exports.getPnLSummary = getPnLSummary;
+exports.insertHazardState = insertHazardState;
+exports.insertSizingDecision = insertSizingDecision;
+exports.insertSizingOutcome = insertSizingOutcome;
+exports.getRiskBudget = getRiskBudget;
+exports.getSizingDistribution = getSizingDistribution;
+exports.createBacktestRun = createBacktestRun;
+exports.finishBacktestRun = finishBacktestRun;
+exports.insertBacktestResult = insertBacktestResult;
+exports.insertShadowFeeDecision = insertShadowFeeDecision;
+exports.insertShadowSizingDecision = insertShadowSizingDecision;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const config_1 = require("@trenches/config");
 const logger_1 = require("@trenches/logger");
+const writeQueue_1 = require("./writeQueue");
 const logger = (0, logger_1.createLogger)('sqlite');
 const MIGRATIONS = [
     {
@@ -166,6 +191,8 @@ const MIGRATIONS = [
         ladder_hits TEXT NOT NULL,
 
         trail_active INTEGER NOT NULL DEFAULT 0,
+
+        mae_bps REAL NOT NULL DEFAULT 0,
 
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
 
@@ -358,7 +385,158 @@ const MIGRATIONS = [
         ]
     }
 ];
+// Phase A migration: PVP upgrade tables
+MIGRATIONS.push({
+    id: '0008_pvp_phase_a',
+    statements: [
+        `CREATE TABLE IF NOT EXISTS migration_events (
+      ts INTEGER NOT NULL,
+      mint TEXT NOT NULL,
+      pool TEXT NOT NULL,
+      source TEXT NOT NULL,
+      init_sig TEXT NOT NULL
+    );`,
+        `CREATE INDEX IF NOT EXISTS idx_migration_events_mint_ts ON migration_events(mint, ts);`,
+        `CREATE TABLE IF NOT EXISTS scores (
+      ts INTEGER NOT NULL,
+      mint TEXT NOT NULL,
+      horizon TEXT NOT NULL,
+      score REAL NOT NULL,
+      features_json TEXT NOT NULL
+    );`,
+        `CREATE INDEX IF NOT EXISTS idx_scores_mint_horizon_ts ON scores(mint, horizon, ts);`,
+        `CREATE TABLE IF NOT EXISTS rug_verdicts (
+      ts INTEGER NOT NULL,
+      mint TEXT NOT NULL,
+      rug_prob REAL NOT NULL,
+      reasons_json TEXT NOT NULL
+    );`,
+        `CREATE INDEX IF NOT EXISTS idx_rug_verdicts_mint_ts ON rug_verdicts(mint, ts);`
+    ]
+});
+MIGRATIONS.push({
+    id: '0009_pvp_phase_b',
+    statements: [
+        `CREATE TABLE IF NOT EXISTS fill_preds(
+      ts INTEGER NOT NULL,
+      route TEXT NOT NULL,
+      p_fill REAL NOT NULL,
+      exp_slip_bps REAL NOT NULL,
+      exp_time_ms INTEGER NOT NULL,
+      ctx_json TEXT NOT NULL
+    );`,
+        `CREATE INDEX IF NOT EXISTS idx_fill_preds_route_ts ON fill_preds(route, ts);`,
+        `CREATE TABLE IF NOT EXISTS fee_decisions(
+      ts INTEGER NOT NULL,
+      cu_price INTEGER NOT NULL,
+      cu_limit INTEGER NOT NULL,
+      slippage_bps INTEGER NOT NULL,
+      ctx_json TEXT NOT NULL
+    );`,
+        `CREATE INDEX IF NOT EXISTS idx_fee_decisions_ts ON fee_decisions(ts);`,
+        `CREATE TABLE IF NOT EXISTS exec_outcomes(
+      ts INTEGER NOT NULL,
+      quote_price REAL NOT NULL,
+      exec_price REAL,
+      filled INTEGER NOT NULL,
+      route TEXT,
+      cu_price INTEGER,
+      slippage_bps_req INTEGER,
+      slippage_bps_real REAL,
+      time_to_land_ms INTEGER,
+      error_code TEXT,
+      notes TEXT
+    );`,
+        `CREATE INDEX IF NOT EXISTS idx_exec_outcomes_ts ON exec_outcomes(ts);`
+    ]
+});
+MIGRATIONS.push({
+    id: '0010_pvp_phase_c',
+    statements: [
+        `CREATE TABLE IF NOT EXISTS hazard_states(
+      ts INTEGER NOT NULL,
+      mint TEXT NOT NULL,
+      hazard REAL NOT NULL,
+      trail_bps INTEGER NOT NULL,
+      ladder_json TEXT NOT NULL
+    );`,
+        `CREATE INDEX IF NOT EXISTS idx_hazard_states_mint_ts ON hazard_states(mint, ts);`,
+        `ALTER TABLE sizing_decisions ADD COLUMN ts INTEGER;`,
+        `ALTER TABLE sizing_decisions ADD COLUMN arm TEXT;`,
+        `ALTER TABLE sizing_decisions ADD COLUMN notional REAL;`,
+        `ALTER TABLE sizing_decisions ADD COLUMN ctx_json TEXT;`,
+        `CREATE INDEX IF NOT EXISTS idx_sizing_decisions_mint_ts ON sizing_decisions(mint, ts);`,
+        `CREATE TABLE IF NOT EXISTS sizing_outcomes(
+      ts INTEGER NOT NULL,
+      mint TEXT NOT NULL,
+      notional REAL NOT NULL,
+      pnl_usd REAL NOT NULL,
+      mae_bps REAL NOT NULL,
+      closed INTEGER NOT NULL
+    );`,
+        `CREATE INDEX IF NOT EXISTS idx_sizing_outcomes_ts ON sizing_outcomes(ts);`
+    ]
+});
+MIGRATIONS.push({
+    id: '0011_pvp_phase_d',
+    statements: [
+        `CREATE TABLE IF NOT EXISTS backtest_runs(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      started_ts INTEGER NOT NULL,
+      finished_ts INTEGER,
+      params_json TEXT NOT NULL,
+      notes TEXT
+    );`,
+        `CREATE TABLE IF NOT EXISTS backtest_results(
+      run_id INTEGER NOT NULL,
+      metric TEXT NOT NULL,
+      value REAL NOT NULL,
+      segment TEXT,
+      PRIMARY KEY(run_id, metric, segment)
+    );`,
+        `CREATE TABLE IF NOT EXISTS shadow_decisions_fee(
+      ts INTEGER NOT NULL,
+      mint TEXT NOT NULL,
+      chosen_arm INTEGER NOT NULL,
+      baseline_arm INTEGER,
+      delta_reward_est REAL,
+      ctx_json TEXT NOT NULL
+    );`,
+        `CREATE INDEX IF NOT EXISTS idx_shadow_fee_ts ON shadow_decisions_fee(ts);`,
+        `CREATE TABLE IF NOT EXISTS shadow_decisions_sizing(
+      ts INTEGER NOT NULL,
+      mint TEXT NOT NULL,
+      chosen_arm TEXT NOT NULL,
+      baseline_arm TEXT,
+      delta_reward_est REAL,
+      ctx_json TEXT NOT NULL
+    );`,
+        `CREATE INDEX IF NOT EXISTS idx_shadow_sizing_ts ON shadow_decisions_sizing(ts);`
+    ]
+});
+MIGRATIONS.push({
+    id: '0012_pvp_phase_e',
+    statements: [
+        `CREATE TABLE IF NOT EXISTS prices (
+      ts INTEGER NOT NULL,
+      symbol TEXT NOT NULL,
+      usd REAL NOT NULL
+    );`,
+        `CREATE INDEX IF NOT EXISTS idx_prices_symbol_ts ON prices(symbol, ts);`,
+        `ALTER TABLE exec_outcomes ADD COLUMN priority_fee_lamports INTEGER;`,
+        `ALTER TABLE exec_outcomes ADD COLUMN amount_in INTEGER;`,
+        `ALTER TABLE exec_outcomes ADD COLUMN amount_out INTEGER;`,
+        `ALTER TABLE exec_outcomes ADD COLUMN fee_lamports_total INTEGER;`
+    ]
+});
+MIGRATIONS.push({
+    id: '0013_preflight_mae',
+    statements: [
+        `ALTER TABLE positions ADD COLUMN mae_bps REAL NOT NULL DEFAULT 0;`
+    ]
+});
 let db = null;
+const candidateWriteQueue = (0, writeQueue_1.createWriteQueue)('candidates');
 function ensureDataDir(filePath) {
     const dir = path_1.default.dirname(filePath);
     if (!fs_1.default.existsSync(dir)) {
@@ -371,6 +549,11 @@ function openDb() {
     const instance = new better_sqlite3_1.default(cfg.persistence.sqlitePath, { timeout: 5000 });
     instance.pragma('journal_mode = WAL');
     instance.pragma('synchronous = NORMAL');
+    instance.pragma('temp_store = MEMORY');
+    try {
+        instance.pragma('mmap_size = 268435456');
+    }
+    catch { /* optional */ }
     instance.pragma('foreign_keys = ON');
     return instance;
 }
@@ -599,61 +782,42 @@ function upsertPhraseBaseline(entry) {
         .run(entry);
 }
 function storeTokenCandidate(candidate) {
-    const database = getDb();
-    database
-        .prepare(`INSERT INTO candidates (mint, name, symbol, source, age_sec, lp_sol, buys60, sells60, uniques60, spread_bps, safety_ok, safety_reasons, ocrs, topic_id, match_score, pool_address, lp_mint, pool_coin_account, pool_pc_account)
-
+    candidateWriteQueue.push(() => {
+        const database = getDb();
+        database
+            .prepare(`INSERT INTO candidates (mint, name, symbol, source, age_sec, lp_sol, buys60, sells60, uniques60, spread_bps, safety_ok, safety_reasons, ocrs, topic_id, match_score, pool_address, lp_mint, pool_coin_account, pool_pc_account)
               VALUES (@mint, @name, @symbol, @source, @ageSec, @lpSol, @buys60, @sells60, @uniques60, @spreadBps, @safetyOk, @safetyReasons, @ocrs, @topicId, @matchScore, @poolAddress, @lpMint, @poolCoinAccount, @poolPcAccount)
-
               ON CONFLICT(mint) DO UPDATE SET
-
                 name = excluded.name,
-
                 symbol = excluded.symbol,
-
                 source = excluded.source,
-
                 age_sec = excluded.age_sec,
-
                 lp_sol = excluded.lp_sol,
-
                 buys60 = excluded.buys60,
-
                 sells60 = excluded.sells60,
-
                 uniques60 = excluded.uniques60,
-
                 spread_bps = excluded.spread_bps,
-
                 safety_ok = excluded.safety_ok,
-
                 safety_reasons = excluded.safety_reasons,
-
                 ocrs = excluded.ocrs,
-
                 topic_id = excluded.topic_id,
-
                 match_score = excluded.match_score,
-
                 pool_address = excluded.pool_address,
-
                 lp_mint = excluded.lp_mint,
-
                 pool_coin_account = excluded.pool_coin_account,
-
                 pool_pc_account = excluded.pool_pc_account,
-
                 updated_at = datetime('now')`)
-        .run({
-        ...candidate,
-        safetyOk: candidate.safety.ok ? 1 : 0,
-        safetyReasons: JSON.stringify(candidate.safety.reasons ?? []),
-        topicId: candidate.topicId ?? null,
-        matchScore: candidate.matchScore ?? null,
-        poolAddress: candidate.poolAddress ?? null,
-        lpMint: candidate.lpMint ?? null,
-        poolCoinAccount: candidate.poolCoinAccount ?? null,
-        poolPcAccount: candidate.poolPcAccount ?? null
+            .run({
+            ...candidate,
+            safetyOk: candidate.safety.ok ? 1 : 0,
+            safetyReasons: JSON.stringify(candidate.safety.reasons ?? []),
+            topicId: candidate.topicId ?? null,
+            matchScore: candidate.matchScore ?? null,
+            poolAddress: candidate.poolAddress ?? null,
+            lpMint: candidate.lpMint ?? null,
+            poolCoinAccount: candidate.poolCoinAccount ?? null,
+            poolPcAccount: candidate.poolPcAccount ?? null
+        });
     });
 }
 function logTradeEvent(event) {
@@ -665,9 +829,9 @@ function logTradeEvent(event) {
 function upsertPosition(payload) {
     const database = getDb();
     database
-        .prepare(`INSERT INTO positions (mint, quantity, average_price, realized_pnl, unrealized_pnl, state, ladder_hits, trail_active)
+        .prepare(`INSERT INTO positions (mint, quantity, average_price, realized_pnl, unrealized_pnl, state, ladder_hits, trail_active, mae_bps)
 
-              VALUES (@mint, @quantity, @averagePrice, @realizedPnl, @unrealizedPnl, @state, @ladderHits, @trailActive)
+              VALUES (@mint, @quantity, @averagePrice, @realizedPnl, @unrealizedPnl, @state, @ladderHits, @trailActive, @maeBps)
 
               ON CONFLICT(mint) DO UPDATE SET
 
@@ -685,6 +849,8 @@ function upsertPosition(payload) {
 
                 trail_active = excluded.trail_active,
 
+                mae_bps = excluded.mae_bps,
+
                 updated_at = datetime('now')`)
         .run({
         mint: payload.mint,
@@ -694,7 +860,8 @@ function upsertPosition(payload) {
         unrealizedPnl: payload.unrealizedPnl ?? 0,
         state: payload.state,
         ladderHits: JSON.stringify(payload.ladderHits),
-        trailActive: payload.trailActive ? 1 : 0
+        trailActive: payload.trailActive ? 1 : 0,
+        maeBps: payload.maeBps ?? 0
     });
 }
 function recordSizingDecision(input) {
@@ -846,7 +1013,7 @@ function upsertBanditState(input) {
 function listOpenPositions() {
     const database = getDb();
     const rows = database
-        .prepare(`SELECT mint, quantity, average_price, realized_pnl, unrealized_pnl, state, ladder_hits, trail_active FROM positions WHERE state != 'CLOSED'`)
+        .prepare(`SELECT mint, quantity, average_price, realized_pnl, unrealized_pnl, state, ladder_hits, trail_active, mae_bps FROM positions WHERE state != 'CLOSED'`)
         .all();
     return rows.map((row) => ({
         mint: row.mint,
@@ -856,7 +1023,8 @@ function listOpenPositions() {
         unrealizedPnl: row.unrealized_pnl ?? 0,
         state: row.state ?? 'OPEN',
         ladderHits: safeParseArray(row.ladder_hits),
-        trailActive: Boolean(row.trail_active)
+        trailActive: Boolean(row.trail_active),
+        maeBps: row.mae_bps ?? 0
     }));
 }
 function getCandidateByMint(mint) {
@@ -888,6 +1056,25 @@ function getCandidateByMint(mint) {
         poolPcAccount: row.pool_pc_account ?? undefined
     };
     return candidate;
+}
+function listRecentCandidates(limit = 30) {
+    const database = getDb();
+    const rows = database
+        .prepare(`SELECT mint, name, ocrs, lp_sol AS lp, buys60 AS buys, sells60 AS sells, uniques60 AS uniques, safety_ok AS safety_ok
+       FROM candidates
+       ORDER BY updated_at DESC
+       LIMIT @limit`)
+        .all({ limit });
+    return rows.map((r) => ({
+        mint: r.mint,
+        name: r.name,
+        ocrs: r.ocrs ?? 0,
+        lp: r.lp ?? 0,
+        buys: r.buys ?? 0,
+        sells: r.sells ?? 0,
+        uniques: r.uniques ?? 0,
+        safetyOk: Boolean(r.safety_ok)
+    }));
 }
 function safeParseNumberArray(value) {
     if (!value)
@@ -980,5 +1167,225 @@ function recordFill(fill) {
          tip_lamports = excluded.tip_lamports,
          slot = excluded.slot`)
         .run(fill);
+}
+// ---- Phase A helpers ----
+function insertMigrationEvent(e) {
+    const database = getDb();
+    database
+        .prepare(`INSERT INTO migration_events (ts, mint, pool, source, init_sig) VALUES (@ts, @mint, @pool, @source, @initSig)`)
+        .run(e);
+}
+function listRecentMigrationEvents(limit = 20) {
+    const database = getDb();
+    const rows = database
+        .prepare(`SELECT ts, mint, pool, source, init_sig FROM migration_events ORDER BY ts DESC LIMIT @limit`)
+        .all({ limit });
+    return rows.map((r) => ({ ts: r.ts, mint: r.mint, pool: r.pool, source: r.source, initSig: r.init_sig }));
+}
+function insertRugVerdict(v) {
+    const database = getDb();
+    database
+        .prepare(`INSERT INTO rug_verdicts (ts, mint, rug_prob, reasons_json) VALUES (@ts, @mint, @rugProb, @reasons)`)
+        .run({ ts: v.ts, mint: v.mint, rugProb: v.rugProb, reasons: JSON.stringify(v.reasons) });
+}
+function insertScore(s) {
+    const database = getDb();
+    database
+        .prepare(`INSERT INTO scores (ts, mint, horizon, score, features_json) VALUES (@ts, @mint, @horizon, @score, @features)`)
+        .run({ ts: s.ts, mint: s.mint, horizon: s.horizon, score: s.score, features: JSON.stringify(s.features) });
+}
+function computeMigrationCandidateLagQuantiles() {
+    const database = getDb();
+    const rows = database
+        .prepare(`SELECT ts, mint FROM migration_events ORDER BY ts DESC LIMIT 200`)
+        .all();
+    const lags = [];
+    for (const row of rows) {
+        const cand = database
+            .prepare(`SELECT updated_at FROM candidates WHERE mint = ? ORDER BY updated_at DESC LIMIT 1`)
+            .get(row.mint);
+        if (!cand?.updated_at)
+            continue;
+        const candTs = Date.parse(cand.updated_at);
+        if (!Number.isFinite(candTs))
+            continue;
+        const lag = Math.max(0, candTs - row.ts);
+        lags.push(lag);
+    }
+    if (lags.length === 0)
+        return { p50: 0, p95: 0 };
+    lags.sort((a, b) => a - b);
+    const q = (p) => lags[Math.min(lags.length - 1, Math.max(0, Math.floor((lags.length - 1) * p)))];
+    return { p50: q(0.5), p95: q(0.95) };
+}
+function getRugGuardStats() {
+    const database = getDb();
+    const rows = database
+        .prepare(`SELECT mint, rug_prob, reasons_json FROM rug_verdicts ORDER BY ts DESC LIMIT 200`)
+        .all();
+    if (rows.length === 0)
+        return { passRate: 0, avgRugProb: 0 };
+    let passes = 0;
+    let total = 0;
+    let sum = 0;
+    for (const r of rows) {
+        total += 1;
+        sum += r.rug_prob ?? 0;
+        try {
+            const reasons = JSON.parse(r.reasons_json);
+            const hasActiveAuth = reasons.includes('mint_or_freeze_active');
+            if (!hasActiveAuth)
+                passes += 1;
+        }
+        catch {
+            passes += 1;
+        }
+    }
+    return { passRate: total > 0 ? passes / total : 0, avgRugProb: sum / Math.max(1, total) };
+}
+// ---- Phase B helpers ----
+function insertFillPrediction(pred, ctx) {
+    const database = getDb();
+    database
+        .prepare(`INSERT INTO fill_preds (ts, route, p_fill, exp_slip_bps, exp_time_ms, ctx_json) VALUES (@ts, @route, @pFill, @expSlipBps, @expTimeMs, @ctx)`)
+        .run({ ...pred, ctx: JSON.stringify(ctx) });
+}
+function insertFeeDecision(dec, ctx) {
+    const database = getDb();
+    database
+        .prepare(`INSERT INTO fee_decisions (ts, cu_price, cu_limit, slippage_bps, ctx_json) VALUES (@ts, @cuPrice, @cuLimit, @slippageBps, @ctx)`)
+        .run({ ...dec, ctx: JSON.stringify(ctx) });
+}
+function insertExecOutcome(row) {
+    const database = getDb();
+    database
+        .prepare(`INSERT INTO exec_outcomes (ts, quote_price, exec_price, filled, route, cu_price, slippage_bps_req, slippage_bps_real, time_to_land_ms, error_code, notes, priority_fee_lamports, amount_in, amount_out, fee_lamports_total)
+              VALUES (@ts, @quotePrice, @execPrice, @filled, @route, @cuPrice, @slippageReq, @slippageReal, @timeToLandMs, @errorCode, @notes, @priorityFeeLamports, @amountIn, @amountOut, @feeLamportsTotal)`)
+        .run({ ...row });
+}
+function getExecSummary() {
+    const database = getDb();
+    const rows = database
+        .prepare(`SELECT slippage_bps_real AS slip, time_to_land_ms AS ttl, filled FROM exec_outcomes ORDER BY ts DESC LIMIT 300`)
+        .all();
+    if (rows.length === 0)
+        return { landedRate: 0, avgSlipBps: 0, p50Ttl: 0, p95Ttl: 0 };
+    let filled = 0;
+    let sumSlip = 0;
+    const ttls = [];
+    for (const r of rows) {
+        if (r.filled)
+            filled += 1;
+        if (Number.isFinite(r.slip ?? NaN))
+            sumSlip += r.slip;
+        if (Number.isFinite(r.ttl ?? NaN))
+            ttls.push(r.ttl);
+    }
+    ttls.sort((a, b) => a - b);
+    const q = (p) => ttls[Math.min(ttls.length - 1, Math.max(0, Math.floor((ttls.length - 1) * p)))];
+    return { landedRate: filled / rows.length, avgSlipBps: sumSlip / Math.max(1, rows.length), p50Ttl: q(0.5) || 0, p95Ttl: q(0.95) || 0 };
+}
+function upsertPrice(ts, symbol, usd) {
+    const database = getDb();
+    database
+        .prepare(`INSERT INTO prices (ts, symbol, usd) VALUES (@ts, @symbol, @usd)`)
+        .run({ ts, symbol, usd });
+}
+function getNearestPrice(ts, symbol) {
+    const database = getDb();
+    const row = database
+        .prepare(`SELECT usd FROM prices WHERE symbol = @symbol AND ts <= @ts ORDER BY ts DESC LIMIT 1`)
+        .get({ symbol, ts });
+    return typeof row?.usd === 'number' ? row.usd : null;
+}
+function getPnLSummary() {
+    const database = getDb();
+    const rows = database
+        .prepare(`SELECT ts, amount_in, slippage_bps_real, fee_lamports_total FROM exec_outcomes WHERE filled = 1 ORDER BY ts DESC LIMIT 1000`)
+        .all();
+    let feeUsd = 0;
+    let slipUsd = 0;
+    for (const r of rows) {
+        const solUsd = getNearestPrice(r.ts, 'SOL') ?? 0;
+        const inSol = (r.amount_in ?? 0) / 1000000000;
+        feeUsd += (r.fee_lamports_total ?? 0) / 1000000000 * solUsd;
+        slipUsd += (Math.abs(r.slippage_bps_real ?? 0) / 10000) * inSol * solUsd;
+    }
+    // Gross from sizing_outcomes
+    const srows = database.prepare(`SELECT pnl_usd FROM sizing_outcomes ORDER BY ts DESC LIMIT 1000`).all();
+    const grossUsd = srows.reduce((a, r) => a + (r.pnl_usd ?? 0), 0);
+    const netUsd = grossUsd - feeUsd - slipUsd;
+    return { netUsd, grossUsd, feeUsd, slipUsd };
+}
+// ---- Phase C helpers ----
+function insertHazardState(h) {
+    const database = getDb();
+    database
+        .prepare(`INSERT INTO hazard_states (ts, mint, hazard, trail_bps, ladder_json) VALUES (@ts, @mint, @hazard, @trailBps, @ladder)`)
+        .run({ ts: h.ts, mint: h.mint, hazard: h.hazard, trailBps: h.trailBps, ladder: JSON.stringify(h.ladder) });
+}
+function insertSizingDecision(dec, ctx) {
+    const database = getDb();
+    database
+        .prepare(`INSERT INTO sizing_decisions (ts, mint, arm, notional, ctx_json) VALUES (@ts, @mint, @arm, @notional, @ctx)`)
+        .run({ ...dec, ctx: JSON.stringify(ctx) });
+}
+function insertSizingOutcome(row) {
+    const database = getDb();
+    database
+        .prepare(`INSERT INTO sizing_outcomes (ts, mint, notional, pnl_usd, mae_bps, closed) VALUES (@ts, @mint, @notional, @pnlUsd, @maeBps, @closed)`)
+        .run(row);
+}
+function getRiskBudget() {
+    const database = getDb();
+    const cfg = (0, config_1.getConfig)();
+    const since = new Date();
+    since.setUTCHours(0, 0, 0, 0);
+    const rows = database
+        .prepare(`SELECT pnl_usd FROM sizing_outcomes WHERE ts >= ?`)
+        .all(since.getTime());
+    const used = rows.reduce((a, r) => (r.pnl_usd < 0 ? a + Math.abs(r.pnl_usd) : a), 0);
+    const cap = cfg.sizing?.dailyLossCapUsd ?? 0;
+    const remaining = Math.max(0, cap - used);
+    return { dailyLossCapUsd: cap, usedUsd: used, remainingUsd: remaining };
+}
+function getSizingDistribution() {
+    const database = getDb();
+    const rows = database
+        .prepare(`SELECT arm, COUNT(1) AS n FROM sizing_decisions WHERE arm IS NOT NULL AND arm != '' AND ts >= ? GROUP BY arm`)
+        .all(Date.now() - 24 * 60 * 60 * 1000);
+    const total = rows.reduce((a, r) => a + (r.n || 0), 0) || 1;
+    return rows.map((r) => ({ arm: r.arm, share: (r.n || 0) / total }));
+}
+// ---- Phase D helpers ----
+function createBacktestRun(params, notes) {
+    const database = getDb();
+    const res = database
+        .prepare(`INSERT INTO backtest_runs (started_ts, params_json, notes) VALUES (@ts, @params, @notes)`)
+        .run({ ts: Date.now(), params: JSON.stringify(params), notes: notes ?? null });
+    // better-sqlite3 returns lastInsertRowid as a bigint/number
+    return Number(res.lastInsertRowid);
+}
+function finishBacktestRun(runId) {
+    const database = getDb();
+    database.prepare(`UPDATE backtest_runs SET finished_ts = @ts WHERE id = @id`).run({ ts: Date.now(), id: runId });
+}
+function insertBacktestResult(runId, metric, value, segment) {
+    const database = getDb();
+    database
+        .prepare(`INSERT OR REPLACE INTO backtest_results (run_id, metric, value, segment) VALUES (@runId, @metric, @value, @segment)`)
+        .run({ runId, metric, value, segment: segment ?? 'overall' });
+}
+function insertShadowFeeDecision(row, ctx) {
+    const database = getDb();
+    database
+        .prepare(`INSERT INTO shadow_decisions_fee (ts, mint, chosen_arm, baseline_arm, delta_reward_est, ctx_json) VALUES (@ts, @mint, @chosenArm, @baselineArm, @deltaRewardEst, @ctx)`)
+        .run({ ...row, baselineArm: row.baselineArm ?? null, deltaRewardEst: row.deltaRewardEst ?? null, ctx: JSON.stringify(ctx) });
+}
+function insertShadowSizingDecision(row, ctx) {
+    const database = getDb();
+    database
+        .prepare(`INSERT INTO shadow_decisions_sizing (ts, mint, chosen_arm, baseline_arm, delta_reward_est, ctx_json) VALUES (@ts, @mint, @chosenArm, @baselineArm, @deltaRewardEst, @ctx)`)
+        .run({ ...row, baselineArm: row.baselineArm ?? null, deltaRewardEst: row.deltaRewardEst ?? null, ctx: JSON.stringify(ctx) });
 }
 //# sourceMappingURL=sqlite.js.map

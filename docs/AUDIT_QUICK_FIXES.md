@@ -36,3 +36,13 @@
 +  const opened = pm['positions_opened_total'] ?? 0;
 +  const trailing = pm['position_trailing_activated_total'] ?? 0;
 ```
+
+- **services/executor/src/index.ts** (applied): persist `slippage_bps_real` using the realized execution vs quoted price so downstream telemetry sees non-zero slip.
+
+- **services/position-manager/src/index.ts**, **packages/persistence/src/sqlite.ts** (applied): track running MAE per open position, add `mae_bps` to the `positions` table, persist on every update and on sizing outcomes.
+
+- **packages/util/src/sseClient.ts** + consumers (applied): shared SSE client with Last-Event-ID reconnect now powers executor, safety-engine, onchain-discovery, policy-engine, and UI dashboard; added short TTL deduping for candidate/migration feeds.
+
+- **packages/config/src/index.ts** (applied): feature flag `features.jitoEnabled` now gates runtime fallback to Jito endpoints; metrics reflect the flag.
+
+- **training/fillnet/train.ts**, **training/alpha_ranker/train.ts**, **training/rugguard/train.ts** (applied): trainers emit calibration/validation metrics to stdout and embed summaries into exported model JSON.

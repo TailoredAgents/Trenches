@@ -1,12 +1,11 @@
 # Pre-flight Checkpoint (Telemetry + SSE)
 
 ## Summary
-- executor: compute `slippage_bps_real` using quote vs. realized execution, store extra fill context for metrics.
-- position-manager: track per-position MAE in basis points and persist on close.
-- shared SSE helper: retry/backoff with Last-Event-ID; adopted in executor, safety-engine, onchain-discovery, policy-engine, position-manager, alpha-ranker, UI dashboard.
-- config/env: ensure `features.rugGuard` and `execution.jitoEnabled` gate runtime behaviour; add service-port env placeholders.
-- persistence: queue candidate writes and leader-wallet inserts via `createWriteQueue`.
-- trainers: alpha/fillnet/rugguard scripts print basic validation stats and include them in exported models.
+- executor: persist measured `slippage_bps_real` for fills and feed slip/TTL metrics alongside fee context.
+- position-manager & persistence: maintain per-position MAE, add `positions.mae_bps`, and embed MAE when closing via sizing outcomes.
+- shared SSE client: unified reconnect/backoff + Last-Event-ID with short dedup TTL across executor, safety-engine, onchain-discovery, policy-engine, and dashboard.
+- config/env: `features.jitoEnabled` now gates runtime Jito fallback; service ports documented in `env.example`.
+- trainers: fillnet/alpha/rugguard scripts emit calibration metrics to stdout and stash summaries in exported model JSON.
 
 ## Build & Test
 - `pnpm -r build`
@@ -18,5 +17,5 @@
 - `pnpm smoke:fillnet`
 
 ## Notes
-- SSE helper is opt-in via `createSSEClient` and maintains in-memory last-event IDs; services supply their own `EventSource` factory.
+- SSE helper is opt-in via `createSSEClient` and persists in-memory Last-Event-ID; services provide their EventSource factory and heartbeat filtering.
 - No Phase F features (route quarantine, migration preset tweaks, leader wallet scoring, price updater) included in this checkpoint.

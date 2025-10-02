@@ -114,7 +114,7 @@ type StreamHandler = (candidate: TokenCandidate) => void | Promise<void>;
 
 function startCandidateStream(url: string, handler: StreamHandler) {
   const lastEventIdStore = createInMemoryLastEventIdStore();
-  const dedup = new TtlCache<string, boolean>(5 * 60 * 1000);
+  const dedup = new TtlCache<string, boolean>(2 * 60 * 1000);
   const client = createSSEClient(url, {
     lastEventIdStore,
     eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }),

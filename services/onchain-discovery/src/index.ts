@@ -221,7 +221,7 @@ async function bootstrap() {
   if ((config as any).features?.migrationWatcher !== false) {
     const url = `http://127.0.0.1:${(config as any).services?.migrationWatcher?.port ?? 4018}/events/migrations`;
     const lastEventIdStore = createInMemoryLastEventIdStore();
-    const migrationDedup = new TtlCache<string, boolean>(10 * 60 * 1000);
+    const migrationDedup = new TtlCache<string, boolean>(2 * 60 * 1000);
     const client = createSSEClient(url, {
       lastEventIdStore,
       eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }),

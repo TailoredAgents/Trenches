@@ -372,7 +372,8 @@ export function loadConfig(options?: { forceReload?: boolean; configPath?: strin
   const parsed = configSchema.parse(merged);
   const withEnv = applyEnv(parsed);
   // Derive execution flags (read-only indicators)
-  const jitoEnabled = Boolean(withEnv.rpc.jitoHttpUrl || withEnv.rpc.jitoGrpcUrl);
+  const featureJitoEnabled = (withEnv as any).features?.jitoEnabled !== false;
+  const jitoEnabled = Boolean(featureJitoEnabled && (withEnv.rpc.jitoHttpUrl || withEnv.rpc.jitoGrpcUrl));
   const secondaryRpcEnabled = Boolean(withEnv.rpc.secondaryUrl);
   const wsEnabled = Boolean(withEnv.rpc.wsUrl);
   const simpleMode = !(jitoEnabled || secondaryRpcEnabled || wsEnabled);

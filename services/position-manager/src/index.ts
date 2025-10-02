@@ -161,7 +161,7 @@ async function hydratePositions(
         decimals,
         entryPrice: row.quantity > 0 ? row.averagePrice : undefined,
         lowWaterPrice: row.quantity > 0 ? row.averagePrice : undefined,
-        maeBps: 0
+        maeBps: row.maeBps ?? 0
       },
       candidate
     });
@@ -557,7 +557,8 @@ async function persistPosition(state: PositionState): Promise<void> {
     unrealizedPnl: state.unrealizedPnl,
     state: state.quantity > 0 ? 'OPEN' : 'CLOSED',
     ladderHits: Array.from(state.ladderHits).map(String),
-    trailActive: state.trailActive
+    trailActive: state.trailActive,
+    maeBps: state.maeBps ?? 0
   });
 }
 

@@ -36,7 +36,8 @@ exports.socialConfigSchema = zod_1.z.object({
     reddit: zod_1.z.object({
         enabled: zod_1.z.boolean().default(true),
         subreddits: zod_1.z.array(zod_1.z.string()).default(['solanamemes', 'memecoins', 'solana']),
-        pollIntervalSec: zod_1.z.number().int().positive().default(45)
+        pollIntervalSec: zod_1.z.number().int().positive().default(45),
+        appType: zod_1.z.enum(['installed', 'web']).default('installed')
     }),
     telegram: zod_1.z.object({
         enabled: zod_1.z.boolean().default(true),
@@ -65,6 +66,7 @@ exports.configSchema = zod_1.z.object({
         policyEngine: zod_1.z.object({ port: zod_1.z.number().int().min(1).max(65535) }).default({ port: 4015 }),
         positionManager: zod_1.z.object({ port: zod_1.z.number().int().min(1).max(65535) }).default({ port: 4016 }),
         narrativeMiner: zod_1.z.object({ port: zod_1.z.number().int().min(1).max(65535) }).default({ port: 4017 }),
+        migrationWatcher: zod_1.z.object({ port: zod_1.z.number().int().min(1).max(65535) }).default({ port: 4018 }),
         metrics: zod_1.z.object({ port: zod_1.z.number().int().min(1).max(65535) }).default({ port: 8090 })
     }),
     gating: zod_1.z.object({
@@ -168,19 +170,51 @@ exports.configSchema = zod_1.z.object({
         concurrencyScaler: exports.concurrencyScalerSchema.default({ base: 1, max: 1.4, recoveryMinutes: 60 })
     }),
     rpc: zod_1.z.object({
-        primaryUrl: zod_1.z.string().url().or(zod_1.z.literal('')).default(''),
+        primaryUrl: zod_1.z.string().url().or(zod_1.z.literal('')).default('http://127.0.0.1:8899'),
         secondaryUrl: zod_1.z.string().url().or(zod_1.z.literal('')).default(''),
         wsUrl: zod_1.z.string().url().or(zod_1.z.literal('')).default(''),
         jitoHttpUrl: zod_1.z.string().url().or(zod_1.z.literal('')).default(''),
         jitoGrpcUrl: zod_1.z.string().url().or(zod_1.z.literal('')).default(''),
-        jupiterBaseUrl: zod_1.z.string().url().default('https://quote-api.jup.ag/v6')
+        jupiterBaseUrl: zod_1.z.string().url().default('https://quote-api.jup.ag/v6'),
+        httpHeaders: zod_1.z.record(zod_1.z.string(), zod_1.z.string()).default({})
     }),
+    execution: zod_1.z
+        .object({
+        tipStrategy: zod_1.z.enum(['auto', 'manual']).default('auto'),
+        computeUnitPriceMode: zod_1.z.enum(['auto_oracle', 'manual']).default('auto_oracle'),
+        simpleMode: zod_1.z.boolean().default(true),
+        jitoEnabled: zod_1.z.boolean().default(false),
+        secondaryRpcEnabled: zod_1.z.boolean().default(false),
+        wsEnabled: zod_1.z.boolean().default(false)
+    })
+        .default({ tipStrategy: 'auto', computeUnitPriceMode: 'auto_oracle', simpleMode: true, jitoEnabled: false, secondaryRpcEnabled: false, wsEnabled: false }),
     dataProviders: zod_1.z.object({
         neynarBaseUrl: zod_1.z.string().url().default('https://api.neynar.com'),
         dexscreenerBaseUrl: zod_1.z.string().url().default('https://api.dexscreener.com'),
         birdeyeBaseUrl: zod_1.z.string().url().default('https://public-api.birdeye.so'),
         blueskyJetstreamUrl: zod_1.z.string().url().default('wss://jetstream2.us-east.host.bsky.network'),
         gdeltPulseUrl: zod_1.z.string().url().default('https://api.gdeltproject.org/api/v2/summary/summary')
+    }),
+    providers: zod_1.z
+        .object({
+        solanatracker: zod_1.z
+            .object({
+            enabled: zod_1.z.boolean().default(true),
+            baseUrl: zod_1.z.string().url().default('https://api.solanatracker.io'),
+            pollSec: zod_1.z.number().int().positive().default(8),
+            ttlSec: zod_1.z.number().int().positive().default(10),
+            endpoints: zod_1.z
+                .object({
+                trending: zod_1.z.boolean().default(true),
+                latest: zod_1.z.boolean().default(true),
+                launchpads: zod_1.z.object({ pumpfun: zod_1.z.boolean().default(true), jupstudio: zod_1.z.boolean().default(true) }).default({ pumpfun: true, jupstudio: true })
+            })
+                .default({ trending: true, latest: true, launchpads: { pumpfun: true, jupstudio: true } })
+        })
+            .default({ enabled: true, baseUrl: 'https://api.solanatracker.io', pollSec: 8, ttlSec: 10, endpoints: { trending: true, latest: true, launchpads: { pumpfun: true, jupstudio: true } } })
+    })
+        .default({
+        solanatracker: { enabled: true, baseUrl: 'https://api.solanatracker.io', pollSec: 8, ttlSec: 10, endpoints: { trending: true, latest: true, launchpads: { pumpfun: true, jupstudio: true } } }
     }),
     safety: zod_1.z.object({
         lpBurnThreshold: zod_1.z.number().min(0).max(1).default(0.9),
@@ -193,11 +227,11 @@ exports.configSchema = zod_1.z.object({
         ignoreAccounts: zod_1.z.array(zod_1.z.string()).default([
             '1nc1nerator11111111111111111111111111111111'
         ]),
-        candidateFeedUrl: zod_1.z.string().optional()
+        candidateFeedUrl: zod_1.z.string().optional().nullable()
     }),
     policy: zod_1.z.object({
-        safeFeedUrl: zod_1.z.string().optional(),
-        blockedFeedUrl: zod_1.z.string().optional(),
+        safeFeedUrl: zod_1.z.string().optional().nullable(),
+        blockedFeedUrl: zod_1.z.string().optional().nullable(),
         contextWindowSec: zod_1.z.number().int().positive().default(900),
         minOcrs: zod_1.z.number().min(0).max(1).default(0.68),
         minConfidence: zod_1.z.number().min(0).max(1).default(0.4),
@@ -224,6 +258,161 @@ exports.configSchema = zod_1.z.object({
         killSwitchToken: zod_1.z.string().optional(),
         allowRemoteKillSwitch: zod_1.z.boolean().default(false)
     }).default({ allowRemoteKillSwitch: false }),
-    social: exports.socialConfigSchema
+    social: exports.socialConfigSchema,
+    lunarcrush: zod_1.z
+        .object({
+        enabled: zod_1.z.boolean().default(true),
+        baseUrl: zod_1.z.string().url().default('https://api.lunarcrush.com'),
+        pollSec: zod_1.z.number().int().positive().default(180),
+        endpoints: zod_1.z
+            .object({ topics: zod_1.z.string().default('/v2'), influencers: zod_1.z.string().default('/v2') })
+            .default({ topics: '/v2', influencers: '/v2' }),
+        sssBias: zod_1.z
+            .object({ topicBoost: zod_1.z.number().min(0).max(1).default(0.03), influencerBoost: zod_1.z.number().min(0).max(1).default(0.02), maxBoost: zod_1.z.number().min(0).max(1).default(0.06) })
+            .default({ topicBoost: 0.03, influencerBoost: 0.02, maxBoost: 0.06 })
+    })
+        .default({ enabled: true, baseUrl: 'https://api.lunarcrush.com', pollSec: 180, endpoints: { topics: '/v2', influencers: '/v2' }, sssBias: { topicBoost: 0.03, influencerBoost: 0.02, maxBoost: 0.06 } }),
+    features: zod_1.z
+        .object({
+        migrationWatcher: zod_1.z.boolean().default(true),
+        rugGuard: zod_1.z.boolean().default(true),
+        alphaRanker: zod_1.z.boolean().default(true),
+        fillNet: zod_1.z.boolean().default(true),
+        feeBandit: zod_1.z.boolean().default(true),
+        constrainedSizing: zod_1.z.boolean().default(true),
+        survivalStops: zod_1.z.boolean().default(true),
+        offlinePolicyShadow: zod_1.z.boolean().default(true),
+        jitoEnabled: zod_1.z.boolean().default(false),
+        parquetExport: zod_1.z.boolean().default(false)
+    })
+        .default({
+        migrationWatcher: true,
+        rugGuard: true,
+        alphaRanker: true,
+        fillNet: true,
+        feeBandit: true,
+        constrainedSizing: true,
+        survivalStops: true,
+        offlinePolicyShadow: true,
+        jitoEnabled: false,
+        parquetExport: false
+    }),
+    addresses: zod_1.z
+        .object({
+        pumpfunProgram: zod_1.z.string().default(''),
+        pumpswapProgram: zod_1.z.string().default(''),
+        raydiumAmmV4: zod_1.z.string().default('675kPX9MHTjS2bSadfieDmpub5hm111B9S9N6fRqhNW'),
+        raydiumCpmm: zod_1.z.string().default('')
+    })
+        .default({ pumpfunProgram: '', pumpswapProgram: '', raydiumAmmV4: '675kPX9MHTjS2bSadfieDmpub5hm111B9S9N6fRqhNW', raydiumCpmm: '' }),
+    execution: zod_1.z.object({
+        tipStrategy: zod_1.z.enum(['auto', 'manual']).default('auto'),
+        computeUnitPriceMode: zod_1.z.enum(['auto_oracle', 'manual']).default('auto_oracle'),
+        simpleMode: zod_1.z.boolean().default(true),
+        jitoEnabled: zod_1.z.boolean().default(false),
+        secondaryRpcEnabled: zod_1.z.boolean().default(false),
+        wsEnabled: zod_1.z.boolean().default(false),
+        feeArms: zod_1.z.array(zod_1.z.object({ cuPrice: zod_1.z.number().int().min(0), slippageBps: zod_1.z.number().int().positive() })).default([
+            { cuPrice: 0, slippageBps: 50 },
+            { cuPrice: 1000, slippageBps: 75 },
+            { cuPrice: 3000, slippageBps: 100 },
+            { cuPrice: 6000, slippageBps: 125 },
+            { cuPrice: 10000, slippageBps: 150 }
+        ]),
+        minFillProb: zod_1.z.number().min(0).max(1).default(0.9),
+        maxSlipBps: zod_1.z.number().int().positive().default(250),
+        routeRetryMs: zod_1.z.number().int().positive().default(900),
+        blockhashStaleMs: zod_1.z.number().int().positive().default(2500),
+        migrationPreset: zod_1.z
+            .object({
+            enabled: zod_1.z.boolean().default(true),
+            durationMs: zod_1.z.number().int().positive().default(60000),
+            cuPriceBump: zod_1.z.number().int().nonnegative().default(3000),
+            minSlippageBps: zod_1.z.number().int().positive().default(100),
+            decayMs: zod_1.z.number().int().nonnegative().default(30000)
+        })
+            .default({ enabled: true, durationMs: 60000, cuPriceBump: 3000, minSlippageBps: 100, decayMs: 30000 }),
+        quarantine: zod_1.z
+            .object({ failRate: zod_1.z.number().min(0).max(1).default(0.4), minAttempts: zod_1.z.number().int().positive().default(5) })
+            .default({ failRate: 0.4, minAttempts: 5 })
+    }).default({
+        tipStrategy: 'auto',
+        computeUnitPriceMode: 'auto_oracle',
+        simpleMode: true,
+        jitoEnabled: false,
+        secondaryRpcEnabled: false,
+        wsEnabled: false,
+        feeArms: [
+            { cuPrice: 0, slippageBps: 50 },
+            { cuPrice: 1000, slippageBps: 75 },
+            { cuPrice: 3000, slippageBps: 100 },
+            { cuPrice: 6000, slippageBps: 125 },
+            { cuPrice: 10000, slippageBps: 150 }
+        ],
+        minFillProb: 0.9,
+        maxSlipBps: 250,
+        routeRetryMs: 900,
+        blockhashStaleMs: 2500,
+        migrationPreset: { enabled: true, durationMs: 60000, cuPriceBump: 3000, minSlippageBps: 100, decayMs: 30000 },
+        quarantine: { failRate: 0.4, minAttempts: 5 }
+    }),
+    jito: zod_1.z.object({
+        tipLamportsMin: zod_1.z.number().int().min(0).default(0),
+        tipLamportsMax: zod_1.z.number().int().min(0).default(0),
+        bundleUrl: zod_1.z.string().default('')
+    }).default({ tipLamportsMin: 0, tipLamportsMax: 0, bundleUrl: '' }),
+    sizing: zod_1.z
+        .object({
+        baseUnitUsd: zod_1.z.number().positive().default(100),
+        arms: zod_1.z
+            .array(zod_1.z.object({ type: zod_1.z.enum(['equity_frac']), value: zod_1.z.number().positive() }))
+            .default([
+            { type: 'equity_frac', value: 0.005 },
+            { type: 'equity_frac', value: 0.01 },
+            { type: 'equity_frac', value: 0.02 }
+        ]),
+        dailyLossCapUsd: zod_1.z.number().nonnegative().default(500),
+        perMintCapUsd: zod_1.z.number().nonnegative().default(400),
+        coolOffL: zod_1.z.number().int().nonnegative().default(2)
+    })
+        .default({ baseUnitUsd: 100, arms: [{ type: 'equity_frac', value: 0.005 }, { type: 'equity_frac', value: 0.01 }, { type: 'equity_frac', value: 0.02 }], dailyLossCapUsd: 500, perMintCapUsd: 400, coolOffL: 2 }),
+    survival: zod_1.z
+        .object({
+        baseTrailBps: zod_1.z.number().int().positive().default(120),
+        minTrailBps: zod_1.z.number().int().positive().default(60),
+        maxTrailBps: zod_1.z.number().int().positive().default(250),
+        hardStopMaxLossBps: zod_1.z.number().int().positive().default(350),
+        ladderLevels: zod_1.z.array(zod_1.z.number().min(0)).default([0.05, 0.12, 0.22]),
+        hazardTighten: zod_1.z.number().min(0).max(1).default(0.65),
+        hazardPanic: zod_1.z.number().min(0).max(1).default(0.85)
+    })
+        .default({ baseTrailBps: 120, minTrailBps: 60, maxTrailBps: 250, hardStopMaxLossBps: 350, ladderLevels: [0.05, 0.12, 0.22], hazardTighten: 0.65, hazardPanic: 0.85 }),
+    shadow: zod_1.z
+        .object({
+        fee: zod_1.z.object({ method: zod_1.z.string().default('weighted_bc'), probFloor: zod_1.z.number().min(0).max(1).default(0.05) }).default({ method: 'weighted_bc', probFloor: 0.05 }),
+        sizing: zod_1.z.object({ method: zod_1.z.string().default('weighted_bc'), probFloor: zod_1.z.number().min(0).max(1).default(0.05) }).default({ method: 'weighted_bc', probFloor: 0.05 })
+    })
+        .default({ fee: { method: 'weighted_bc', probFloor: 0.05 }, sizing: { method: 'weighted_bc', probFloor: 0.05 } }),
+    alpha: zod_1.z
+        .object({
+        horizons: zod_1.z.array(zod_1.z.enum(['10m', '60m', '24h'])).default(['10m', '60m', '24h']),
+        topK: zod_1.z.number().int().positive().default(12),
+        minScore: zod_1.z.number().min(0).max(1).default(0.52)
+    })
+        .default({ horizons: ['10m', '60m', '24h'], topK: 12, minScore: 0.52 }),
+    fillnet: zod_1.z
+        .object({
+        modelPath: zod_1.z.string().default('models/fillnet_v2.json'),
+        minFillProb: zod_1.z.number().min(0).max(1).default(0.92),
+        maxSlipBps: zod_1.z.number().int().positive().default(250)
+    })
+        .default({ modelPath: 'models/fillnet_v2.json', minFillProb: 0.92, maxSlipBps: 250 }),
+    pnl: zod_1.z
+        .object({
+        useUsd: zod_1.z.boolean().default(true),
+        solPriceSource: zod_1.z.enum(['birdeye']).default('birdeye'),
+        includePriorityFee: zod_1.z.boolean().default(true)
+    })
+        .default({ useUsd: true, solPriceSource: 'birdeye', includePriorityFee: true })
 });
 //# sourceMappingURL=schema.js.map

@@ -39,6 +39,7 @@ const baseConfig = schema_1.configSchema.parse({
         policyEngine: { port: 4015 },
         positionManager: { port: 4016 },
         narrativeMiner: { port: 4017 },
+        migrationWatcher: { port: 4018 },
         metrics: { port: 8090 }
     },
     gating: {
@@ -57,7 +58,12 @@ const baseConfig = schema_1.configSchema.parse({
     },
     topics: {
         cluster: { lshBands: 12, lshRows: 6, minCosine: 0.82, mergeMinObservations: 3 },
-        scoring: { openThreshold: 0.6, sustainThreshold: 0.45, recencyHalfLifeSec: 120, noveltyEpsilon: 1e-6 },
+        scoring: {
+            openThreshold: 0.6,
+            sustainThreshold: 0.45,
+            recencyHalfLifeSec: 120,
+            noveltyEpsilon: 1e-6
+        },
         phrase: {
             minLength: 3,
             maxLength: 48,
@@ -129,12 +135,13 @@ const baseConfig = schema_1.configSchema.parse({
         concurrencyScaler: { base: 1, max: 1.4, recoveryMinutes: 60 }
     },
     rpc: {
-        primaryUrl: '',
+        primaryUrl: 'http://127.0.0.1:8899',
         secondaryUrl: '',
         wsUrl: '',
         jitoHttpUrl: '',
         jitoGrpcUrl: '',
-        jupiterBaseUrl: 'https://quote-api.jup.ag/v6'
+        jupiterBaseUrl: 'https://quote-api.jup.ag/v6',
+        httpHeaders: {}
     },
     dataProviders: {
         neynarBaseUrl: 'https://api.neynar.com',
@@ -188,6 +195,27 @@ const baseConfig = schema_1.configSchema.parse({
         gdelt: { enabled: true, pollIntervalSec: 900 }
     }
 });
+function parseJsonRecord(value) {
+    try {
+        const parsed = JSON.parse(value);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            const record = {};
+            for (const [key, val] of Object.entries(parsed)) {
+                if (typeof val === 'string') {
+                    record[key] = val;
+                }
+                else {
+                    record[key] = String(val);
+                }
+            }
+            return record;
+        }
+    }
+    catch (err) {
+        throw new Error(`Failed to parse SOLANA_RPC_HTTP_HEADERS: ${err.message}`);
+    }
+    throw new Error('SOLANA_RPC_HTTP_HEADERS must be a JSON object of string values');
+}
 const envMap = [
     ['mode', 'AGENT_MODE', (v) => v],
     ['logging.level', 'LOG_LEVEL', (v) => v],
@@ -200,6 +228,7 @@ const envMap = [
     ['services.policyEngine.port', 'POLICY_ENGINE_PORT', (v) => Number(v)],
     ['services.positionManager.port', 'POSITION_MANAGER_PORT', (v) => Number(v)],
     ['services.narrativeMiner.port', 'NARRATIVE_MINER_PORT', (v) => Number(v)],
+    ['services.migrationWatcher.port', 'MIGRATION_WATCHER_PORT', (v) => Number(v)],
     ['services.metrics.port', 'HEALTH_PORT', (v) => Number(v)],
     ['rpc.primaryUrl', 'SOLANA_PRIMARY_RPC_URL', (v) => v],
     ['rpc.secondaryUrl', 'SOLANA_SECONDARY_RPC_URL', (v) => v],
@@ -207,11 +236,17 @@ const envMap = [
     ['rpc.jitoHttpUrl', 'JITO_BLOCK_ENGINE_HTTP', (v) => v],
     ['rpc.jitoGrpcUrl', 'JITO_BLOCK_ENGINE_GRPC', (v) => v],
     ['rpc.jupiterBaseUrl', 'JUPITER_API_URL', (v) => v],
+    ['rpc.httpHeaders', 'SOLANA_RPC_HTTP_HEADERS', parseJsonRecord],
     ['dataProviders.neynarBaseUrl', 'NEYNAR_BASE_URL', (v) => v],
     ['dataProviders.dexscreenerBaseUrl', 'DEXSCREENER_BASE_URL', (v) => v],
     ['dataProviders.birdeyeBaseUrl', 'BIRDEYE_BASE_URL', (v) => v],
     ['dataProviders.blueskyJetstreamUrl', 'BLUESKY_JETSTREAM_URL', (v) => v],
     ['dataProviders.gdeltPulseUrl', 'GDELT_PULSE_URL', (v) => v],
+    ['providers.solanatracker.baseUrl', 'SOLANATRACKER_BASE_URL', (v) => v],
+    ['addresses.pumpfunProgram', 'PUMPFUN_PROGRAM_ID', (v) => v],
+    ['addresses.pumpswapProgram', 'PUMPSWAP_PROGRAM_ID', (v) => v],
+    ['addresses.raydiumAmmV4', 'RAYDIUM_AMM_V4_PROGRAM_ID', (v) => v],
+    ['addresses.raydiumCpmm', 'RAYDIUM_CPMM_PROGRAM_ID', (v) => v],
     ['persistence.sqlitePath', 'SQLITE_DB_PATH', (v) => v],
     ['persistence.parquetDir', 'PARQUET_OUTPUT_DIR', (v) => v],
     ['security.killSwitchToken', 'KILL_SWITCH_TOKEN', (v) => v],
@@ -224,14 +259,82 @@ const envMap = [
     ['social.neynar.pollIntervalSec', 'NEYNAR_POLL_SEC', (v) => Number(v)],
     ['social.reddit.subreddits', 'REDDIT_SUBREDDITS', parseStringList],
     ['social.reddit.pollIntervalSec', 'REDDIT_POLL_SEC', (v) => Number(v)],
+    ['social.reddit.appType', 'REDDIT_APP_TYPE', (v) => (String(v).toLowerCase() === 'web' ? 'web' : 'installed')],
+    ['social.reddit.appType', 'REDDIT_APP_TYPE', (v) => (v.toLowerCase() === 'web' ? 'web' : 'installed')],
     ['social.telegram.channels', 'TELEGRAM_CHANNELS', parseStringList],
     ['social.telegram.downloadDir', 'TELEGRAM_TDLIB_DB_PATH', (v) => v],
     ['social.telegram.pollIntervalSec', 'TELEGRAM_POLL_SEC', (v) => Number(v)],
     ['social.gdelt.pollIntervalSec', 'GDELT_POLL_SEC', (v) => Number(v)],
     ['topics.test.enabled', 'NARRATIVE_TEST_ENABLED', (v) => v === 'true'],
     ['topics.test.seed', 'NARRATIVE_TEST_SEED', (v) => Number(v)],
-    ['topics.test.vectorizerModule', 'NARRATIVE_TEST_VECTORIZER_MODULE', (v) => v]
+    ['topics.test.vectorizerModule', 'NARRATIVE_TEST_VECTORIZER_MODULE', (v) => v],
+    ['execution.minFillProb', 'EXEC_MIN_FILL_PROB', (v) => Number(v)],
+    ['execution.maxSlipBps', 'EXEC_MAX_SLIP_BPS', (v) => Number(v)],
+    ['execution.routeRetryMs', 'EXEC_ROUTE_RETRY_MS', (v) => Number(v)],
+    ['execution.blockhashStaleMs', 'EXEC_BLOCKHASH_STALE_MS', (v) => Number(v)],
+    ['execution.migrationPreset.enabled', 'EXEC_MIGRATION_PRESET_ENABLED', (v) => v === 'true'],
+    ['execution.migrationPreset.durationMs', 'EXEC_MIGRATION_PRESET_DURATION_MS', (v) => Number(v)],
+    ['execution.migrationPreset.cuPriceBump', 'EXEC_MIGRATION_PRESET_CUPRICE_BUMP', (v) => Number(v)],
+    ['execution.migrationPreset.minSlippageBps', 'EXEC_MIGRATION_PRESET_MIN_SLIPPAGE_BPS', (v) => Number(v)],
+    ['execution.migrationPreset.decayMs', 'EXEC_MIGRATION_PRESET_DECAY_MS', (v) => Number(v)],
+    ['execution.quarantine.failRate', 'EXEC_ROUTE_QUARANTINE_FAIL_RATE', (v) => Number(v)],
+    ['execution.quarantine.minAttempts', 'EXEC_ROUTE_QUARANTINE_MIN_ATTEMPTS', (v) => Number(v)],
+    ['jito.bundleUrl', 'JITO_BUNDLE_URL', (v) => v],
+    ['jito.tipLamportsMin', 'JITO_TIP_MIN', (v) => Number(v)],
+    ['jito.tipLamportsMax', 'JITO_TIP_MAX', (v) => Number(v)]
 ];
+// JSON env caster for feeArms
+try {
+    envMap.push(['execution.feeArms', 'EXEC_FEE_ARMS', (v) => {
+            try {
+                const arr = JSON.parse(v);
+                return Array.isArray(arr) ? arr : [];
+            }
+            catch {
+                return [];
+            }
+        }]);
+}
+catch { }
+try {
+    envMap.push(['alpha.topK', 'ALPHA_TOPK', (v) => Number(v)]);
+    envMap.push(['alpha.minScore', 'ALPHA_MIN_SCORE', (v) => Number(v)]);
+    envMap.push(['fillnet.modelPath', 'FILLNET_MODEL_PATH', (v) => v]);
+    envMap.push(['fillnet.minFillProb', 'FILLNET_MIN_FILL_PROB', (v) => Number(v)]);
+    envMap.push(['pnl.useUsd', 'PNL_USE_USD', (v) => v === 'true']);
+    envMap.push(['pnl.includePriorityFee', 'PNL_INCLUDE_PRIORITY_FEE', (v) => v === 'true']);
+}
+catch { }
+// Sizing and survival env overrides
+try {
+    envMap.push(['sizing.baseUnitUsd', 'SIZING_BASE_UNIT_USD', (v) => Number(v)]);
+    envMap.push(['sizing.arms', 'SIZING_ARMS_JSON', (v) => { try {
+            const a = JSON.parse(v);
+            return Array.isArray(a) ? a : [];
+        }
+        catch {
+            return [];
+        } }]);
+    envMap.push(['sizing.dailyLossCapUsd', 'SIZING_DAILY_LOSS_CAP_USD', (v) => Number(v)]);
+    envMap.push(['sizing.perMintCapUsd', 'SIZING_PER_MINT_CAP_USD', (v) => Number(v)]);
+    envMap.push(['sizing.coolOffL', 'SIZING_COOL_OFFL', (v) => Number(v)]);
+    envMap.push(['survival.baseTrailBps', 'SURV_BASE_TRAIL_BPS', (v) => Number(v)]);
+    envMap.push(['survival.minTrailBps', 'SURV_MIN_TRAIL_BPS', (v) => Number(v)]);
+    envMap.push(['survival.maxTrailBps', 'SURV_MAX_TRAIL_BPS', (v) => Number(v)]);
+    envMap.push(['survival.hardStopMaxLossBps', 'SURV_HARD_STOP_MAX_LOSS_BPS', (v) => Number(v)]);
+    envMap.push(['survival.ladderLevels', 'SURV_LADDER_LEVELS_JSON', (v) => { try {
+            const a = JSON.parse(v);
+            return Array.isArray(a) ? a : [];
+        }
+        catch {
+            return [];
+        } }]);
+    envMap.push(['survival.hazardTighten', 'SURV_HAZARD_TIGHTEN', (v) => Number(v)]);
+    envMap.push(['survival.hazardPanic', 'SURV_HAZARD_PANIC', (v) => Number(v)]);
+    envMap.push(['shadow.fee.probFloor', 'SHADOW_FEE_PROB_FLOOR', (v) => Number(v)]);
+    envMap.push(['shadow.sizing.probFloor', 'SHADOW_SIZING_PROB_FLOOR', (v) => Number(v)]);
+}
+catch { }
 function setPath(target, dottedKey, value) {
     const segments = dottedKey.split('.');
     let cursor = target;
@@ -277,6 +380,19 @@ function loadConfig(options) {
     const merged = (0, util_1.deepMerge)(baseConfig, fileConfig);
     const parsed = schema_1.configSchema.parse(merged);
     const withEnv = applyEnv(parsed);
+    // Derive execution flags (read-only indicators)
+    const featureJitoEnabled = withEnv.features?.jitoEnabled !== false;
+    const jitoEnabled = Boolean(featureJitoEnabled && (withEnv.rpc.jitoHttpUrl || withEnv.rpc.jitoGrpcUrl));
+    const secondaryRpcEnabled = Boolean(withEnv.rpc.secondaryUrl);
+    const wsEnabled = Boolean(withEnv.rpc.wsUrl);
+    const simpleMode = !(jitoEnabled || secondaryRpcEnabled || wsEnabled);
+    withEnv.execution = {
+        ...(withEnv.execution ?? {}),
+        jitoEnabled,
+        secondaryRpcEnabled,
+        wsEnabled,
+        simpleMode
+    };
     cachedConfig = withEnv;
     return withEnv;
 }

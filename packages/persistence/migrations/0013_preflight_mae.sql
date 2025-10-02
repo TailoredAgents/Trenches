@@ -1,0 +1,1 @@
+﻿ALTER TABLE positions ADD COLUMN mae_bps REAL NOT NULL DEFAULT 0;

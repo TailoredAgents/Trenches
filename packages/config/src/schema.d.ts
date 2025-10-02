@@ -84,14 +84,17 @@ export declare const socialConfigSchema: z.ZodObject<{
         enabled: z.ZodDefault<z.ZodBoolean>;
         subreddits: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
         pollIntervalSec: z.ZodDefault<z.ZodNumber>;
+        appType: z.ZodDefault<z.ZodEnum<["installed", "web"]>>;
     }, "strip", z.ZodTypeAny, {
         enabled: boolean;
         pollIntervalSec: number;
         subreddits: string[];
+        appType: "installed" | "web";
     }, {
         enabled?: boolean | undefined;
         pollIntervalSec?: number | undefined;
         subreddits?: string[] | undefined;
+        appType?: "installed" | "web" | undefined;
     }>;
     telegram: z.ZodObject<{
         enabled: z.ZodDefault<z.ZodBoolean>;
@@ -120,6 +123,12 @@ export declare const socialConfigSchema: z.ZodObject<{
         pollIntervalSec?: number | undefined;
     }>;
 }, "strip", z.ZodTypeAny, {
+    neynar: {
+        enabled: boolean;
+        watchFids: number[];
+        keywords: string[];
+        pollIntervalSec: number;
+    };
     bluesky: {
         enabled: boolean;
         cursorPath: string;
@@ -129,6 +138,7 @@ export declare const socialConfigSchema: z.ZodObject<{
         enabled: boolean;
         pollIntervalSec: number;
         subreddits: string[];
+        appType: "installed" | "web";
     };
     telegram: {
         enabled: boolean;
@@ -140,13 +150,13 @@ export declare const socialConfigSchema: z.ZodObject<{
         enabled: boolean;
         pollIntervalSec: number;
     };
-    neynar: {
-        enabled: boolean;
-        watchFids: number[];
-        keywords: string[];
-        pollIntervalSec: number;
-    };
 }, {
+    neynar: {
+        enabled?: boolean | undefined;
+        watchFids?: number[] | undefined;
+        keywords?: string[] | undefined;
+        pollIntervalSec?: number | undefined;
+    };
     bluesky: {
         enabled?: boolean | undefined;
         cursorPath?: string | undefined;
@@ -156,6 +166,7 @@ export declare const socialConfigSchema: z.ZodObject<{
         enabled?: boolean | undefined;
         pollIntervalSec?: number | undefined;
         subreddits?: string[] | undefined;
+        appType?: "installed" | "web" | undefined;
     };
     telegram: {
         enabled?: boolean | undefined;
@@ -167,12 +178,6 @@ export declare const socialConfigSchema: z.ZodObject<{
         enabled?: boolean | undefined;
         pollIntervalSec?: number | undefined;
     };
-    neynar: {
-        enabled?: boolean | undefined;
-        watchFids?: number[] | undefined;
-        keywords?: string[] | undefined;
-        pollIntervalSec?: number | undefined;
-    };
 }>;
 export declare const configSchema: z.ZodObject<{
     mode: z.ZodDefault<z.ZodEnum<["SIM", "SHADOW", "SEMI", "FULL"]>>;
@@ -180,10 +185,10 @@ export declare const configSchema: z.ZodObject<{
         level: z.ZodDefault<z.ZodEnum<["fatal", "error", "warn", "info", "debug", "trace"]>>;
         json: z.ZodDefault<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
-        level: "info" | "warn" | "error" | "fatal" | "debug" | "trace";
+        level: "fatal" | "error" | "warn" | "info" | "debug" | "trace";
         json: boolean;
     }, {
-        level?: "info" | "warn" | "error" | "fatal" | "debug" | "trace" | undefined;
+        level?: "fatal" | "error" | "warn" | "info" | "debug" | "trace" | undefined;
         json?: boolean | undefined;
     }>>;
     services: z.ZodObject<{
@@ -250,6 +255,13 @@ export declare const configSchema: z.ZodObject<{
         }, {
             port: number;
         }>>;
+        migrationWatcher: z.ZodDefault<z.ZodObject<{
+            port: z.ZodNumber;
+        }, "strip", z.ZodTypeAny, {
+            port: number;
+        }, {
+            port: number;
+        }>>;
         metrics: z.ZodDefault<z.ZodObject<{
             port: z.ZodNumber;
         }, "strip", z.ZodTypeAny, {
@@ -285,6 +297,9 @@ export declare const configSchema: z.ZodObject<{
         narrativeMiner: {
             port: number;
         };
+        migrationWatcher: {
+            port: number;
+        };
         metrics: {
             port: number;
         };
@@ -314,6 +329,9 @@ export declare const configSchema: z.ZodObject<{
             port: number;
         } | undefined;
         narrativeMiner?: {
+            port: number;
+        } | undefined;
+        migrationWatcher?: {
             port: number;
         } | undefined;
         metrics?: {
@@ -666,6 +684,7 @@ export declare const configSchema: z.ZodObject<{
         jitoHttpUrl: z.ZodDefault<z.ZodUnion<[z.ZodString, z.ZodLiteral<"">]>>;
         jitoGrpcUrl: z.ZodDefault<z.ZodUnion<[z.ZodString, z.ZodLiteral<"">]>>;
         jupiterBaseUrl: z.ZodDefault<z.ZodString>;
+        httpHeaders: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodString>>;
     }, "strip", z.ZodTypeAny, {
         primaryUrl: string;
         secondaryUrl: string;
@@ -673,6 +692,7 @@ export declare const configSchema: z.ZodObject<{
         jitoHttpUrl: string;
         jitoGrpcUrl: string;
         jupiterBaseUrl: string;
+        httpHeaders: Record<string, string>;
     }, {
         primaryUrl?: string | undefined;
         secondaryUrl?: string | undefined;
@@ -680,7 +700,111 @@ export declare const configSchema: z.ZodObject<{
         jitoHttpUrl?: string | undefined;
         jitoGrpcUrl?: string | undefined;
         jupiterBaseUrl?: string | undefined;
+        httpHeaders?: Record<string, string> | undefined;
     }>;
+    execution: z.ZodDefault<z.ZodObject<{
+        tipStrategy: z.ZodDefault<z.ZodEnum<["auto", "manual"]>>;
+        computeUnitPriceMode: z.ZodDefault<z.ZodEnum<["auto_oracle", "manual"]>>;
+        simpleMode: z.ZodDefault<z.ZodBoolean>;
+        jitoEnabled: z.ZodDefault<z.ZodBoolean>;
+        secondaryRpcEnabled: z.ZodDefault<z.ZodBoolean>;
+        wsEnabled: z.ZodDefault<z.ZodBoolean>;
+        feeArms: z.ZodDefault<z.ZodArray<z.ZodObject<{
+            cuPrice: z.ZodNumber;
+            slippageBps: z.ZodNumber;
+        }, "strip", z.ZodTypeAny, {
+            slippageBps: number;
+            cuPrice: number;
+        }, {
+            slippageBps: number;
+            cuPrice: number;
+        }>, "many">>;
+        minFillProb: z.ZodDefault<z.ZodNumber>;
+        maxSlipBps: z.ZodDefault<z.ZodNumber>;
+        routeRetryMs: z.ZodDefault<z.ZodNumber>;
+        blockhashStaleMs: z.ZodDefault<z.ZodNumber>;
+        migrationPreset: z.ZodDefault<z.ZodObject<{
+            enabled: z.ZodDefault<z.ZodBoolean>;
+            durationMs: z.ZodDefault<z.ZodNumber>;
+            cuPriceBump: z.ZodDefault<z.ZodNumber>;
+            minSlippageBps: z.ZodDefault<z.ZodNumber>;
+            decayMs: z.ZodDefault<z.ZodNumber>;
+        }, "strip", z.ZodTypeAny, {
+            enabled: boolean;
+            durationMs: number;
+            cuPriceBump: number;
+            minSlippageBps: number;
+            decayMs: number;
+        }, {
+            enabled?: boolean | undefined;
+            durationMs?: number | undefined;
+            cuPriceBump?: number | undefined;
+            minSlippageBps?: number | undefined;
+            decayMs?: number | undefined;
+        }>>;
+        quarantine: z.ZodDefault<z.ZodObject<{
+            failRate: z.ZodDefault<z.ZodNumber>;
+            minAttempts: z.ZodDefault<z.ZodNumber>;
+        }, "strip", z.ZodTypeAny, {
+            failRate: number;
+            minAttempts: number;
+        }, {
+            failRate?: number | undefined;
+            minAttempts?: number | undefined;
+        }>>;
+    }, "strip", z.ZodTypeAny, {
+        tipStrategy: "auto" | "manual";
+        computeUnitPriceMode: "manual" | "auto_oracle";
+        simpleMode: boolean;
+        jitoEnabled: boolean;
+        secondaryRpcEnabled: boolean;
+        wsEnabled: boolean;
+        feeArms: {
+            slippageBps: number;
+            cuPrice: number;
+        }[];
+        minFillProb: number;
+        maxSlipBps: number;
+        routeRetryMs: number;
+        blockhashStaleMs: number;
+        migrationPreset: {
+            enabled: boolean;
+            durationMs: number;
+            cuPriceBump: number;
+            minSlippageBps: number;
+            decayMs: number;
+        };
+        quarantine: {
+            failRate: number;
+            minAttempts: number;
+        };
+    }, {
+        tipStrategy?: "auto" | "manual" | undefined;
+        computeUnitPriceMode?: "manual" | "auto_oracle" | undefined;
+        simpleMode?: boolean | undefined;
+        jitoEnabled?: boolean | undefined;
+        secondaryRpcEnabled?: boolean | undefined;
+        wsEnabled?: boolean | undefined;
+        feeArms?: {
+            slippageBps: number;
+            cuPrice: number;
+        }[] | undefined;
+        minFillProb?: number | undefined;
+        maxSlipBps?: number | undefined;
+        routeRetryMs?: number | undefined;
+        blockhashStaleMs?: number | undefined;
+        migrationPreset?: {
+            enabled?: boolean | undefined;
+            durationMs?: number | undefined;
+            cuPriceBump?: number | undefined;
+            minSlippageBps?: number | undefined;
+            decayMs?: number | undefined;
+        } | undefined;
+        quarantine?: {
+            failRate?: number | undefined;
+            minAttempts?: number | undefined;
+        } | undefined;
+    }>>;
     dataProviders: z.ZodObject<{
         neynarBaseUrl: z.ZodDefault<z.ZodString>;
         dexscreenerBaseUrl: z.ZodDefault<z.ZodString>;
@@ -700,28 +824,120 @@ export declare const configSchema: z.ZodObject<{
         blueskyJetstreamUrl?: string | undefined;
         gdeltPulseUrl?: string | undefined;
     }>;
+    providers: z.ZodDefault<z.ZodObject<{
+        solanatracker: z.ZodDefault<z.ZodObject<{
+            enabled: z.ZodDefault<z.ZodBoolean>;
+            baseUrl: z.ZodDefault<z.ZodString>;
+            pollSec: z.ZodDefault<z.ZodNumber>;
+            ttlSec: z.ZodDefault<z.ZodNumber>;
+            endpoints: z.ZodDefault<z.ZodObject<{
+                trending: z.ZodDefault<z.ZodBoolean>;
+                latest: z.ZodDefault<z.ZodBoolean>;
+                launchpads: z.ZodDefault<z.ZodObject<{
+                    pumpfun: z.ZodDefault<z.ZodBoolean>;
+                    jupstudio: z.ZodDefault<z.ZodBoolean>;
+                }, "strip", z.ZodTypeAny, {
+                    pumpfun: boolean;
+                    jupstudio: boolean;
+                }, {
+                    pumpfun?: boolean | undefined;
+                    jupstudio?: boolean | undefined;
+                }>>;
+            }, "strip", z.ZodTypeAny, {
+                trending: boolean;
+                latest: boolean;
+                launchpads: {
+                    pumpfun: boolean;
+                    jupstudio: boolean;
+                };
+            }, {
+                trending?: boolean | undefined;
+                latest?: boolean | undefined;
+                launchpads?: {
+                    pumpfun?: boolean | undefined;
+                    jupstudio?: boolean | undefined;
+                } | undefined;
+            }>>;
+        }, "strip", z.ZodTypeAny, {
+            enabled: boolean;
+            baseUrl: string;
+            pollSec: number;
+            ttlSec: number;
+            endpoints: {
+                trending: boolean;
+                latest: boolean;
+                launchpads: {
+                    pumpfun: boolean;
+                    jupstudio: boolean;
+                };
+            };
+        }, {
+            enabled?: boolean | undefined;
+            baseUrl?: string | undefined;
+            pollSec?: number | undefined;
+            ttlSec?: number | undefined;
+            endpoints?: {
+                trending?: boolean | undefined;
+                latest?: boolean | undefined;
+                launchpads?: {
+                    pumpfun?: boolean | undefined;
+                    jupstudio?: boolean | undefined;
+                } | undefined;
+            } | undefined;
+        }>>;
+    }, "strip", z.ZodTypeAny, {
+        solanatracker: {
+            enabled: boolean;
+            baseUrl: string;
+            pollSec: number;
+            ttlSec: number;
+            endpoints: {
+                trending: boolean;
+                latest: boolean;
+                launchpads: {
+                    pumpfun: boolean;
+                    jupstudio: boolean;
+                };
+            };
+        };
+    }, {
+        solanatracker?: {
+            enabled?: boolean | undefined;
+            baseUrl?: string | undefined;
+            pollSec?: number | undefined;
+            ttlSec?: number | undefined;
+            endpoints?: {
+                trending?: boolean | undefined;
+                latest?: boolean | undefined;
+                launchpads?: {
+                    pumpfun?: boolean | undefined;
+                    jupstudio?: boolean | undefined;
+                } | undefined;
+            } | undefined;
+        } | undefined;
+    }>>;
     safety: z.ZodObject<{
         lpBurnThreshold: z.ZodDefault<z.ZodNumber>;
         holderTopCap: z.ZodDefault<z.ZodNumber>;
         lockerPrograms: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
         ignoreAccounts: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
-        candidateFeedUrl: z.ZodOptional<z.ZodString>;
+        candidateFeedUrl: z.ZodNullable<z.ZodOptional<z.ZodString>>;
     }, "strip", z.ZodTypeAny, {
         lpBurnThreshold: number;
         holderTopCap: number;
         lockerPrograms: string[];
         ignoreAccounts: string[];
-        candidateFeedUrl?: string | undefined;
+        candidateFeedUrl?: string | null | undefined;
     }, {
         lpBurnThreshold?: number | undefined;
         holderTopCap?: number | undefined;
         lockerPrograms?: string[] | undefined;
         ignoreAccounts?: string[] | undefined;
-        candidateFeedUrl?: string | undefined;
+        candidateFeedUrl?: string | null | undefined;
     }>;
     policy: z.ZodObject<{
-        safeFeedUrl: z.ZodOptional<z.ZodString>;
-        blockedFeedUrl: z.ZodOptional<z.ZodString>;
+        safeFeedUrl: z.ZodNullable<z.ZodOptional<z.ZodString>>;
+        blockedFeedUrl: z.ZodNullable<z.ZodOptional<z.ZodString>>;
         contextWindowSec: z.ZodDefault<z.ZodNumber>;
         minOcrs: z.ZodDefault<z.ZodNumber>;
         minConfidence: z.ZodDefault<z.ZodNumber>;
@@ -733,11 +949,11 @@ export declare const configSchema: z.ZodObject<{
         minConfidence: number;
         dailyLossCapPct: number;
         rewardSmoothing: number;
-        safeFeedUrl?: string | undefined;
-        blockedFeedUrl?: string | undefined;
+        safeFeedUrl?: string | null | undefined;
+        blockedFeedUrl?: string | null | undefined;
     }, {
-        safeFeedUrl?: string | undefined;
-        blockedFeedUrl?: string | undefined;
+        safeFeedUrl?: string | null | undefined;
+        blockedFeedUrl?: string | null | undefined;
         contextWindowSec?: number | undefined;
         minOcrs?: number | undefined;
         minConfidence?: number | undefined;
@@ -830,14 +1046,17 @@ export declare const configSchema: z.ZodObject<{
             enabled: z.ZodDefault<z.ZodBoolean>;
             subreddits: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
             pollIntervalSec: z.ZodDefault<z.ZodNumber>;
+            appType: z.ZodDefault<z.ZodEnum<["installed", "web"]>>;
         }, "strip", z.ZodTypeAny, {
             enabled: boolean;
             pollIntervalSec: number;
             subreddits: string[];
+            appType: "installed" | "web";
         }, {
             enabled?: boolean | undefined;
             pollIntervalSec?: number | undefined;
             subreddits?: string[] | undefined;
+            appType?: "installed" | "web" | undefined;
         }>;
         telegram: z.ZodObject<{
             enabled: z.ZodDefault<z.ZodBoolean>;
@@ -866,6 +1085,12 @@ export declare const configSchema: z.ZodObject<{
             pollIntervalSec?: number | undefined;
         }>;
     }, "strip", z.ZodTypeAny, {
+        neynar: {
+            enabled: boolean;
+            watchFids: number[];
+            keywords: string[];
+            pollIntervalSec: number;
+        };
         bluesky: {
             enabled: boolean;
             cursorPath: string;
@@ -875,6 +1100,7 @@ export declare const configSchema: z.ZodObject<{
             enabled: boolean;
             pollIntervalSec: number;
             subreddits: string[];
+            appType: "installed" | "web";
         };
         telegram: {
             enabled: boolean;
@@ -886,13 +1112,13 @@ export declare const configSchema: z.ZodObject<{
             enabled: boolean;
             pollIntervalSec: number;
         };
-        neynar: {
-            enabled: boolean;
-            watchFids: number[];
-            keywords: string[];
-            pollIntervalSec: number;
-        };
     }, {
+        neynar: {
+            enabled?: boolean | undefined;
+            watchFids?: number[] | undefined;
+            keywords?: string[] | undefined;
+            pollIntervalSec?: number | undefined;
+        };
         bluesky: {
             enabled?: boolean | undefined;
             cursorPath?: string | undefined;
@@ -902,6 +1128,7 @@ export declare const configSchema: z.ZodObject<{
             enabled?: boolean | undefined;
             pollIntervalSec?: number | undefined;
             subreddits?: string[] | undefined;
+            appType?: "installed" | "web" | undefined;
         };
         telegram: {
             enabled?: boolean | undefined;
@@ -913,17 +1140,266 @@ export declare const configSchema: z.ZodObject<{
             enabled?: boolean | undefined;
             pollIntervalSec?: number | undefined;
         };
-        neynar: {
-            enabled?: boolean | undefined;
-            watchFids?: number[] | undefined;
-            keywords?: string[] | undefined;
-            pollIntervalSec?: number | undefined;
-        };
     }>;
+    lunarcrush: z.ZodDefault<z.ZodObject<{
+        enabled: z.ZodDefault<z.ZodBoolean>;
+        baseUrl: z.ZodDefault<z.ZodString>;
+        pollSec: z.ZodDefault<z.ZodNumber>;
+        endpoints: z.ZodDefault<z.ZodObject<{
+            topics: z.ZodDefault<z.ZodString>;
+            influencers: z.ZodDefault<z.ZodString>;
+        }, "strip", z.ZodTypeAny, {
+            topics: string;
+            influencers: string;
+        }, {
+            topics?: string | undefined;
+            influencers?: string | undefined;
+        }>>;
+        sssBias: z.ZodDefault<z.ZodObject<{
+            topicBoost: z.ZodDefault<z.ZodNumber>;
+            influencerBoost: z.ZodDefault<z.ZodNumber>;
+            maxBoost: z.ZodDefault<z.ZodNumber>;
+        }, "strip", z.ZodTypeAny, {
+            topicBoost: number;
+            influencerBoost: number;
+            maxBoost: number;
+        }, {
+            topicBoost?: number | undefined;
+            influencerBoost?: number | undefined;
+            maxBoost?: number | undefined;
+        }>>;
+    }, "strip", z.ZodTypeAny, {
+        enabled: boolean;
+        baseUrl: string;
+        pollSec: number;
+        endpoints: {
+            topics: string;
+            influencers: string;
+        };
+        sssBias: {
+            topicBoost: number;
+            influencerBoost: number;
+            maxBoost: number;
+        };
+    }, {
+        enabled?: boolean | undefined;
+        baseUrl?: string | undefined;
+        pollSec?: number | undefined;
+        endpoints?: {
+            topics?: string | undefined;
+            influencers?: string | undefined;
+        } | undefined;
+        sssBias?: {
+            topicBoost?: number | undefined;
+            influencerBoost?: number | undefined;
+            maxBoost?: number | undefined;
+        } | undefined;
+    }>>;
+    features: z.ZodDefault<z.ZodObject<{
+        migrationWatcher: z.ZodDefault<z.ZodBoolean>;
+        rugGuard: z.ZodDefault<z.ZodBoolean>;
+        alphaRanker: z.ZodDefault<z.ZodBoolean>;
+        fillNet: z.ZodDefault<z.ZodBoolean>;
+        feeBandit: z.ZodDefault<z.ZodBoolean>;
+        constrainedSizing: z.ZodDefault<z.ZodBoolean>;
+        survivalStops: z.ZodDefault<z.ZodBoolean>;
+        offlinePolicyShadow: z.ZodDefault<z.ZodBoolean>;
+        jitoEnabled: z.ZodDefault<z.ZodBoolean>;
+        parquetExport: z.ZodDefault<z.ZodBoolean>;
+    }, "strip", z.ZodTypeAny, {
+        migrationWatcher: boolean;
+        jitoEnabled: boolean;
+        rugGuard: boolean;
+        alphaRanker: boolean;
+        fillNet: boolean;
+        feeBandit: boolean;
+        constrainedSizing: boolean;
+        survivalStops: boolean;
+        offlinePolicyShadow: boolean;
+        parquetExport: boolean;
+    }, {
+        migrationWatcher?: boolean | undefined;
+        jitoEnabled?: boolean | undefined;
+        rugGuard?: boolean | undefined;
+        alphaRanker?: boolean | undefined;
+        fillNet?: boolean | undefined;
+        feeBandit?: boolean | undefined;
+        constrainedSizing?: boolean | undefined;
+        survivalStops?: boolean | undefined;
+        offlinePolicyShadow?: boolean | undefined;
+        parquetExport?: boolean | undefined;
+    }>>;
+    addresses: z.ZodDefault<z.ZodObject<{
+        pumpfunProgram: z.ZodDefault<z.ZodString>;
+        pumpswapProgram: z.ZodDefault<z.ZodString>;
+        raydiumAmmV4: z.ZodDefault<z.ZodString>;
+        raydiumCpmm: z.ZodDefault<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        pumpfunProgram: string;
+        pumpswapProgram: string;
+        raydiumAmmV4: string;
+        raydiumCpmm: string;
+    }, {
+        pumpfunProgram?: string | undefined;
+        pumpswapProgram?: string | undefined;
+        raydiumAmmV4?: string | undefined;
+        raydiumCpmm?: string | undefined;
+    }>>;
+    jito: z.ZodDefault<z.ZodObject<{
+        tipLamportsMin: z.ZodDefault<z.ZodNumber>;
+        tipLamportsMax: z.ZodDefault<z.ZodNumber>;
+        bundleUrl: z.ZodDefault<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        tipLamportsMin: number;
+        tipLamportsMax: number;
+        bundleUrl: string;
+    }, {
+        tipLamportsMin?: number | undefined;
+        tipLamportsMax?: number | undefined;
+        bundleUrl?: string | undefined;
+    }>>;
+    sizing: z.ZodDefault<z.ZodObject<{
+        baseUnitUsd: z.ZodDefault<z.ZodNumber>;
+        arms: z.ZodDefault<z.ZodArray<z.ZodObject<{
+            type: z.ZodEnum<["equity_frac"]>;
+            value: z.ZodNumber;
+        }, "strip", z.ZodTypeAny, {
+            value: number;
+            type: "equity_frac";
+        }, {
+            value: number;
+            type: "equity_frac";
+        }>, "many">>;
+        dailyLossCapUsd: z.ZodDefault<z.ZodNumber>;
+        perMintCapUsd: z.ZodDefault<z.ZodNumber>;
+        coolOffL: z.ZodDefault<z.ZodNumber>;
+    }, "strip", z.ZodTypeAny, {
+        baseUnitUsd: number;
+        arms: {
+            value: number;
+            type: "equity_frac";
+        }[];
+        dailyLossCapUsd: number;
+        perMintCapUsd: number;
+        coolOffL: number;
+    }, {
+        baseUnitUsd?: number | undefined;
+        arms?: {
+            value: number;
+            type: "equity_frac";
+        }[] | undefined;
+        dailyLossCapUsd?: number | undefined;
+        perMintCapUsd?: number | undefined;
+        coolOffL?: number | undefined;
+    }>>;
+    survival: z.ZodDefault<z.ZodObject<{
+        baseTrailBps: z.ZodDefault<z.ZodNumber>;
+        minTrailBps: z.ZodDefault<z.ZodNumber>;
+        maxTrailBps: z.ZodDefault<z.ZodNumber>;
+        hardStopMaxLossBps: z.ZodDefault<z.ZodNumber>;
+        ladderLevels: z.ZodDefault<z.ZodArray<z.ZodNumber, "many">>;
+        hazardTighten: z.ZodDefault<z.ZodNumber>;
+        hazardPanic: z.ZodDefault<z.ZodNumber>;
+    }, "strip", z.ZodTypeAny, {
+        baseTrailBps: number;
+        minTrailBps: number;
+        maxTrailBps: number;
+        hardStopMaxLossBps: number;
+        ladderLevels: number[];
+        hazardTighten: number;
+        hazardPanic: number;
+    }, {
+        baseTrailBps?: number | undefined;
+        minTrailBps?: number | undefined;
+        maxTrailBps?: number | undefined;
+        hardStopMaxLossBps?: number | undefined;
+        ladderLevels?: number[] | undefined;
+        hazardTighten?: number | undefined;
+        hazardPanic?: number | undefined;
+    }>>;
+    shadow: z.ZodDefault<z.ZodObject<{
+        fee: z.ZodDefault<z.ZodObject<{
+            method: z.ZodDefault<z.ZodString>;
+            probFloor: z.ZodDefault<z.ZodNumber>;
+        }, "strip", z.ZodTypeAny, {
+            method: string;
+            probFloor: number;
+        }, {
+            method?: string | undefined;
+            probFloor?: number | undefined;
+        }>>;
+        sizing: z.ZodDefault<z.ZodObject<{
+            method: z.ZodDefault<z.ZodString>;
+            probFloor: z.ZodDefault<z.ZodNumber>;
+        }, "strip", z.ZodTypeAny, {
+            method: string;
+            probFloor: number;
+        }, {
+            method?: string | undefined;
+            probFloor?: number | undefined;
+        }>>;
+    }, "strip", z.ZodTypeAny, {
+        sizing: {
+            method: string;
+            probFloor: number;
+        };
+        fee: {
+            method: string;
+            probFloor: number;
+        };
+    }, {
+        sizing?: {
+            method?: string | undefined;
+            probFloor?: number | undefined;
+        } | undefined;
+        fee?: {
+            method?: string | undefined;
+            probFloor?: number | undefined;
+        } | undefined;
+    }>>;
+    alpha: z.ZodDefault<z.ZodObject<{
+        horizons: z.ZodDefault<z.ZodArray<z.ZodEnum<["10m", "60m", "24h"]>, "many">>;
+        topK: z.ZodDefault<z.ZodNumber>;
+        minScore: z.ZodDefault<z.ZodNumber>;
+    }, "strip", z.ZodTypeAny, {
+        horizons: ("10m" | "60m" | "24h")[];
+        topK: number;
+        minScore: number;
+    }, {
+        horizons?: ("10m" | "60m" | "24h")[] | undefined;
+        topK?: number | undefined;
+        minScore?: number | undefined;
+    }>>;
+    fillnet: z.ZodDefault<z.ZodObject<{
+        modelPath: z.ZodDefault<z.ZodString>;
+        minFillProb: z.ZodDefault<z.ZodNumber>;
+        maxSlipBps: z.ZodDefault<z.ZodNumber>;
+    }, "strip", z.ZodTypeAny, {
+        minFillProb: number;
+        maxSlipBps: number;
+        modelPath: string;
+    }, {
+        minFillProb?: number | undefined;
+        maxSlipBps?: number | undefined;
+        modelPath?: string | undefined;
+    }>>;
+    pnl: z.ZodDefault<z.ZodObject<{
+        useUsd: z.ZodDefault<z.ZodBoolean>;
+        solPriceSource: z.ZodDefault<z.ZodEnum<["birdeye"]>>;
+        includePriorityFee: z.ZodDefault<z.ZodBoolean>;
+    }, "strip", z.ZodTypeAny, {
+        useUsd: boolean;
+        solPriceSource: "birdeye";
+        includePriorityFee: boolean;
+    }, {
+        useUsd?: boolean | undefined;
+        solPriceSource?: "birdeye" | undefined;
+        includePriorityFee?: boolean | undefined;
+    }>>;
 }, "strip", z.ZodTypeAny, {
     mode: "SIM" | "SHADOW" | "SEMI" | "FULL";
     logging: {
-        level: "info" | "warn" | "error" | "fatal" | "debug" | "trace";
+        level: "fatal" | "error" | "warn" | "info" | "debug" | "trace";
         json: boolean;
     };
     services: {
@@ -952,6 +1428,9 @@ export declare const configSchema: z.ZodObject<{
             port: number;
         };
         narrativeMiner: {
+            port: number;
+        };
+        migrationWatcher: {
             port: number;
         };
         metrics: {
@@ -1054,6 +1533,34 @@ export declare const configSchema: z.ZodObject<{
         jitoHttpUrl: string;
         jitoGrpcUrl: string;
         jupiterBaseUrl: string;
+        httpHeaders: Record<string, string>;
+    };
+    execution: {
+        tipStrategy: "auto" | "manual";
+        computeUnitPriceMode: "manual" | "auto_oracle";
+        simpleMode: boolean;
+        jitoEnabled: boolean;
+        secondaryRpcEnabled: boolean;
+        wsEnabled: boolean;
+        feeArms: {
+            slippageBps: number;
+            cuPrice: number;
+        }[];
+        minFillProb: number;
+        maxSlipBps: number;
+        routeRetryMs: number;
+        blockhashStaleMs: number;
+        migrationPreset: {
+            enabled: boolean;
+            durationMs: number;
+            cuPriceBump: number;
+            minSlippageBps: number;
+            decayMs: number;
+        };
+        quarantine: {
+            failRate: number;
+            minAttempts: number;
+        };
     };
     dataProviders: {
         neynarBaseUrl: string;
@@ -1062,12 +1569,28 @@ export declare const configSchema: z.ZodObject<{
         blueskyJetstreamUrl: string;
         gdeltPulseUrl: string;
     };
+    providers: {
+        solanatracker: {
+            enabled: boolean;
+            baseUrl: string;
+            pollSec: number;
+            ttlSec: number;
+            endpoints: {
+                trending: boolean;
+                latest: boolean;
+                launchpads: {
+                    pumpfun: boolean;
+                    jupstudio: boolean;
+                };
+            };
+        };
+    };
     safety: {
         lpBurnThreshold: number;
         holderTopCap: number;
         lockerPrograms: string[];
         ignoreAccounts: string[];
-        candidateFeedUrl?: string | undefined;
+        candidateFeedUrl?: string | null | undefined;
     };
     policy: {
         contextWindowSec: number;
@@ -1075,8 +1598,8 @@ export declare const configSchema: z.ZodObject<{
         minConfidence: number;
         dailyLossCapPct: number;
         rewardSmoothing: number;
-        safeFeedUrl?: string | undefined;
-        blockedFeedUrl?: string | undefined;
+        safeFeedUrl?: string | null | undefined;
+        blockedFeedUrl?: string | null | undefined;
     };
     caching: {
         dexscreenerPairsTtlSec: number;
@@ -1099,6 +1622,12 @@ export declare const configSchema: z.ZodObject<{
         killSwitchToken?: string | undefined;
     };
     social: {
+        neynar: {
+            enabled: boolean;
+            watchFids: number[];
+            keywords: string[];
+            pollIntervalSec: number;
+        };
         bluesky: {
             enabled: boolean;
             cursorPath: string;
@@ -1108,6 +1637,7 @@ export declare const configSchema: z.ZodObject<{
             enabled: boolean;
             pollIntervalSec: number;
             subreddits: string[];
+            appType: "installed" | "web";
         };
         telegram: {
             enabled: boolean;
@@ -1119,12 +1649,87 @@ export declare const configSchema: z.ZodObject<{
             enabled: boolean;
             pollIntervalSec: number;
         };
-        neynar: {
-            enabled: boolean;
-            watchFids: number[];
-            keywords: string[];
-            pollIntervalSec: number;
+    };
+    lunarcrush: {
+        enabled: boolean;
+        baseUrl: string;
+        pollSec: number;
+        endpoints: {
+            topics: string;
+            influencers: string;
         };
+        sssBias: {
+            topicBoost: number;
+            influencerBoost: number;
+            maxBoost: number;
+        };
+    };
+    features: {
+        migrationWatcher: boolean;
+        jitoEnabled: boolean;
+        rugGuard: boolean;
+        alphaRanker: boolean;
+        fillNet: boolean;
+        feeBandit: boolean;
+        constrainedSizing: boolean;
+        survivalStops: boolean;
+        offlinePolicyShadow: boolean;
+        parquetExport: boolean;
+    };
+    addresses: {
+        pumpfunProgram: string;
+        pumpswapProgram: string;
+        raydiumAmmV4: string;
+        raydiumCpmm: string;
+    };
+    jito: {
+        tipLamportsMin: number;
+        tipLamportsMax: number;
+        bundleUrl: string;
+    };
+    sizing: {
+        baseUnitUsd: number;
+        arms: {
+            value: number;
+            type: "equity_frac";
+        }[];
+        dailyLossCapUsd: number;
+        perMintCapUsd: number;
+        coolOffL: number;
+    };
+    survival: {
+        baseTrailBps: number;
+        minTrailBps: number;
+        maxTrailBps: number;
+        hardStopMaxLossBps: number;
+        ladderLevels: number[];
+        hazardTighten: number;
+        hazardPanic: number;
+    };
+    shadow: {
+        sizing: {
+            method: string;
+            probFloor: number;
+        };
+        fee: {
+            method: string;
+            probFloor: number;
+        };
+    };
+    alpha: {
+        horizons: ("10m" | "60m" | "24h")[];
+        topK: number;
+        minScore: number;
+    };
+    fillnet: {
+        minFillProb: number;
+        maxSlipBps: number;
+        modelPath: string;
+    };
+    pnl: {
+        useUsd: boolean;
+        solPriceSource: "birdeye";
+        includePriorityFee: boolean;
     };
 }, {
     services: {
@@ -1153,6 +1758,9 @@ export declare const configSchema: z.ZodObject<{
             port: number;
         } | undefined;
         narrativeMiner?: {
+            port: number;
+        } | undefined;
+        migrationWatcher?: {
             port: number;
         } | undefined;
         metrics?: {
@@ -1255,6 +1863,7 @@ export declare const configSchema: z.ZodObject<{
         jitoHttpUrl?: string | undefined;
         jitoGrpcUrl?: string | undefined;
         jupiterBaseUrl?: string | undefined;
+        httpHeaders?: Record<string, string> | undefined;
     };
     dataProviders: {
         neynarBaseUrl?: string | undefined;
@@ -1268,11 +1877,11 @@ export declare const configSchema: z.ZodObject<{
         holderTopCap?: number | undefined;
         lockerPrograms?: string[] | undefined;
         ignoreAccounts?: string[] | undefined;
-        candidateFeedUrl?: string | undefined;
+        candidateFeedUrl?: string | null | undefined;
     };
     policy: {
-        safeFeedUrl?: string | undefined;
-        blockedFeedUrl?: string | undefined;
+        safeFeedUrl?: string | null | undefined;
+        blockedFeedUrl?: string | null | undefined;
         contextWindowSec?: number | undefined;
         minOcrs?: number | undefined;
         minConfidence?: number | undefined;
@@ -1292,6 +1901,12 @@ export declare const configSchema: z.ZodObject<{
         parquetRollHours?: number | undefined;
     };
     social: {
+        neynar: {
+            enabled?: boolean | undefined;
+            watchFids?: number[] | undefined;
+            keywords?: string[] | undefined;
+            pollIntervalSec?: number | undefined;
+        };
         bluesky: {
             enabled?: boolean | undefined;
             cursorPath?: string | undefined;
@@ -1301,6 +1916,7 @@ export declare const configSchema: z.ZodObject<{
             enabled?: boolean | undefined;
             pollIntervalSec?: number | undefined;
             subreddits?: string[] | undefined;
+            appType?: "installed" | "web" | undefined;
         };
         telegram: {
             enabled?: boolean | undefined;
@@ -1312,17 +1928,54 @@ export declare const configSchema: z.ZodObject<{
             enabled?: boolean | undefined;
             pollIntervalSec?: number | undefined;
         };
-        neynar: {
-            enabled?: boolean | undefined;
-            watchFids?: number[] | undefined;
-            keywords?: string[] | undefined;
-            pollIntervalSec?: number | undefined;
-        };
     };
     mode?: "SIM" | "SHADOW" | "SEMI" | "FULL" | undefined;
     logging?: {
-        level?: "info" | "warn" | "error" | "fatal" | "debug" | "trace" | undefined;
+        level?: "fatal" | "error" | "warn" | "info" | "debug" | "trace" | undefined;
         json?: boolean | undefined;
+    } | undefined;
+    execution?: {
+        tipStrategy?: "auto" | "manual" | undefined;
+        computeUnitPriceMode?: "manual" | "auto_oracle" | undefined;
+        simpleMode?: boolean | undefined;
+        jitoEnabled?: boolean | undefined;
+        secondaryRpcEnabled?: boolean | undefined;
+        wsEnabled?: boolean | undefined;
+        feeArms?: {
+            slippageBps: number;
+            cuPrice: number;
+        }[] | undefined;
+        minFillProb?: number | undefined;
+        maxSlipBps?: number | undefined;
+        routeRetryMs?: number | undefined;
+        blockhashStaleMs?: number | undefined;
+        migrationPreset?: {
+            enabled?: boolean | undefined;
+            durationMs?: number | undefined;
+            cuPriceBump?: number | undefined;
+            minSlippageBps?: number | undefined;
+            decayMs?: number | undefined;
+        } | undefined;
+        quarantine?: {
+            failRate?: number | undefined;
+            minAttempts?: number | undefined;
+        } | undefined;
+    } | undefined;
+    providers?: {
+        solanatracker?: {
+            enabled?: boolean | undefined;
+            baseUrl?: string | undefined;
+            pollSec?: number | undefined;
+            ttlSec?: number | undefined;
+            endpoints?: {
+                trending?: boolean | undefined;
+                latest?: boolean | undefined;
+                launchpads?: {
+                    pumpfun?: boolean | undefined;
+                    jupstudio?: boolean | undefined;
+                } | undefined;
+            } | undefined;
+        } | undefined;
     } | undefined;
     alerts?: {
         telegramChatId?: string | undefined;
@@ -1332,6 +1985,86 @@ export declare const configSchema: z.ZodObject<{
         killSwitchToken?: string | undefined;
         allowRemoteKillSwitch?: boolean | undefined;
     } | undefined;
+    lunarcrush?: {
+        enabled?: boolean | undefined;
+        baseUrl?: string | undefined;
+        pollSec?: number | undefined;
+        endpoints?: {
+            topics?: string | undefined;
+            influencers?: string | undefined;
+        } | undefined;
+        sssBias?: {
+            topicBoost?: number | undefined;
+            influencerBoost?: number | undefined;
+            maxBoost?: number | undefined;
+        } | undefined;
+    } | undefined;
+    features?: {
+        migrationWatcher?: boolean | undefined;
+        jitoEnabled?: boolean | undefined;
+        rugGuard?: boolean | undefined;
+        alphaRanker?: boolean | undefined;
+        fillNet?: boolean | undefined;
+        feeBandit?: boolean | undefined;
+        constrainedSizing?: boolean | undefined;
+        survivalStops?: boolean | undefined;
+        offlinePolicyShadow?: boolean | undefined;
+        parquetExport?: boolean | undefined;
+    } | undefined;
+    addresses?: {
+        pumpfunProgram?: string | undefined;
+        pumpswapProgram?: string | undefined;
+        raydiumAmmV4?: string | undefined;
+        raydiumCpmm?: string | undefined;
+    } | undefined;
+    jito?: {
+        tipLamportsMin?: number | undefined;
+        tipLamportsMax?: number | undefined;
+        bundleUrl?: string | undefined;
+    } | undefined;
+    sizing?: {
+        baseUnitUsd?: number | undefined;
+        arms?: {
+            value: number;
+            type: "equity_frac";
+        }[] | undefined;
+        dailyLossCapUsd?: number | undefined;
+        perMintCapUsd?: number | undefined;
+        coolOffL?: number | undefined;
+    } | undefined;
+    survival?: {
+        baseTrailBps?: number | undefined;
+        minTrailBps?: number | undefined;
+        maxTrailBps?: number | undefined;
+        hardStopMaxLossBps?: number | undefined;
+        ladderLevels?: number[] | undefined;
+        hazardTighten?: number | undefined;
+        hazardPanic?: number | undefined;
+    } | undefined;
+    shadow?: {
+        sizing?: {
+            method?: string | undefined;
+            probFloor?: number | undefined;
+        } | undefined;
+        fee?: {
+            method?: string | undefined;
+            probFloor?: number | undefined;
+        } | undefined;
+    } | undefined;
+    alpha?: {
+        horizons?: ("10m" | "60m" | "24h")[] | undefined;
+        topK?: number | undefined;
+        minScore?: number | undefined;
+    } | undefined;
+    fillnet?: {
+        minFillProb?: number | undefined;
+        maxSlipBps?: number | undefined;
+        modelPath?: string | undefined;
+    } | undefined;
+    pnl?: {
+        useUsd?: boolean | undefined;
+        solPriceSource?: "birdeye" | undefined;
+        includePriorityFee?: boolean | undefined;
+    } | undefined;
 }>;
 export type TrenchesConfig = z.infer<typeof configSchema>;
-//# sourceMappingURL=schema.d.ts.map

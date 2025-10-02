@@ -56,6 +56,7 @@ export declare function upsertPosition(payload: {
     state: string;
     ladderHits: string[];
     trailActive: boolean;
+    maeBps?: number;
 }): void;
 export declare function recordSizingDecision(input: {
     mint?: string;
@@ -98,8 +99,19 @@ export declare function listOpenPositions(): Array<{
     state: string;
     ladderHits: string[];
     trailActive: boolean;
+    maeBps: number;
 }>;
 export declare function getCandidateByMint(mint: string): TokenCandidate | undefined;
+export declare function listRecentCandidates(limit?: number): Array<{
+    mint: string;
+    name: string;
+    ocrs: number;
+    lp: number;
+    buys: number;
+    sells: number;
+    uniques: number;
+    safetyOk: boolean;
+}>;
 export declare function recordOrderPlan(order: {
     id: string;
     mint: string;
@@ -123,4 +135,125 @@ export declare function recordFill(fill: {
     tipLamports: number;
     slot: number;
 }): void;
-//# sourceMappingURL=sqlite.d.ts.map
+export declare function insertMigrationEvent(e: {
+    ts: number;
+    mint: string;
+    pool: string;
+    source: string;
+    initSig: string;
+}): void;
+export declare function listRecentMigrationEvents(limit?: number): Array<{
+    ts: number;
+    mint: string;
+    pool: string;
+    source: string;
+    initSig: string;
+}>;
+export declare function insertRugVerdict(v: {
+    ts: number;
+    mint: string;
+    rugProb: number;
+    reasons: string[];
+}): void;
+export declare function insertScore(s: {
+    ts: number;
+    mint: string;
+    horizon: string;
+    score: number;
+    features: Record<string, number>;
+}): void;
+export declare function computeMigrationCandidateLagQuantiles(): {
+    p50: number;
+    p95: number;
+};
+export declare function getRugGuardStats(): {
+    passRate: number;
+    avgRugProb: number;
+};
+export declare function insertFillPrediction(pred: {
+    ts: number;
+    route: string;
+    pFill: number;
+    expSlipBps: number;
+    expTimeMs: number;
+}, ctx: Record<string, unknown>): void;
+export declare function insertFeeDecision(dec: {
+    ts: number;
+    cuPrice: number;
+    cuLimit: number;
+    slippageBps: number;
+}, ctx: Record<string, unknown>): void;
+export declare function insertExecOutcome(row: {
+    ts: number;
+    quotePrice: number;
+    execPrice?: number | null;
+    filled: number;
+    route?: string | null;
+    cuPrice?: number | null;
+    slippageReq?: number | null;
+    slippageReal?: number | null;
+    timeToLandMs?: number | null;
+    errorCode?: string | null;
+    notes?: string | null;
+}): void;
+export declare function getExecSummary(): {
+    landedRate: number;
+    avgSlipBps: number;
+    p50Ttl: number;
+    p95Ttl: number;
+};
+export declare function upsertPrice(ts: number, symbol: string, usd: number): void;
+export declare function getNearestPrice(ts: number, symbol: string): number | null;
+export declare function getPnLSummary(): {
+    netUsd: number;
+    grossUsd: number;
+    feeUsd: number;
+    slipUsd: number;
+};
+export declare function insertHazardState(h: {
+    ts: number;
+    mint: string;
+    hazard: number;
+    trailBps: number;
+    ladder: Array<[number, number]>;
+}): void;
+export declare function insertSizingDecision(dec: {
+    ts: number;
+    mint: string;
+    arm: string;
+    notional: number;
+}, ctx: Record<string, unknown>): void;
+export declare function insertSizingOutcome(row: {
+    ts: number;
+    mint: string;
+    notional: number;
+    pnlUsd: number;
+    maeBps: number;
+    closed: number;
+}): void;
+export declare function getRiskBudget(): {
+    dailyLossCapUsd: number;
+    usedUsd: number;
+    remainingUsd: number;
+};
+export declare function getSizingDistribution(): Array<{
+    arm: string;
+    share: number;
+}>;
+export declare function createBacktestRun(params: Record<string, unknown>, notes?: string): number;
+export declare function finishBacktestRun(runId: number): void;
+export declare function insertBacktestResult(runId: number, metric: string, value: number, segment?: string): void;
+export declare function insertShadowFeeDecision(row: {
+    ts: number;
+    mint: string;
+    chosenArm: number;
+    baselineArm?: number | null;
+    deltaRewardEst?: number | null;
+}, ctx: Record<string, unknown>): void;
+export declare function insertShadowSizingDecision(row: {
+    ts: number;
+    mint: string;
+    chosenArm: string;
+    baselineArm?: string | null;
+    deltaRewardEst?: number | null;
+}, ctx: Record<string, unknown>): void;

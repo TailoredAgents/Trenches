@@ -16,4 +16,5 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
 Object.defineProperty(exports, "__esModule", { value: true });
 __exportStar(require("./sqlite"), exports);
 __exportStar(require("./parquet"), exports);
+__exportStar(require("./writeQueue"), exports);
 //# sourceMappingURL=index.js.map
