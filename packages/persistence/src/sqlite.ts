@@ -1616,7 +1616,7 @@ export function insertFeeDecision(dec: { ts: number; cuPrice: number; cuLimit: n
     .run({ ...dec, ctx: JSON.stringify(ctx) });
 }
 
-export function insertExecOutcome(row: { ts: number; quotePrice: number; execPrice?: number | null; filled: number; route?: string | null; cuPrice?: number | null; slippageReq?: number | null; slippageReal?: number | null; timeToLandMs?: number | null; errorCode?: string | null; notes?: string | null }): void {
+export function insertExecOutcome(row: { ts: number; quotePrice: number; execPrice?: number | null; filled: number; route?: string | null; cuPrice?: number | null; slippageReq?: number | null; slippageReal?: number | null; timeToLandMs?: number | null; errorCode?: string | null; notes?: string | null; priorityFeeLamports?: number | null; amountIn?: number | null; amountOut?: number | null; feeLamportsTotal?: number | null }): void {
   const database = getDb();
   database
     .prepare(`INSERT INTO exec_outcomes (ts, quote_price, exec_price, filled, route, cu_price, slippage_bps_req, slippage_bps_real, time_to_land_ms, error_code, notes, priority_fee_lamports, amount_in, amount_out, fee_lamports_total)

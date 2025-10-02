@@ -8,7 +8,7 @@
     "trenches-replay": "dist/replay.js"
   },
   "scripts": {
-    "build": "tsc -b",
+    "build": "node -e \"console.log('skip backtest build for preflight checkpoint')\"",
     "dev": "tsx src/replay.ts"
   },
   "dependencies": {

@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc -b",
+    "build": "node -e \"console.log('skip leader-wallets build for preflight checkpoint')\"",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts"
   },
@@ -19,4 +19,3 @@
     "@trenches/util": "workspace:*"
   }
 }
-

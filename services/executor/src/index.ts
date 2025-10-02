@@ -154,7 +154,7 @@ function startPlanStream(
   const lastEventIdStore = createInMemoryLastEventIdStore();
   const client = createSSEClient(url, {
     lastEventIdStore,
-    eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }),
+    eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }) as any,
     onOpen: () => {
       logger.info({ url }, 'connected to policy plan stream');
     },

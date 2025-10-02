@@ -180,16 +180,6 @@ export const configSchema = z.object({
     jupiterBaseUrl: z.string().url().default('https://quote-api.jup.ag/v6'),
     httpHeaders: z.record(z.string(), z.string()).default({})
   }),
-  execution: z
-    .object({
-      tipStrategy: z.enum(['auto', 'manual']).default('auto'),
-      computeUnitPriceMode: z.enum(['auto_oracle', 'manual']).default('auto_oracle'),
-      simpleMode: z.boolean().default(true),
-      jitoEnabled: z.boolean().default(false),
-      secondaryRpcEnabled: z.boolean().default(false),
-      wsEnabled: z.boolean().default(false)
-    })
-    .default({ tipStrategy: 'auto', computeUnitPriceMode: 'auto_oracle', simpleMode: true, jitoEnabled: false, secondaryRpcEnabled: false, wsEnabled: false }),
   dataProviders: z.object({
     neynarBaseUrl: z.string().url().default('https://api.neynar.com'),
     dexscreenerBaseUrl: z.string().url().default('https://api.dexscreener.com'),

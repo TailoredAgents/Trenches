@@ -176,9 +176,10 @@ async function bootstrap() {
 
     const selection = bandit.select(contextVector);
     const sizingStart = Date.now();
+    const spendCap = (walletSnapshot as any).spendCap ?? walletSnapshot.equity;
     const sizing = (config.features?.constrainedSizing
       ? (() => {
-          const dec = chooseSize({ candidate, walletEquity: walletSnapshot.equity, walletFree: walletSnapshot.free, dailySpendUsed: walletSnapshot.spendUsed, caps: { perNameFraction: 0.3, perNameMaxSol: 5, dailySpendCapSol: walletSnapshot.spendCap ?? walletSnapshot.equity } });
+          const dec = chooseSize({ candidate, walletEquity: walletSnapshot.equity, walletFree: walletSnapshot.free, dailySpendUsed: walletSnapshot.spendUsed, caps: { perNameFraction: 0.3, perNameMaxSol: 5, dailySpendCapSol: spendCap } });
           return { size: dec.notional, reason: 'ok' } as { size: number; reason: string };
         })()
       : computeSizing(candidate, walletSnapshot, selection.action.sizeMultiplier));
@@ -187,7 +188,7 @@ async function bootstrap() {
     try {
       if ((config as any).features?.offlinePolicyShadow) {
         const arms = ((config as any).sizing?.arms ?? []).map((a: any) => `${a.type}:${a.value}`);
-        const baselineArm = arms.find((a) => sizing.size >= 0) ?? (arms[0] ?? 'equity_frac:0.005');
+        const baselineArm = arms.find((a: string) => sizing.size >= 0) ?? (arms[0] ?? 'equity_frac:0.005');
         const shadowArm = arms[0] ?? baselineArm;
         const { insertShadowSizingDecision } = await import('@trenches/persistence');
         insertShadowSizingDecision({ ts: Date.now(), mint: candidate.mint, chosenArm: shadowArm, baselineArm, deltaRewardEst: 0 }, { ctx: { walletEquity: walletSnapshot.equity } });
@@ -273,7 +274,7 @@ function startCandidateStream(url: string, handler: StreamHandler): StreamDispos
   const store = createInMemoryLastEventIdStore();
   const client = createSSEClient(url, {
     lastEventIdStore: store,
-    eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }),
+    eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }) as any,
     onOpen: () => {
       logger.info({ url }, 'policy engine connected to candidate stream');
     },

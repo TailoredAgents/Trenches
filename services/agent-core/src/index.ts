@@ -179,13 +179,12 @@ async function bootstrap() {
       candidates,
       positions,
       risk: { exposurePct: 0, dailyLossPct: 0 },
-      sizing: { equity: 0, free: 0, tier: 'n/a', base: 0, final: 0 },
+      sizing: { equity: 0, free: 0, tier: 'n/a', base: 0, final: 0, topArms: sizingDist, skips: 0 },
       latestMigrations,
       migrationLag: lag,
       rugGuard: rug,
       execution,
       riskBudget,
-      sizing: { ...((snapshot as any)?.sizing ?? {}), topArms: sizingDist, skips: 0 },
       survival,
       backtest,
       shadow,
@@ -384,11 +383,3 @@ bootstrap().catch((err) => {
   logger.error({ err }, 'agent core failed to start');
   process.exit(1);
 });
-      // Route Quality (24h): fallback derive from exec_outcomes by route
-      const rt = db.prepare('SELECT route, COUNT(1) AS n FROM exec_outcomes WHERE ts >= ? GROUP BY route').all(Date.now()-24*60*60*1000) as Array<{ route:string; n:number }>;
-      routes = rt.map(r => ({ route: r.route, penalty: 0 }));
-      // Leader Hits (recent)
-      try {
-        const lh = db.prepare('SELECT pool, COUNT(1) AS c FROM leader_hits WHERE ts >= ? GROUP BY pool ORDER BY c DESC LIMIT 10').all(Date.now()-24*60*60*1000) as Array<{ pool:string; c:number }>;
-        leaders = lh.map(x => ({ pool: x.pool, hits: x.c }));
-      } catch {}

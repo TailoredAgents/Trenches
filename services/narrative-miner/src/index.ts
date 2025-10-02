@@ -11,6 +11,7 @@ import { performance } from 'perf_hooks';
 import { loadConfig, TrenchesConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
 import { getRegistry } from '@trenches/metrics';
+import { createSSEClient, createInMemoryLastEventIdStore, SSEMessageEvent } from '@trenches/util';
 import { SocialEngagement, SocialPost, TokenCandidate, TopicEvent } from '@trenches/shared';
 import { fetchTopicClusters, fetchTopicWindows } from '@trenches/persistence';
 import { NarrativeEventBus } from './eventBus';
@@ -471,12 +472,12 @@ function startStream(url: string, onStatus: (status: StreamStatus) => void): Str
   onStatus({ state: 'connecting', attempts: 1 });
   const client = createSSEClient(url, {
     lastEventIdStore: store,
-    eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }),
+    eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }) as any,
     onOpen: () => {
       attempts = 0;
       onStatus({ state: 'connected', attempts: 0 });
     },
-    onError: (err, attempt) => {
+    onError: (err: unknown, attempt: number) => {
       attempts = attempt;
       const nextStatus: StreamStatus = {
         state: 'error',
@@ -485,7 +486,7 @@ function startStream(url: string, onStatus: (status: StreamStatus) => void): Str
       };
       onStatus(nextStatus);
     },
-    onEvent: (event) => {
+    onEvent: (event: SSEMessageEvent) => {
       if (!event?.data || event.data === 'ping') {
         return;
       }

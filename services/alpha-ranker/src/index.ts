@@ -24,7 +24,7 @@ async function bootstrap() {
   const eventStore = createInMemoryLastEventIdStore();
   const sse = createSSEClient(url, {
     lastEventIdStore: eventStore,
-    eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }),
+    eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }) as any,
     onOpen: () => console.log('alpha-ranker connected to safety stream'),
     onError: (err, attempt) => console.error('alpha-ranker stream error', attempt, err),
     onEvent: async (evt) => {

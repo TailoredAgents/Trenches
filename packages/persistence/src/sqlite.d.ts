@@ -195,6 +195,10 @@ export declare function insertExecOutcome(row: {
     timeToLandMs?: number | null;
     errorCode?: string | null;
     notes?: string | null;
+    priorityFeeLamports?: number | null;
+    amountIn?: number | null;
+    amountOut?: number | null;
+    feeLamportsTotal?: number | null;
 }): void;
 export declare function getExecSummary(): {
     landedRate: number;

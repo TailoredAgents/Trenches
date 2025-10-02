@@ -117,7 +117,7 @@ function startTradeStream(url: string, handler: TradeHandler): () => void {
   const store = createInMemoryLastEventIdStore();
   const client = createSSEClient(url, {
     lastEventIdStore: store,
-    eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }),
+    eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }) as any,
     onOpen: () => {
       logger.info({ url }, 'connected to executor trade stream');
     },

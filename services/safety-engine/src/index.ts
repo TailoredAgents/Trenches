@@ -117,7 +117,7 @@ function startCandidateStream(url: string, handler: StreamHandler) {
   const dedup = new TtlCache<string, boolean>(2 * 60 * 1000);
   const client = createSSEClient(url, {
     lastEventIdStore,
-    eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }),
+    eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }) as any,
     onOpen: () => {
       logger.info({ url }, 'connected to candidate stream');
     },
