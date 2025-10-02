@@ -67,6 +67,7 @@ exports.configSchema = zod_1.z.object({
         positionManager: zod_1.z.object({ port: zod_1.z.number().int().min(1).max(65535) }).default({ port: 4016 }),
         narrativeMiner: zod_1.z.object({ port: zod_1.z.number().int().min(1).max(65535) }).default({ port: 4017 }),
         migrationWatcher: zod_1.z.object({ port: zod_1.z.number().int().min(1).max(65535) }).default({ port: 4018 }),
+        leaderWallets: zod_1.z.object({ port: zod_1.z.number().int().min(1).max(65535) }).default({ port: 4019 }),
         metrics: zod_1.z.object({ port: zod_1.z.number().int().min(1).max(65535) }).default({ port: 8090 })
     }),
     gating: zod_1.z.object({
@@ -178,16 +179,6 @@ exports.configSchema = zod_1.z.object({
         jupiterBaseUrl: zod_1.z.string().url().default('https://quote-api.jup.ag/v6'),
         httpHeaders: zod_1.z.record(zod_1.z.string(), zod_1.z.string()).default({})
     }),
-    execution: zod_1.z
-        .object({
-        tipStrategy: zod_1.z.enum(['auto', 'manual']).default('auto'),
-        computeUnitPriceMode: zod_1.z.enum(['auto_oracle', 'manual']).default('auto_oracle'),
-        simpleMode: zod_1.z.boolean().default(true),
-        jitoEnabled: zod_1.z.boolean().default(false),
-        secondaryRpcEnabled: zod_1.z.boolean().default(false),
-        wsEnabled: zod_1.z.boolean().default(false)
-    })
-        .default({ tipStrategy: 'auto', computeUnitPriceMode: 'auto_oracle', simpleMode: true, jitoEnabled: false, secondaryRpcEnabled: false, wsEnabled: false }),
     dataProviders: zod_1.z.object({
         neynarBaseUrl: zod_1.z.string().url().default('https://api.neynar.com'),
         dexscreenerBaseUrl: zod_1.z.string().url().default('https://api.dexscreener.com'),
@@ -272,6 +263,23 @@ exports.configSchema = zod_1.z.object({
             .default({ topicBoost: 0.03, influencerBoost: 0.02, maxBoost: 0.06 })
     })
         .default({ enabled: true, baseUrl: 'https://api.lunarcrush.com', pollSec: 180, endpoints: { topics: '/v2', influencers: '/v2' }, sssBias: { topicBoost: 0.03, influencerBoost: 0.02, maxBoost: 0.06 } }),
+    priceUpdater: zod_1.z
+        .object({
+        enabled: zod_1.z.boolean().default(true),
+        intervalMs: zod_1.z.number().int().positive().default(60000),
+        staleWarnSec: zod_1.z.number().int().positive().default(300),
+        pythSolUsdPriceAccount: zod_1.z.string().default('')
+    })
+        .default({ enabled: true, intervalMs: 60000, staleWarnSec: 300, pythSolUsdPriceAccount: '' }),
+    featuresJob: zod_1.z
+        .object({
+        enabled: zod_1.z.boolean().default(true),
+        intervalMs: zod_1.z.number().int().positive().default(86400000),
+        embedder: zod_1.z.string().default('bge-small-en'),
+        lookbackHours: zod_1.z.number().int().positive().default(24),
+        minPostsPerAuthor: zod_1.z.number().int().positive().default(5)
+    })
+        .default({ enabled: true, intervalMs: 86400000, embedder: 'bge-small-en', lookbackHours: 24, minPostsPerAuthor: 5 }),
     features: zod_1.z
         .object({
         migrationWatcher: zod_1.z.boolean().default(true),
@@ -333,7 +341,13 @@ exports.configSchema = zod_1.z.object({
         })
             .default({ enabled: true, durationMs: 60000, cuPriceBump: 3000, minSlippageBps: 100, decayMs: 30000 }),
         routeQuarantine: zod_1.z
-            .object({ windowMinutes: zod_1.z.number().int().positive().default(1440), minAttempts: zod_1.z.number().int().positive().default(8), failRateThreshold: zod_1.z.number().min(0).max(1).default(0.25), slipExcessWeight: zod_1.z.number().nonnegative().default(0.5), failRateWeight: zod_1.z.number().nonnegative().default(100) })
+            .object({
+            windowMinutes: zod_1.z.number().int().positive().default(1440),
+            minAttempts: zod_1.z.number().int().positive().default(8),
+            failRateThreshold: zod_1.z.number().min(0).max(1).default(0.25),
+            slipExcessWeight: zod_1.z.number().nonnegative().default(0.5),
+            failRateWeight: zod_1.z.number().nonnegative().default(100)
+        })
             .default({ windowMinutes: 1440, minAttempts: 8, failRateThreshold: 0.25, slipExcessWeight: 0.5, failRateWeight: 100 })
     }).default({
         tipStrategy: 'auto',
@@ -393,6 +407,16 @@ exports.configSchema = zod_1.z.object({
         sizing: zod_1.z.object({ method: zod_1.z.string().default('weighted_bc'), probFloor: zod_1.z.number().min(0).max(1).default(0.05) }).default({ method: 'weighted_bc', probFloor: 0.05 })
     })
         .default({ fee: { method: 'weighted_bc', probFloor: 0.05 }, sizing: { method: 'weighted_bc', probFloor: 0.05 } }),
+    leaderWallets: zod_1.z
+        .object({
+        enabled: zod_1.z.boolean().default(true),
+        watchMinutes: zod_1.z.number().int().positive().default(5),
+        minHitsForBoost: zod_1.z.number().int().nonnegative().default(1),
+        scoreHalfLifeDays: zod_1.z.number().positive().default(14),
+        rankBoost: zod_1.z.number().min(0).default(0.03),
+        sizeTierBoost: zod_1.z.number().int().nonnegative().default(1)
+    })
+        .default({ enabled: true, watchMinutes: 5, minHitsForBoost: 1, scoreHalfLifeDays: 14, rankBoost: 0.03, sizeTierBoost: 1 }),
     alpha: zod_1.z
         .object({
         horizons: zod_1.z.array(zod_1.z.enum(['10m', '60m', '24h'])).default(['10m', '60m', '24h']),

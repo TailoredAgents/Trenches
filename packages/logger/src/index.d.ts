@@ -5,4 +5,3 @@ export interface LoggerOptions {
 }
 export declare function createLogger(scope: string, options?: LoggerOptions): ScopedLogger;
 export declare const rootLogger: ScopedLogger;
-//# sourceMappingURL=index.d.ts.map

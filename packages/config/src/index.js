@@ -40,6 +40,7 @@ const baseConfig = schema_1.configSchema.parse({
         positionManager: { port: 4016 },
         narrativeMiner: { port: 4017 },
         migrationWatcher: { port: 4018 },
+        leaderWallets: { port: 4019 },
         metrics: { port: 8090 }
     },
     gating: {
@@ -193,7 +194,9 @@ const baseConfig = schema_1.configSchema.parse({
         reddit: { enabled: true, subreddits: ['solanamemes', 'memecoins', 'solana'], pollIntervalSec: 45 },
         telegram: { enabled: true, channels: [], downloadDir: './data/tdlib', pollIntervalSec: 10 },
         gdelt: { enabled: true, pollIntervalSec: 900 }
-    }
+    },
+    leaderWallets: { enabled: true, watchMinutes: 5, minHitsForBoost: 1, scoreHalfLifeDays: 14, rankBoost: 0.03, sizeTierBoost: 1 },
+    priceUpdater: { enabled: true, intervalMs: 60000, staleWarnSec: 300, pythSolUsdPriceAccount: '' }
 });
 function parseJsonRecord(value) {
     try {
@@ -299,6 +302,14 @@ try {
         }]);
 }
 catch { }
+// Price updater env overrides
+try {
+    envMap.push(['priceUpdater.enabled', 'PRICE_UPDATER_ENABLED', (v) => v === 'true']);
+    envMap.push(['priceUpdater.intervalMs', 'PRICE_UPDATER_INTERVAL_MS', (v) => Number(v)]);
+    envMap.push(['priceUpdater.staleWarnSec', 'PRICE_UPDATER_STALE_WARN_SEC', (v) => Number(v)]);
+    envMap.push(['priceUpdater.pythSolUsdPriceAccount', 'PYTH_SOL_USD_PRICE_ACCOUNT', (v) => v]);
+}
+catch { }
 try {
     envMap.push(['alpha.topK', 'ALPHA_TOPK', (v) => Number(v)]);
     envMap.push(['alpha.minScore', 'ALPHA_MIN_SCORE', (v) => Number(v)]);
@@ -336,6 +347,12 @@ try {
     envMap.push(['survival.hazardPanic', 'SURV_HAZARD_PANIC', (v) => Number(v)]);
     envMap.push(['shadow.fee.probFloor', 'SHADOW_FEE_PROB_FLOOR', (v) => Number(v)]);
     envMap.push(['shadow.sizing.probFloor', 'SHADOW_SIZING_PROB_FLOOR', (v) => Number(v)]);
+    envMap.push(['leaderWallets.enabled', 'LEADER_WALLETS_ENABLED', (v) => v === 'true']);
+    envMap.push(['leaderWallets.watchMinutes', 'LEADER_WALLETS_WATCH_MINUTES', (v) => Number(v)]);
+    envMap.push(['leaderWallets.minHitsForBoost', 'LEADER_WALLETS_MIN_HITS', (v) => Number(v)]);
+    envMap.push(['leaderWallets.scoreHalfLifeDays', 'LEADER_WALLETS_SCORE_HALFLIFE_DAYS', (v) => Number(v)]);
+    envMap.push(['leaderWallets.rankBoost', 'LEADER_WALLETS_RANK_BOOST', (v) => Number(v)]);
+    envMap.push(['leaderWallets.sizeTierBoost', 'LEADER_WALLETS_SIZE_TIER_BOOST', (v) => Number(v)]);
 }
 catch { }
 function setPath(target, dottedKey, value) {

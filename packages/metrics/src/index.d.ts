@@ -1,5 +1,6 @@
 import http from 'http';
 import { Counter, Gauge, Histogram, Registry } from 'prom-client';
+export type { Counter, Gauge, Histogram } from 'prom-client';
 export type CounterOpts = {
     name: string;
     help: string;
@@ -14,4 +15,3 @@ export type HistogramOpts = CounterOpts & {
 export declare function registerHistogram(opts: HistogramOpts): Histogram<string>;
 export declare function getRegistry(): Registry;
 export declare function startMetricsServer(): http.Server;
-//# sourceMappingURL=index.d.ts.map

@@ -262,6 +262,13 @@ export declare const configSchema: z.ZodObject<{
         }, {
             port: number;
         }>>;
+        leaderWallets: z.ZodDefault<z.ZodObject<{
+            port: z.ZodNumber;
+        }, "strip", z.ZodTypeAny, {
+            port: number;
+        }, {
+            port: number;
+        }>>;
         metrics: z.ZodDefault<z.ZodObject<{
             port: z.ZodNumber;
         }, "strip", z.ZodTypeAny, {
@@ -300,6 +307,9 @@ export declare const configSchema: z.ZodObject<{
         migrationWatcher: {
             port: number;
         };
+        leaderWallets: {
+            port: number;
+        };
         metrics: {
             port: number;
         };
@@ -332,6 +342,9 @@ export declare const configSchema: z.ZodObject<{
             port: number;
         } | undefined;
         migrationWatcher?: {
+            port: number;
+        } | undefined;
+        leaderWallets?: {
             port: number;
         } | undefined;
         metrics?: {
@@ -702,109 +715,6 @@ export declare const configSchema: z.ZodObject<{
         jupiterBaseUrl?: string | undefined;
         httpHeaders?: Record<string, string> | undefined;
     }>;
-    execution: z.ZodDefault<z.ZodObject<{
-        tipStrategy: z.ZodDefault<z.ZodEnum<["auto", "manual"]>>;
-        computeUnitPriceMode: z.ZodDefault<z.ZodEnum<["auto_oracle", "manual"]>>;
-        simpleMode: z.ZodDefault<z.ZodBoolean>;
-        jitoEnabled: z.ZodDefault<z.ZodBoolean>;
-        secondaryRpcEnabled: z.ZodDefault<z.ZodBoolean>;
-        wsEnabled: z.ZodDefault<z.ZodBoolean>;
-        feeArms: z.ZodDefault<z.ZodArray<z.ZodObject<{
-            cuPrice: z.ZodNumber;
-            slippageBps: z.ZodNumber;
-        }, "strip", z.ZodTypeAny, {
-            slippageBps: number;
-            cuPrice: number;
-        }, {
-            slippageBps: number;
-            cuPrice: number;
-        }>, "many">>;
-        minFillProb: z.ZodDefault<z.ZodNumber>;
-        maxSlipBps: z.ZodDefault<z.ZodNumber>;
-        routeRetryMs: z.ZodDefault<z.ZodNumber>;
-        blockhashStaleMs: z.ZodDefault<z.ZodNumber>;
-        migrationPreset: z.ZodDefault<z.ZodObject<{
-            enabled: z.ZodDefault<z.ZodBoolean>;
-            durationMs: z.ZodDefault<z.ZodNumber>;
-            cuPriceBump: z.ZodDefault<z.ZodNumber>;
-            minSlippageBps: z.ZodDefault<z.ZodNumber>;
-            decayMs: z.ZodDefault<z.ZodNumber>;
-        }, "strip", z.ZodTypeAny, {
-            enabled: boolean;
-            durationMs: number;
-            cuPriceBump: number;
-            minSlippageBps: number;
-            decayMs: number;
-        }, {
-            enabled?: boolean | undefined;
-            durationMs?: number | undefined;
-            cuPriceBump?: number | undefined;
-            minSlippageBps?: number | undefined;
-            decayMs?: number | undefined;
-        }>>;
-        quarantine: z.ZodDefault<z.ZodObject<{
-            failRate: z.ZodDefault<z.ZodNumber>;
-            minAttempts: z.ZodDefault<z.ZodNumber>;
-        }, "strip", z.ZodTypeAny, {
-            failRate: number;
-            minAttempts: number;
-        }, {
-            failRate?: number | undefined;
-            minAttempts?: number | undefined;
-        }>>;
-    }, "strip", z.ZodTypeAny, {
-        tipStrategy: "auto" | "manual";
-        computeUnitPriceMode: "manual" | "auto_oracle";
-        simpleMode: boolean;
-        jitoEnabled: boolean;
-        secondaryRpcEnabled: boolean;
-        wsEnabled: boolean;
-        feeArms: {
-            slippageBps: number;
-            cuPrice: number;
-        }[];
-        minFillProb: number;
-        maxSlipBps: number;
-        routeRetryMs: number;
-        blockhashStaleMs: number;
-        migrationPreset: {
-            enabled: boolean;
-            durationMs: number;
-            cuPriceBump: number;
-            minSlippageBps: number;
-            decayMs: number;
-        };
-        quarantine: {
-            failRate: number;
-            minAttempts: number;
-        };
-    }, {
-        tipStrategy?: "auto" | "manual" | undefined;
-        computeUnitPriceMode?: "manual" | "auto_oracle" | undefined;
-        simpleMode?: boolean | undefined;
-        jitoEnabled?: boolean | undefined;
-        secondaryRpcEnabled?: boolean | undefined;
-        wsEnabled?: boolean | undefined;
-        feeArms?: {
-            slippageBps: number;
-            cuPrice: number;
-        }[] | undefined;
-        minFillProb?: number | undefined;
-        maxSlipBps?: number | undefined;
-        routeRetryMs?: number | undefined;
-        blockhashStaleMs?: number | undefined;
-        migrationPreset?: {
-            enabled?: boolean | undefined;
-            durationMs?: number | undefined;
-            cuPriceBump?: number | undefined;
-            minSlippageBps?: number | undefined;
-            decayMs?: number | undefined;
-        } | undefined;
-        quarantine?: {
-            failRate?: number | undefined;
-            minAttempts?: number | undefined;
-        } | undefined;
-    }>>;
     dataProviders: z.ZodObject<{
         neynarBaseUrl: z.ZodDefault<z.ZodString>;
         dexscreenerBaseUrl: z.ZodDefault<z.ZodString>;
@@ -1195,6 +1105,41 @@ export declare const configSchema: z.ZodObject<{
             maxBoost?: number | undefined;
         } | undefined;
     }>>;
+    priceUpdater: z.ZodDefault<z.ZodObject<{
+        enabled: z.ZodDefault<z.ZodBoolean>;
+        intervalMs: z.ZodDefault<z.ZodNumber>;
+        staleWarnSec: z.ZodDefault<z.ZodNumber>;
+        pythSolUsdPriceAccount: z.ZodDefault<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        enabled: boolean;
+        intervalMs: number;
+        staleWarnSec: number;
+        pythSolUsdPriceAccount: string;
+    }, {
+        enabled?: boolean | undefined;
+        intervalMs?: number | undefined;
+        staleWarnSec?: number | undefined;
+        pythSolUsdPriceAccount?: string | undefined;
+    }>>;
+    featuresJob: z.ZodDefault<z.ZodObject<{
+        enabled: z.ZodDefault<z.ZodBoolean>;
+        intervalMs: z.ZodDefault<z.ZodNumber>;
+        embedder: z.ZodDefault<z.ZodString>;
+        lookbackHours: z.ZodDefault<z.ZodNumber>;
+        minPostsPerAuthor: z.ZodDefault<z.ZodNumber>;
+    }, "strip", z.ZodTypeAny, {
+        enabled: boolean;
+        intervalMs: number;
+        embedder: string;
+        lookbackHours: number;
+        minPostsPerAuthor: number;
+    }, {
+        enabled?: boolean | undefined;
+        intervalMs?: number | undefined;
+        embedder?: string | undefined;
+        lookbackHours?: number | undefined;
+        minPostsPerAuthor?: number | undefined;
+    }>>;
     features: z.ZodDefault<z.ZodObject<{
         migrationWatcher: z.ZodDefault<z.ZodBoolean>;
         rugGuard: z.ZodDefault<z.ZodBoolean>;
@@ -1208,7 +1153,6 @@ export declare const configSchema: z.ZodObject<{
         parquetExport: z.ZodDefault<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
         migrationWatcher: boolean;
-        jitoEnabled: boolean;
         rugGuard: boolean;
         alphaRanker: boolean;
         fillNet: boolean;
@@ -1216,10 +1160,10 @@ export declare const configSchema: z.ZodObject<{
         constrainedSizing: boolean;
         survivalStops: boolean;
         offlinePolicyShadow: boolean;
+        jitoEnabled: boolean;
         parquetExport: boolean;
     }, {
         migrationWatcher?: boolean | undefined;
-        jitoEnabled?: boolean | undefined;
         rugGuard?: boolean | undefined;
         alphaRanker?: boolean | undefined;
         fillNet?: boolean | undefined;
@@ -1227,6 +1171,7 @@ export declare const configSchema: z.ZodObject<{
         constrainedSizing?: boolean | undefined;
         survivalStops?: boolean | undefined;
         offlinePolicyShadow?: boolean | undefined;
+        jitoEnabled?: boolean | undefined;
         parquetExport?: boolean | undefined;
     }>>;
     addresses: z.ZodDefault<z.ZodObject<{
@@ -1244,6 +1189,124 @@ export declare const configSchema: z.ZodObject<{
         pumpswapProgram?: string | undefined;
         raydiumAmmV4?: string | undefined;
         raydiumCpmm?: string | undefined;
+    }>>;
+    execution: z.ZodDefault<z.ZodObject<{
+        tipStrategy: z.ZodDefault<z.ZodEnum<["auto", "manual"]>>;
+        computeUnitPriceMode: z.ZodDefault<z.ZodEnum<["auto_oracle", "manual"]>>;
+        simpleMode: z.ZodDefault<z.ZodBoolean>;
+        jitoEnabled: z.ZodDefault<z.ZodBoolean>;
+        secondaryRpcEnabled: z.ZodDefault<z.ZodBoolean>;
+        wsEnabled: z.ZodDefault<z.ZodBoolean>;
+        feeArms: z.ZodDefault<z.ZodArray<z.ZodObject<{
+            cuPrice: z.ZodNumber;
+            slippageBps: z.ZodNumber;
+        }, "strip", z.ZodTypeAny, {
+            slippageBps: number;
+            cuPrice: number;
+        }, {
+            slippageBps: number;
+            cuPrice: number;
+        }>, "many">>;
+        minFillProb: z.ZodDefault<z.ZodNumber>;
+        maxSlipBps: z.ZodDefault<z.ZodNumber>;
+        routeRetryMs: z.ZodDefault<z.ZodNumber>;
+        blockhashStaleMs: z.ZodDefault<z.ZodNumber>;
+        migrationPreset: z.ZodDefault<z.ZodObject<{
+            enabled: z.ZodDefault<z.ZodBoolean>;
+            durationMs: z.ZodDefault<z.ZodNumber>;
+            cuPriceBump: z.ZodDefault<z.ZodNumber>;
+            minSlippageBps: z.ZodDefault<z.ZodNumber>;
+            decayMs: z.ZodDefault<z.ZodNumber>;
+        }, "strip", z.ZodTypeAny, {
+            enabled: boolean;
+            durationMs: number;
+            cuPriceBump: number;
+            minSlippageBps: number;
+            decayMs: number;
+        }, {
+            enabled?: boolean | undefined;
+            durationMs?: number | undefined;
+            cuPriceBump?: number | undefined;
+            minSlippageBps?: number | undefined;
+            decayMs?: number | undefined;
+        }>>;
+        routeQuarantine: z.ZodDefault<z.ZodObject<{
+            windowMinutes: z.ZodDefault<z.ZodNumber>;
+            minAttempts: z.ZodDefault<z.ZodNumber>;
+            failRateThreshold: z.ZodDefault<z.ZodNumber>;
+            slipExcessWeight: z.ZodDefault<z.ZodNumber>;
+            failRateWeight: z.ZodDefault<z.ZodNumber>;
+        }, "strip", z.ZodTypeAny, {
+            windowMinutes: number;
+            minAttempts: number;
+            failRateThreshold: number;
+            slipExcessWeight: number;
+            failRateWeight: number;
+        }, {
+            windowMinutes?: number | undefined;
+            minAttempts?: number | undefined;
+            failRateThreshold?: number | undefined;
+            slipExcessWeight?: number | undefined;
+            failRateWeight?: number | undefined;
+        }>>;
+    }, "strip", z.ZodTypeAny, {
+        jitoEnabled: boolean;
+        tipStrategy: "auto" | "manual";
+        computeUnitPriceMode: "manual" | "auto_oracle";
+        simpleMode: boolean;
+        secondaryRpcEnabled: boolean;
+        wsEnabled: boolean;
+        feeArms: {
+            slippageBps: number;
+            cuPrice: number;
+        }[];
+        minFillProb: number;
+        maxSlipBps: number;
+        routeRetryMs: number;
+        blockhashStaleMs: number;
+        migrationPreset: {
+            enabled: boolean;
+            durationMs: number;
+            cuPriceBump: number;
+            minSlippageBps: number;
+            decayMs: number;
+        };
+        routeQuarantine: {
+            windowMinutes: number;
+            minAttempts: number;
+            failRateThreshold: number;
+            slipExcessWeight: number;
+            failRateWeight: number;
+        };
+    }, {
+        jitoEnabled?: boolean | undefined;
+        tipStrategy?: "auto" | "manual" | undefined;
+        computeUnitPriceMode?: "manual" | "auto_oracle" | undefined;
+        simpleMode?: boolean | undefined;
+        secondaryRpcEnabled?: boolean | undefined;
+        wsEnabled?: boolean | undefined;
+        feeArms?: {
+            slippageBps: number;
+            cuPrice: number;
+        }[] | undefined;
+        minFillProb?: number | undefined;
+        maxSlipBps?: number | undefined;
+        routeRetryMs?: number | undefined;
+        blockhashStaleMs?: number | undefined;
+        migrationPreset?: {
+            enabled?: boolean | undefined;
+            durationMs?: number | undefined;
+            cuPriceBump?: number | undefined;
+            minSlippageBps?: number | undefined;
+            decayMs?: number | undefined;
+        } | undefined;
+        routeQuarantine?: {
+            windowMinutes?: number | undefined;
+            minAttempts?: number | undefined;
+            failRateThreshold?: number | undefined;
+            slipExcessWeight?: number | undefined;
+            failRateWeight?: number | undefined;
+        } | undefined;
     }>>;
     jito: z.ZodDefault<z.ZodObject<{
         tipLamportsMin: z.ZodDefault<z.ZodNumber>;
@@ -1357,6 +1420,28 @@ export declare const configSchema: z.ZodObject<{
             probFloor?: number | undefined;
         } | undefined;
     }>>;
+    leaderWallets: z.ZodDefault<z.ZodObject<{
+        enabled: z.ZodDefault<z.ZodBoolean>;
+        watchMinutes: z.ZodDefault<z.ZodNumber>;
+        minHitsForBoost: z.ZodDefault<z.ZodNumber>;
+        scoreHalfLifeDays: z.ZodDefault<z.ZodNumber>;
+        rankBoost: z.ZodDefault<z.ZodNumber>;
+        sizeTierBoost: z.ZodDefault<z.ZodNumber>;
+    }, "strip", z.ZodTypeAny, {
+        enabled: boolean;
+        watchMinutes: number;
+        minHitsForBoost: number;
+        scoreHalfLifeDays: number;
+        rankBoost: number;
+        sizeTierBoost: number;
+    }, {
+        enabled?: boolean | undefined;
+        watchMinutes?: number | undefined;
+        minHitsForBoost?: number | undefined;
+        scoreHalfLifeDays?: number | undefined;
+        rankBoost?: number | undefined;
+        sizeTierBoost?: number | undefined;
+    }>>;
     alpha: z.ZodDefault<z.ZodObject<{
         horizons: z.ZodDefault<z.ZodArray<z.ZodEnum<["10m", "60m", "24h"]>, "many">>;
         topK: z.ZodDefault<z.ZodNumber>;
@@ -1433,9 +1518,20 @@ export declare const configSchema: z.ZodObject<{
         migrationWatcher: {
             port: number;
         };
+        leaderWallets: {
+            port: number;
+        };
         metrics: {
             port: number;
         };
+    };
+    leaderWallets: {
+        enabled: boolean;
+        watchMinutes: number;
+        minHitsForBoost: number;
+        scoreHalfLifeDays: number;
+        rankBoost: number;
+        sizeTierBoost: number;
     };
     gating: {
         sssMin: number;
@@ -1534,33 +1630,6 @@ export declare const configSchema: z.ZodObject<{
         jitoGrpcUrl: string;
         jupiterBaseUrl: string;
         httpHeaders: Record<string, string>;
-    };
-    execution: {
-        tipStrategy: "auto" | "manual";
-        computeUnitPriceMode: "manual" | "auto_oracle";
-        simpleMode: boolean;
-        jitoEnabled: boolean;
-        secondaryRpcEnabled: boolean;
-        wsEnabled: boolean;
-        feeArms: {
-            slippageBps: number;
-            cuPrice: number;
-        }[];
-        minFillProb: number;
-        maxSlipBps: number;
-        routeRetryMs: number;
-        blockhashStaleMs: number;
-        migrationPreset: {
-            enabled: boolean;
-            durationMs: number;
-            cuPriceBump: number;
-            minSlippageBps: number;
-            decayMs: number;
-        };
-        quarantine: {
-            failRate: number;
-            minAttempts: number;
-        };
     };
     dataProviders: {
         neynarBaseUrl: string;
@@ -1664,9 +1733,21 @@ export declare const configSchema: z.ZodObject<{
             maxBoost: number;
         };
     };
+    priceUpdater: {
+        enabled: boolean;
+        intervalMs: number;
+        staleWarnSec: number;
+        pythSolUsdPriceAccount: string;
+    };
+    featuresJob: {
+        enabled: boolean;
+        intervalMs: number;
+        embedder: string;
+        lookbackHours: number;
+        minPostsPerAuthor: number;
+    };
     features: {
         migrationWatcher: boolean;
-        jitoEnabled: boolean;
         rugGuard: boolean;
         alphaRanker: boolean;
         fillNet: boolean;
@@ -1674,6 +1755,7 @@ export declare const configSchema: z.ZodObject<{
         constrainedSizing: boolean;
         survivalStops: boolean;
         offlinePolicyShadow: boolean;
+        jitoEnabled: boolean;
         parquetExport: boolean;
     };
     addresses: {
@@ -1681,6 +1763,36 @@ export declare const configSchema: z.ZodObject<{
         pumpswapProgram: string;
         raydiumAmmV4: string;
         raydiumCpmm: string;
+    };
+    execution: {
+        jitoEnabled: boolean;
+        tipStrategy: "auto" | "manual";
+        computeUnitPriceMode: "manual" | "auto_oracle";
+        simpleMode: boolean;
+        secondaryRpcEnabled: boolean;
+        wsEnabled: boolean;
+        feeArms: {
+            slippageBps: number;
+            cuPrice: number;
+        }[];
+        minFillProb: number;
+        maxSlipBps: number;
+        routeRetryMs: number;
+        blockhashStaleMs: number;
+        migrationPreset: {
+            enabled: boolean;
+            durationMs: number;
+            cuPriceBump: number;
+            minSlippageBps: number;
+            decayMs: number;
+        };
+        routeQuarantine: {
+            windowMinutes: number;
+            minAttempts: number;
+            failRateThreshold: number;
+            slipExcessWeight: number;
+            failRateWeight: number;
+        };
     };
     jito: {
         tipLamportsMin: number;
@@ -1761,6 +1873,9 @@ export declare const configSchema: z.ZodObject<{
             port: number;
         } | undefined;
         migrationWatcher?: {
+            port: number;
+        } | undefined;
+        leaderWallets?: {
             port: number;
         } | undefined;
         metrics?: {
@@ -1934,32 +2049,13 @@ export declare const configSchema: z.ZodObject<{
         level?: "fatal" | "error" | "warn" | "info" | "debug" | "trace" | undefined;
         json?: boolean | undefined;
     } | undefined;
-    execution?: {
-        tipStrategy?: "auto" | "manual" | undefined;
-        computeUnitPriceMode?: "manual" | "auto_oracle" | undefined;
-        simpleMode?: boolean | undefined;
-        jitoEnabled?: boolean | undefined;
-        secondaryRpcEnabled?: boolean | undefined;
-        wsEnabled?: boolean | undefined;
-        feeArms?: {
-            slippageBps: number;
-            cuPrice: number;
-        }[] | undefined;
-        minFillProb?: number | undefined;
-        maxSlipBps?: number | undefined;
-        routeRetryMs?: number | undefined;
-        blockhashStaleMs?: number | undefined;
-        migrationPreset?: {
-            enabled?: boolean | undefined;
-            durationMs?: number | undefined;
-            cuPriceBump?: number | undefined;
-            minSlippageBps?: number | undefined;
-            decayMs?: number | undefined;
-        } | undefined;
-        quarantine?: {
-            failRate?: number | undefined;
-            minAttempts?: number | undefined;
-        } | undefined;
+    leaderWallets?: {
+        enabled?: boolean | undefined;
+        watchMinutes?: number | undefined;
+        minHitsForBoost?: number | undefined;
+        scoreHalfLifeDays?: number | undefined;
+        rankBoost?: number | undefined;
+        sizeTierBoost?: number | undefined;
     } | undefined;
     providers?: {
         solanatracker?: {
@@ -1999,9 +2095,21 @@ export declare const configSchema: z.ZodObject<{
             maxBoost?: number | undefined;
         } | undefined;
     } | undefined;
+    priceUpdater?: {
+        enabled?: boolean | undefined;
+        intervalMs?: number | undefined;
+        staleWarnSec?: number | undefined;
+        pythSolUsdPriceAccount?: string | undefined;
+    } | undefined;
+    featuresJob?: {
+        enabled?: boolean | undefined;
+        intervalMs?: number | undefined;
+        embedder?: string | undefined;
+        lookbackHours?: number | undefined;
+        minPostsPerAuthor?: number | undefined;
+    } | undefined;
     features?: {
         migrationWatcher?: boolean | undefined;
-        jitoEnabled?: boolean | undefined;
         rugGuard?: boolean | undefined;
         alphaRanker?: boolean | undefined;
         fillNet?: boolean | undefined;
@@ -2009,6 +2117,7 @@ export declare const configSchema: z.ZodObject<{
         constrainedSizing?: boolean | undefined;
         survivalStops?: boolean | undefined;
         offlinePolicyShadow?: boolean | undefined;
+        jitoEnabled?: boolean | undefined;
         parquetExport?: boolean | undefined;
     } | undefined;
     addresses?: {
@@ -2016,6 +2125,36 @@ export declare const configSchema: z.ZodObject<{
         pumpswapProgram?: string | undefined;
         raydiumAmmV4?: string | undefined;
         raydiumCpmm?: string | undefined;
+    } | undefined;
+    execution?: {
+        jitoEnabled?: boolean | undefined;
+        tipStrategy?: "auto" | "manual" | undefined;
+        computeUnitPriceMode?: "manual" | "auto_oracle" | undefined;
+        simpleMode?: boolean | undefined;
+        secondaryRpcEnabled?: boolean | undefined;
+        wsEnabled?: boolean | undefined;
+        feeArms?: {
+            slippageBps: number;
+            cuPrice: number;
+        }[] | undefined;
+        minFillProb?: number | undefined;
+        maxSlipBps?: number | undefined;
+        routeRetryMs?: number | undefined;
+        blockhashStaleMs?: number | undefined;
+        migrationPreset?: {
+            enabled?: boolean | undefined;
+            durationMs?: number | undefined;
+            cuPriceBump?: number | undefined;
+            minSlippageBps?: number | undefined;
+            decayMs?: number | undefined;
+        } | undefined;
+        routeQuarantine?: {
+            windowMinutes?: number | undefined;
+            minAttempts?: number | undefined;
+            failRateThreshold?: number | undefined;
+            slipExcessWeight?: number | undefined;
+            failRateWeight?: number | undefined;
+        } | undefined;
     } | undefined;
     jito?: {
         tipLamportsMin?: number | undefined;
