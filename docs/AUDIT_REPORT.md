@@ -1,5 +1,12 @@
 # Repo Health & Gaps Audit
 
+## Status Update
+- Real slippage now persisted from executor fills (pre-flight fix complete).
+- MAE telemetry flows from position manager into metrics storage.
+- Shared SSE client with Last-Event-ID reconnect live across services.
+- writeQueue usage updated to rely on shared helper without drift.
+- Trainer runs emit calibration/validation metrics with each export.
+
 ## A. Unfinished / Placeholder Logic
 - **High** services/executor/src/index.ts:350 – Realized slippage (`slipReal`) is hard-coded to 0, so exec outcomes and metrics never reflect fill quality.
   - Impact: downstream analytics and risk monitors treat every fill as perfect, hiding losses and breaking MAE/PNL analysis.

@@ -1,5 +1,7 @@
 # Audit Quick Fixes
 
+## Applied (2025-10-01)
+
 - **env.example** (applied): add missing service port overrides so the sample file matches the config schema.
 ```diff
 @@
@@ -46,3 +48,7 @@
 - **packages/config/src/index.ts** (applied): feature flag `features.jitoEnabled` now gates runtime fallback to Jito endpoints; metrics reflect the flag.
 
 - **training/fillnet/train.ts**, **training/alpha_ranker/train.ts**, **training/rugguard/train.ts** (applied): trainers emit calibration/validation metrics to stdout and embed summaries into exported model JSON.
+
+## Pending
+
+- _None._
