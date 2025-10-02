@@ -22,7 +22,6 @@ export type HolderSafetyResult = {
 export type SafetyEvaluation = {
   ok: boolean;
   reasons: string[];
-  ocrs: number;
   whaleFlag: boolean;
   features: Record<string, number>;
   rugProb?: number;

@@ -1,4 +1,4 @@
-﻿import { z } from 'zod';
+import { z } from 'zod';
 
 export const concurrencyScalerSchema = z.object({
   base: z.number().min(0),
@@ -72,10 +72,7 @@ export const configSchema = z.object({
     leaderWallets: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4019 }),
     metrics: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 8090 })
   }),
-  gating: z.object({
-    sssMin: z.number().min(0).max(1).default(0.6),
-    ocrsMin: z.number().min(0).max(1).default(0.68),
-    lpMinSol: z.number().min(0).default(20),
+  gating: z.object({lpMinSol: z.number().min(0).default(20),
     buysSellRatioMin: z.number().min(0).default(2.2),
     uniquesMin: z.number().min(0).default(12),
     minPoolAgeSec: z.number().min(0).default(30),

@@ -26,7 +26,7 @@ import { PlanEnvelope } from './types';
 import { createRpcConnection } from '@trenches/util';
 
 const logger = createLogger('policy-engine');
-const PLAN_FEATURE_DIM = 8;
+const PLAN_FEATURE_DIM = 7;
 const WALLET_REFRESH_MS = 5_000;
 const CONGESTION_REFRESH_MS = 3_000;
 
@@ -262,7 +262,7 @@ async function bootstrap() {
     }
 
     plansEmitted.inc();
-    const reward = candidate.ocrs;
+    const reward = selection.expectedReward;
     const smoothing = config.policy.rewardSmoothing;
     const blendedReward = reward * (1 - smoothing) + selection.expectedReward * smoothing;
     bandit.update(selection.action.id, contextVector, blendedReward);

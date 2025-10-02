@@ -13,7 +13,7 @@ import { storeTokenCandidate } from '@trenches/persistence';
 import { TokenCandidate } from '@trenches/shared';
 import { TtlCache, createRpcConnection, createInMemoryLastEventIdStore, subscribeJsonStream, sseQueue, sseRoute } from '@trenches/util';
 import { SafetyEventBus } from './eventBus';
-import { safetyEvaluations, safetyPasses, safetyBlocks, ocrsGauge, evaluationDuration, authorityPassRatio, avgRugProb, pumpInferencesTotal, rugguardAvgPumpProb } from './metrics';
+import { safetyEvaluations, safetyPasses, safetyBlocks,  evaluationDuration, authorityPassRatio, avgRugProb, pumpInferencesTotal, rugguardAvgPumpProb } from './metrics';
 import { checkTokenSafety } from './tokenSafety';
 import { checkLpSafety } from './lpSafety';
 import { checkHolderSkew } from './holderSafety';
@@ -82,9 +82,7 @@ async function bootstrap() {
       const result = await evaluateCandidate(candidate, connection, config, candidateCache);
       const decorated: TokenCandidate = {
         ...candidate,
-        safety: { ok: result.ok, reasons: result.reasons },
-        ocrs: 0,
-        rugProb: (result as any).rugProb ?? undefined
+        safety: { ok: result.ok, reasons: result.reasons },        rugProb: (result as any).rugProb ?? undefined
       };
       try {
         storeTokenCandidate(decorated);
@@ -238,15 +236,14 @@ async function evaluateCandidate(
   const evaluation: SafetyEvaluation = {
     ok,
     reasons,
-    ocrs: 0,
+
     whaleFlag: holderResult.whaleFlag,
     features: {},
     rugProb
   };
 
   safetyEvaluations.inc();
-  ocrsGauge.set(evaluation.ocrs);
-  evaluationDuration.set(Date.now() - start);
+    evaluationDuration.set(Date.now() - start);
 
   cache.set(cacheKey, evaluation);
   return evaluation;

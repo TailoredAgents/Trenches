@@ -11,7 +11,6 @@ export function buildContext(candidate: TokenCandidate, extras: {
   const sells = candidate.sells60;
   const uniques = candidate.uniques60;
   const spread = candidate.spreadBps;
-  const ocrs = candidate.ocrs;
   const flow = buys + sells;
 
   const features = [
@@ -19,9 +18,7 @@ export function buildContext(candidate: TokenCandidate, extras: {
     normalize(lpSol, 120),
     normalize(flow, 200),
     normalize(uniques, 40),
-    normalize(spread, 200, true),
-    ocrs,
-    extras.congestionScore,
+    normalize(spread, 200, true),    extras.congestionScore,
     normalize(extras.walletEquity, 200)
   ];
   return features;

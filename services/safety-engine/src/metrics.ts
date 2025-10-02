@@ -17,11 +17,6 @@ export const safetyBlocks: Counter<string> = registerCounter({
   labelNames: ['reason']
 });
 
-export const ocrsGauge: Gauge<string> = registerGauge({
-  name: 'safety_last_ocrs',
-  help: 'OCRS value of last evaluated candidate'
-});
-
 export const pumpInferencesTotal: Counter<string> = registerCounter({
   name: 'pump_classifier_inferences_total',
   help: 'Total pump classifier inferences'

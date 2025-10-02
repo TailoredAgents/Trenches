@@ -113,7 +113,6 @@ async function bootstrap() {
     const candidates = listRecentCandidates(30).map((c) => ({
       mint: c.mint,
       name: c.name,
-      ocrs: c.ocrs,
       lp: c.lp,
       buys: c.buys,
       sells: c.sells,

@@ -91,7 +91,7 @@ export interface Snapshot {
   pnl: { day: number; week: number; month: number; prices?: { solUsdAgeSec?: number; ok?: boolean } };
   pnlSummary?: { netUsd: number; grossUsd: number; feeUsd: number; slipUsd: number };
   topics: Array<{ topicId: string; label: string; sss: number; secondsLeft: number }>;
-  candidates: Array<{ mint: string; name: string; ocrs: number; lp: number; buys: number; sells: number; uniques: number; safetyOk: boolean }>;
+  candidates: Array<{ mint: string; name: string; lp: number; buys: number; sells: number; uniques: number; safetyOk: boolean }>;
   positions: Array<{ mint: string; qty: number; avg: number; upl: number; targets: number[]; trailPct: number }>;
   risk: { exposurePct: number; dailyLossPct: number };
   sizing: { equity: number; free: number; tier: string; base: number; final: number };
