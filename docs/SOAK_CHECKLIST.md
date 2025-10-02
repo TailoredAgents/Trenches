@@ -7,4 +7,5 @@
 - Net after costs: non-negative over soak window (if prices available)
 
 ## How to run
-- Example: `pnpm soak:summary --from <ISO> --to <ISO>`
+- Example: `pnpm soak:summary`
+  - Set `PERSISTENCE_SQLITE_PATH` if your DB is not at `./data/agent.db`.

@@ -110,14 +110,14 @@ function parseArgs(): CLIOptions {
     process.exit(0);
   }
   const options: Record<string, string> = {};
-  for (let i = 0; i < argv.length; i++) {
+  for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
     if (!token.startsWith('--')) {
       throw new Error(`Unexpected argument: ${token}`);
     }
     const eqIdx = token.indexOf('=');
     let key: string;
-    let value: string;
+    let value: string | undefined;
     if (eqIdx !== -1) {
       key = token.slice(2, eqIdx);
       value = token.slice(eqIdx + 1);
@@ -125,14 +125,26 @@ function parseArgs(): CLIOptions {
       key = token.slice(2);
       const next = argv[i + 1];
       if (!next || next.startsWith('--')) {
+        if (key === 'db') {
+          continue;
+        }
         throw new Error(`Missing value for --${key}`);
       }
       value = next;
       i += 1;
     }
+    if (value === undefined) {
+      continue;
+    }
     options[key] = value;
   }
-  const dbPath = options.db ?? process.env.PERSISTENCE_SQLITE_PATH ?? './data/agent.db';
+  const envDb = process.env.PERSISTENCE_SQLITE_PATH;
+  const dbCandidate = options.db?.trim();
+  const dbPath = dbCandidate && dbCandidate.length > 0
+    ? dbCandidate
+    : envDb && envDb.trim().length > 0
+      ? envDb.trim()
+      : './data/agent.db';
   const fromIso = options.from ?? new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const toIso = options.to ?? new Date().toISOString();
   const firstMinuteWindowMs = options.firstMinuteWindowMs ? Number(options.firstMinuteWindowMs) : 60_000;
@@ -602,6 +614,7 @@ async function main(): Promise<void> {
       routeQuarantine,
       reportCsvPath: path.relative(process.cwd(), reportAbsolutePath)
     };
+    console.log(`[soak-summary] window: ${rangeFromIso} -> ${rangeToIso}`);
     writeCsv(summary, reportAbsolutePath);
     console.log(JSON.stringify(summary, null, 2));
   } finally {
