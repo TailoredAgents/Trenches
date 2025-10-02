@@ -36,7 +36,8 @@
     "train:fillnet": "tsx training/fillnet/train.ts",
     "train:alpha": "tsx training/alpha_ranker/train.ts",
     "train:rugguard": "tsx training/rugguard/train.ts",
-    "smoke:route-quarantine": "tsx tools/smoke/route-quarantine-smoke.ts"
+    "smoke:route-quarantine": "tsx tools/smoke/route-quarantine-smoke.ts",
+    "soak:summary": "tsx tools/soak/soak-summary.ts --db ${PERSISTENCE_SQLITE_PATH:-./data/agent.db} --from $(date -u -d '24 hours ago' +%FT%TZ) --to $(date -u +%FT%TZ)"
   },
   "devDependencies": {
     "@types/eventsource": "^1.1.11",

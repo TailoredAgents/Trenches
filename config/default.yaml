@@ -1,4 +1,4 @@
-﻿mode: SIM
+mode: SHADOW
 logging:
   level: info
   json: true
@@ -159,6 +159,18 @@ rpc:
 execution:
   tipStrategy: auto
   computeUnitPriceMode: auto_oracle
+  migrationPreset:
+    enabled: true
+    durationMs: 60000
+    cuPriceBump: 3000
+    minSlippageBps: 100
+    decayMs: 30000
+  routeQuarantine:
+    windowMinutes: 1440
+    minAttempts: 8
+    failRateThreshold: 0.25
+    slipExcessWeight: 0.5
+    failRateWeight: 100
 dataProviders:
   neynarBaseUrl: https://api.neynar.com
   dexscreenerBaseUrl: https://api.dexscreener.com
@@ -267,3 +279,16 @@ lunarcrush:
     topicBoost: 0.03
     influencerBoost: 0.02
     maxBoost: 0.06
+
+
+features:
+  migrationWatcher: true
+  rugGuard: true
+  alphaRanker: true
+  fillNet: true
+  feeBandit: true
+  constrainedSizing: true
+  survivalStops: true
+  offlinePolicyShadow: true
+  jitoEnabled: false
+  parquetExport: false
