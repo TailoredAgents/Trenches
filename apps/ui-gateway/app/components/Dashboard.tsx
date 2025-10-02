@@ -889,6 +889,16 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
         </div>
       </section>
 
+      <section className="card" style={{ gridColumn: 'span 4 / span 4' }}>
+        <h2>Net PnL (24h)</h2>
+        <div className="metric-grid">
+          <div className="metric-tile"><span>Net</span><div className="metric-value">{formatNumber((snapshot as any)?.pnlSummary?.netUsd, 2)} USD</div></div>
+          <div className="metric-tile"><span>Gross</span><div className="metric-value">{formatNumber((snapshot as any)?.pnlSummary?.grossUsd, 2)} USD</div></div>
+          <div className="metric-tile"><span>Fees</span><div className="metric-value">{formatNumber((snapshot as any)?.pnlSummary?.feeUsd, 2)} USD</div></div>
+          <div className="metric-tile"><span>Slippage</span><div className="metric-value">{formatNumber((snapshot as any)?.pnlSummary?.slipUsd, 2)} USD</div></div>
+        </div>
+      </section>
+
       <section className="card" style={{ gridColumn: 'span 8 / span 8' }}>
         <h2>Event Timeline</h2>
         <small>Live agent events (max {MAX_EVENTS})</small>

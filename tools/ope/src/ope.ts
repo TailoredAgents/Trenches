@@ -47,11 +47,11 @@ async function main() {
   const which = argv.policy as 'fee'|'sizing';
   const rows = loadRows(db, which, fromTs, toTs);
   const ips = estimateIPS(rows);
-  const wis = ips; // placeholder same as IPS for now
-  const dr = ips; // placeholder
+  const wis = (() => { const ws = rows.map(r=>{ try { const ctx=JSON.parse(r.ctx_json); const p=(ctx.probs&&ctx.armIndex!=null)?ctx.probs[ctx.armIndex]:1; const reward = typeof ctx.pFill === 'number' ? ctx.pFill : 1; const w = 1/Math.max(1e-6,p); return {w,reward}; } catch { return {w:0,reward:0}; } }); const sumw=ws.reduce((a,x)=>a+x.w,0); return sumw? ws.reduce((a,x)=>a + (x.w/sumw)*x.reward,0):0; })();
+  const dr = (() => { function qhat(ctx:any):number { if (argv.policy==='fee') { const pFill = typeof ctx.pFill==='number'?ctx.pFill:0.9; const expSlip = typeof ctx.expSlipBps==='number'?ctx.expSlipBps:(ctx.exp_slip_bps||100); const feeBps = typeof ctx.feeBps==='number'?ctx.feeBps:50; const alphaProxy = typeof ctx.alphaProxyBps==='number'?ctx.alphaProxyBps:25; return pFill*((alphaProxy)-(expSlip)) - feeBps; } else { const pnl=Number(ctx.pnl_usd||0); const mae=Number(ctx.mae_usd||0); const slip=Number(ctx.slip_cost_usd||0); return pnl - 0.5*mae - 0.25*slip; } } let num=0; let den=0; for (const r of rows){ try { const ctx=JSON.parse(r.ctx_json||'{}'); const probs=ctx.probs as number[]|undefined; const ai=ctx.armIndex as number|undefined; const p = probs && ai!=null ? probs[ai] : 1; const reward = typeof ctx.reward==='number'?ctx.reward : (typeof ctx.pFill==='number'?ctx.pFill:1); const w = 1/Math.max(1e-6,p); num += w*(reward - qhat(ctx)) + qhat(ctx); den += w; } catch{} } return den? num/den : 0; })();
   console.log('OPE', which, 'IPS', ips.toFixed(4), 'WIS', wis.toFixed(4), 'DR', dr.toFixed(4));
   // Persist
-  const { createBacktestRun, insertBacktestResult, finishBacktestRun } = await import('@trenches/persistence');
+  const { createBacktestRun, insertBacktestResult, finishBacktestRun } = await import('../../../packages/persistence/src/index');
   const runId = createBacktestRun({ from: argv.from, to: argv.to, policy: which }, 'ope');
   insertBacktestResult(runId, `OPE_IPS_${which}`, ips, 'overall');
   insertBacktestResult(runId, `OPE_WIS_${which}`, wis, 'overall');
@@ -60,4 +60,7 @@ async function main() {
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });
+
+
+
 

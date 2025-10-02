@@ -2,7 +2,7 @@
 import DatabaseConstructor from 'better-sqlite3';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { computeExecMetrics } from './metrics';
+import { computeBacktestSummary } from './metrics';
 
 const argv = yargs(hideBin(process.argv))
   .option('db', { type: 'string', default: './data/trenches.db' })
@@ -26,16 +26,31 @@ async function main() {
   const fromTs = toEpoch(argv.from);
   const toTs = toEpoch(argv.to);
   // Create run
-  const { createBacktestRun, finishBacktestRun, insertBacktestResult } = await import('@trenches/persistence');
+  const { createBacktestRun, finishBacktestRun, insertBacktestResult } = await import('../../../packages/persistence/src/index');
   const runId = createBacktestRun({ from: argv.from, to: argv.to, windowMin: argv['window-min'], latency: argv.latency, costs: argv.costs, segments: argv.segments });
-  const m = computeExecMetrics(db, fromTs, toTs);
-  insertBacktestResult(runId, 'landed_rate', m.landedRate, 'overall');
-  insertBacktestResult(runId, 'avg_slip_bps', m.avgSlipBps, 'overall');
-  insertBacktestResult(runId, 'p50_ttl_ms', m.p50Ttl, 'overall');
-  insertBacktestResult(runId, 'p95_ttl_ms', m.p95Ttl, 'overall');
+  const summary = computeBacktestSummary(db, fromTs, toTs);
+  insertBacktestResult(runId, 'net_pnl_usd', summary.netUsd, 'overall');
+  insertBacktestResult(runId, 'gross_usd', summary.grossUsd, 'overall');
+  insertBacktestResult(runId, 'fee_usd', summary.feeUsd, 'overall');
+  insertBacktestResult(runId, 'slip_usd', summary.slipUsd, 'overall');
+  for (const [seg, vals] of Object.entries(summary.segments)) {
+    insertBacktestResult(runId, 'net_pnl_usd', vals.netUsd, seg);
+    insertBacktestResult(runId, 'gross_usd', vals.grossUsd, seg);
+    insertBacktestResult(runId, 'fee_usd', vals.feeUsd, seg);
+    insertBacktestResult(runId, 'slip_usd', vals.slipUsd, seg);
+  }
+  insertBacktestResult(runId, 'landed_rate', summary.metrics.landedRate, 'overall');
+  insertBacktestResult(runId, 'avg_slip_bps', summary.metrics.avgSlipBps, 'overall');
+  insertBacktestResult(runId, 'p50_ttl_ms', summary.metrics.p50Ttl, 'overall');
+  insertBacktestResult(runId, 'p95_ttl_ms', summary.metrics.p95Ttl, 'overall');
   finishBacktestRun(runId);
-  console.log('Backtest run', runId, 'results:', m);
+  console.log('Backtest run', runId, 'summary:', JSON.stringify(summary));
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });
+
+
+
+
+
 

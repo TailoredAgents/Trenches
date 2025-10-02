@@ -136,6 +136,7 @@ async function bootstrap() {
     let survival = { avgHazard: 0, forcedFlattens: 0 };
     let backtest = { lastRunId: 0, lastOverallNetPnl: 0, landedRate: 0, avgSlipBps: 0, p50Ttl: 0, p95Ttl: 0 };
     let shadow = { feeDisagreePct: 0, sizingDisagreePct: 0 };
+    let pnlSummary = { netUsd: 0, grossUsd: 0, feeUsd: 0, slipUsd: 0 };
     let routes: Array<{ route: string; penalty: number }> = [];
     let leaders: Array<{ pool: string; hits: number }> = [];
     try {
@@ -221,8 +222,11 @@ async function bootstrap() {
     });
     sseClients.add(reply);
     const send = (event: string, data: unknown) => {
-      reply.raw.write(`event: ${event}\n`);
-      reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+      reply.raw.write(`event: ${event}
+`);
+      reply.raw.write(`data: ${JSON.stringify(data)}
+
+`);
     };
     send('hello', { status: 'ok' });
     const ping = setInterval(() => {
@@ -383,6 +387,15 @@ bootstrap().catch((err) => {
   logger.error({ err }, 'agent core failed to start');
   process.exit(1);
 });
+
+
+
+
+
+
+
+
+
 
 
 
