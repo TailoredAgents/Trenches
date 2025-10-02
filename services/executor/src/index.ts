@@ -13,16 +13,25 @@ import { TokenCandidate, OrderPlan, TradeEvent } from '@trenches/shared';
 import { WalletProvider } from './wallet';
 import { JupiterClient } from './jupiter';
 import { TransactionSender } from './sender';
-import { ordersReceived, ordersFailed, ordersSubmitted, simpleModeGauge, flagJitoEnabled, flagSecondaryRpcEnabled, flagWsEnabled, landedRateGauge, slipAvgGauge, timeToLandHistogram, retriesTotal, fallbacksTotal, routePenaltyGauge } from './metrics';
+import { ordersReceived, ordersFailed, ordersSubmitted, simpleModeGauge, flagJitoEnabled, flagSecondaryRpcEnabled, flagWsEnabled, landedRateGauge, slipAvgGauge, timeToLandHistogram, retriesTotal, fallbacksTotal } from './metrics';
 import { predictFill } from './fillnet';
 import { decideFees, updateArm } from './fee-bandit';
 import { ExecutorEventBus } from './eventBus';
+import { computeWindowStart, loadRouteStats, recordRouteAttempt, markRouteExcluded, RouteQuarantineConfig, RouteStatSnapshot } from './routeQuarantine';
 import { applyMigrationPresetAdjustment, MigrationPresetConfig } from './migrationPreset';
 import { createRpcConnection, createSSEClient, createInMemoryLastEventIdStore } from '@trenches/util';
 
 const logger = createLogger('executor');
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const MAX_RETRIES = 3;
+const ROUTE_QUARANTINE_DEFAULT: RouteQuarantineConfig = {
+  windowMinutes: 1440,
+  minAttempts: 8,
+  failRateThreshold: 0.25,
+  slipExcessWeight: 0.5,
+  failRateWeight: 100
+};
+
 
 async function bootstrap() {
   const config = loadConfig();
@@ -59,6 +68,25 @@ async function bootstrap() {
     reply.header('Content-Type', registry.contentType);
     reply.send(await registry.metrics());
   });
+  app.get('/route-quality', async () => {
+    const rqConfig = ((config as any).execution?.routeQuarantine ?? ROUTE_QUARANTINE_DEFAULT) as RouteQuarantineConfig;
+    const windowStart = computeWindowStart(Date.now(), rqConfig.windowMinutes);
+    const stats = loadRouteStats(rqConfig, windowStart);
+    const rows = Array.from(stats.values())
+      .map((stat: RouteStatSnapshot) => ({
+        route: stat.route,
+        attempts: stat.attempts,
+        fails: stat.fails,
+        failRate: stat.failRate,
+        avgSlipRealBps: stat.avgSlipRealBps,
+        avgSlipExpBps: stat.avgSlipExpBps,
+        penalty: stat.penalty,
+        excluded: stat.excluded
+      }))
+      .sort((a, b) => b.penalty - a.penalty);
+    return { windowStart, rows };
+  });
+
 
   app.get('/events/trades', async (request, reply) => {
     const { iterator, close } = createTradeIterator(bus);
@@ -237,14 +265,27 @@ async function executePlan(opts: {
   // ExecutionPolicy: choose fees/slippage
   const cfg = loadConfig();
   const arms = cfg.execution.feeArms;
-  const eligible = [] as Array<{ cuPrice: number; slippageBps: number; pred: { pFill: number; expSlipBps: number; expTimeMs: number } }>;  
+  const routeKey = plan.route ?? 'jupiter';
+  const rqConfig = ((cfg as any).execution?.routeQuarantine ?? ROUTE_QUARANTINE_DEFAULT) as RouteQuarantineConfig;
+  const windowStartTs = computeWindowStart(Date.now(), rqConfig.windowMinutes);
+  const routeStatsMap = loadRouteStats(rqConfig, windowStartTs);
+  const excludedRoutes = new Set<string>();
+  const eligible = [] as Array<{ cuPrice: number; slippageBps: number; pred: { pFill: number; expSlipBps: number; expTimeMs: number }; penalty: number }>;
   for (const arm of arms) {
+    const currentStats = routeStatsMap.get(routeKey);
+    if (currentStats?.excluded) {
+      if (!excludedRoutes.has(routeKey)) {
+        excludedRoutes.add(routeKey);
+        markRouteExcluded(routeKey);
+      }
+      continue;
+    }
     if (!cfg.features.feeBandit || !cfg.features.fillNet) {
-      eligible.push({ cuPrice: arm.cuPrice, slippageBps: arm.slippageBps, pred: { pFill: 1, expSlipBps: arm.slippageBps, expTimeMs: 500 } });
+      eligible.push({ cuPrice: arm.cuPrice, slippageBps: arm.slippageBps, pred: { pFill: 1, expSlipBps: arm.slippageBps, expTimeMs: 500 }, penalty: currentStats?.penalty ?? 0 });
       continue;
     }
     const pred = await predictFill({
-      route: 'jupiter',
+      route: routeKey,
       amountLamports,
       slippageBps: arm.slippageBps,
       congestionScore: 0.7,
@@ -255,12 +296,17 @@ async function executePlan(opts: {
       rugProb: (candidate as any).rugProb
     }, { mint: candidate.mint, arm });
     if (pred.pFill >= cfg.execution.minFillProb && arm.slippageBps <= cfg.execution.maxSlipBps) {
-      eligible.push({ cuPrice: arm.cuPrice, slippageBps: arm.slippageBps, pred });
+      eligible.push({ cuPrice: arm.cuPrice, slippageBps: arm.slippageBps, pred, penalty: currentStats?.penalty ?? 0 });
     }
   }
-  const routeStats = (global as any).__route_stats ?? ((global as any).__route_stats = new Map<string, { attempts:number; fails:number; avgSlip:number; penalty:number }>());
-  const routeKey = 'jupiter';
-  const chosen = eligible.length > 0 ? eligible.sort((a, b) => (b.pred.pFill - (routeStats.get(routeKey)?.penalty ?? 0)) - (a.pred.pFill - (routeStats.get(routeKey)?.penalty ?? 0)))[0] : { cuPrice: 0, slippageBps: plan.slippageBps ?? 100, pred: { pFill: 1, expSlipBps: 100, expTimeMs: 500 } };
+  if (eligible.length === 0) {
+    if (!excludedRoutes.has(routeKey)) {
+      excludedRoutes.add(routeKey);
+      markRouteExcluded(routeKey);
+    }
+    throw new Error(`route ${routeKey} quarantined`);
+  }
+  const chosen = eligible.sort((a, b) => (b.pred.pFill - b.penalty) - (a.pred.pFill - a.penalty))[0];
   const feeDecision = cfg.features.feeBandit ? decideFees({ congestionScore: 0.7, sizeSol: plan.sizeSol, equity: plan.sizeSol * 10, lpSol: candidate.lpSol, spreadBps: candidate.spreadBps }) : { ts: Date.now(), cuPrice: chosen.cuPrice, cuLimit: 1_200_000, slippageBps: chosen.slippageBps, rationale: 'static' };
   // Shadow fee policy (offline only)
   try {
@@ -280,6 +326,7 @@ async function executePlan(opts: {
 
   let slippageToUse = feeDecision.slippageBps;
   let cuPriceToUse = feeDecision.cuPrice;
+  let slipExpForStats = chosen.pred?.expSlipBps ?? slippageToUse;
 
   const presetConfig = ((cfg as any).execution?.migrationPreset ?? {
     enabled: true,
@@ -300,6 +347,7 @@ async function executePlan(opts: {
 
   cuPriceToUse = presetResult.cuPrice;
   slippageToUse = presetResult.slippageBps;
+  slipExpForStats = Math.max(slipExpForStats, slippageToUse);
   const quote = await jupiter.fetchQuote(
     {
       inputMint,
@@ -455,6 +503,15 @@ async function executePlan(opts: {
           { filled: true, realizedSlipBps: slipReal, feeBps }
         );
       } catch {}
+      const successStats = recordRouteAttempt({
+        config: rqConfig,
+        route: routeKey,
+        windowStartTs,
+        success: true,
+        slipRealBps: slipReal,
+        slipExpBps: slipExpForStats
+      });
+      routeStatsMap.set(routeKey, successStats);
       return;
     } catch (err) {
       lastError = err;
@@ -463,10 +520,22 @@ async function executePlan(opts: {
       if (attempt < MAX_RETRIES - 1) {
         fallbacksTotal.inc();
       }
-      const rs = routeStats.get(routeKey) ?? { attempts: 0, fails: 0, avgSlip: 0, penalty: 0 };
-      rs.attempts += 1; rs.fails += 1; rs.penalty = Math.min(1, rs.fails / Math.max(1, rs.attempts)) * ((cfg as any).execution?.quarantine?.failRate ?? 0.4);
-      routeStats.set(routeKey, rs);
-      try { routePenaltyGauge.set({ route: routeKey }, rs.penalty); } catch {}
+      const failureStats = recordRouteAttempt({
+        config: rqConfig,
+        route: routeKey,
+        windowStartTs,
+        success: false,
+        slipRealBps: slippageToUse,
+        slipExpBps: slipExpForStats
+      });
+      routeStatsMap.set(routeKey, failureStats);
+      if (failureStats.excluded && !excludedRoutes.has(routeKey)) {
+        excludedRoutes.add(routeKey);
+        markRouteExcluded(routeKey);
+        const quarantineError = new Error(`route ${routeKey} quarantined after failures`);
+        lastError = quarantineError;
+        throw quarantineError;
+      }
     }
   }
   recordOrderPlan({

@@ -332,9 +332,9 @@ exports.configSchema = zod_1.z.object({
             decayMs: zod_1.z.number().int().nonnegative().default(30000)
         })
             .default({ enabled: true, durationMs: 60000, cuPriceBump: 3000, minSlippageBps: 100, decayMs: 30000 }),
-        quarantine: zod_1.z
-            .object({ failRate: zod_1.z.number().min(0).max(1).default(0.4), minAttempts: zod_1.z.number().int().positive().default(5) })
-            .default({ failRate: 0.4, minAttempts: 5 })
+        routeQuarantine: zod_1.z
+            .object({ windowMinutes: zod_1.z.number().int().positive().default(1440), minAttempts: zod_1.z.number().int().positive().default(8), failRateThreshold: zod_1.z.number().min(0).max(1).default(0.25), slipExcessWeight: zod_1.z.number().nonnegative().default(0.5), failRateWeight: zod_1.z.number().nonnegative().default(100) })
+            .default({ windowMinutes: 1440, minAttempts: 8, failRateThreshold: 0.25, slipExcessWeight: 0.5, failRateWeight: 100 })
     }).default({
         tipStrategy: 'auto',
         computeUnitPriceMode: 'auto_oracle',
@@ -354,7 +354,7 @@ exports.configSchema = zod_1.z.object({
         routeRetryMs: 900,
         blockhashStaleMs: 2500,
         migrationPreset: { enabled: true, durationMs: 60000, cuPriceBump: 3000, minSlippageBps: 100, decayMs: 30000 },
-        quarantine: { failRate: 0.4, minAttempts: 5 }
+        routeQuarantine: { windowMinutes: 1440, minAttempts: 8, failRateThreshold: 0.25, slipExcessWeight: 0.5, failRateWeight: 100 }
     }),
     jito: zod_1.z.object({
         tipLamportsMin: zod_1.z.number().int().min(0).default(0),

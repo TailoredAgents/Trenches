@@ -88,8 +88,25 @@ export const migrationPresetUses = registerCounter({
   labelNames: ['mint', 'route']
 });
 
+export const routeAttemptsTotal = registerCounter({
+  name: 'executor_route_attempts_total',
+  help: 'Number of execution attempts per route',
+  labelNames: ['route']
+});
+
+export const routeFailsTotal = registerCounter({
+  name: 'executor_route_fails_total',
+  help: 'Number of failed executions per route',
+  labelNames: ['route']
+});
+
 export const routePenaltyGauge = registerGauge({
   name: 'executor_route_penalty',
   help: 'Route penalty score',
+  labelNames: ['route']
+});
+export const routesExcludedTotal = registerCounter({
+  name: 'executor_routes_excluded_total',
+  help: 'Number of times a route was excluded by quarantine thresholds',
   labelNames: ['route']
 });

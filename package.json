@@ -3,8 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@9.6.0",
-  "engines": { "node": ">=20" },
-  "workspaces": ["packages/*", "services/*", "apps/*", "tools/*", "training/*"],
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "apps/*",
+    "tools/*",
+    "training/*"
+  ],
   "scripts": {
     "clean": "rimraf \"**/dist\" \"**/*.tsbuildinfo\"",
     "typecheck": "tsc -b --pretty false",
@@ -13,13 +21,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "dev": "pnpm -r --parallel run dev",
-    "smoke": "tsx tools/smoke/sse-smoke.ts"
-    ,
-    "smoke:exec": "tsx tools/smoke/execution-smoke.ts"
-    ,
+    "smoke": "tsx tools/smoke/sse-smoke.ts",
+    "smoke:exec": "tsx tools/smoke/execution-smoke.ts",
     "smoke:survival": "tsx tools/smoke/survival-smoke.ts",
-    "smoke:sizing": "tsx tools/smoke/sizing-smoke.ts"
-    ,
+    "smoke:sizing": "tsx tools/smoke/sizing-smoke.ts",
     "backtest": "tsx tools/backtest/src/cli.ts",
     "ope": "tsx tools/ope/src/ope.ts",
     "smoke:backtest": "pnpm backtest --from 2025-01-01 --to 2025-01-02",
@@ -30,7 +35,8 @@
     "smoke:migration-preset": "tsx tools/smoke/migration-preset-smoke.ts",
     "train:fillnet": "tsx training/fillnet/train.ts",
     "train:alpha": "tsx training/alpha_ranker/train.ts",
-    "train:rugguard": "tsx training/rugguard/train.ts"
+    "train:rugguard": "tsx training/rugguard/train.ts",
+    "smoke:route-quarantine": "tsx tools/smoke/route-quarantine-smoke.ts"
   },
   "devDependencies": {
     "@types/eventsource": "^1.1.11",

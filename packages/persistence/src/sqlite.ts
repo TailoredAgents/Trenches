@@ -579,6 +579,25 @@ MIGRATIONS.push({
   });
 
 
+
+MIGRATIONS.push({
+    id: '0014_phase_f_route_stats',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS route_stats (
+        route TEXT NOT NULL,
+        window_start_ts INTEGER NOT NULL,
+        attempts INTEGER NOT NULL,
+        fails INTEGER NOT NULL,
+        avg_slip_real_bps REAL NOT NULL,
+        avg_slip_exp_bps REAL NOT NULL,
+        penalty REAL NOT NULL,
+        PRIMARY KEY(route, window_start_ts)
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_route_stats_ts ON route_stats(window_start_ts);`
+    ]
+  });
+
+
 let db: DatabaseConstructor.Database | null = null;
 
 const candidateWriteQueue = createWriteQueue('candidates');
@@ -1541,6 +1560,41 @@ export function listRecentMigrationEvents(limit = 20): Array<{ ts: number; mint:
     .all({ limit }) as Array<{ ts: number; mint: string; pool: string; source: string; init_sig: string }>;
   return rows.map((r) => ({ ts: r.ts, mint: r.mint, pool: r.pool, source: r.source, initSig: r.init_sig }));
 }
+
+export function upsertRouteStat(input: { route: string; windowStartTs: number; success: boolean; slipRealBps: number; slipExpBps: number; weights: { slipExcessWeight: number; failRateWeight: number } }): { route: string; attempts: number; fails: number; avgSlipRealBps: number; avgSlipExpBps: number; penalty: number } {
+  const database = getDb();
+  const { route, windowStartTs, success, slipRealBps, slipExpBps, weights } = input;
+  const row = database
+    .prepare(`SELECT attempts, fails, avg_slip_real_bps AS avgSlipRealBps, avg_slip_exp_bps AS avgSlipExpBps FROM route_stats WHERE route = ? AND window_start_ts = ?`)
+    .get(route, windowStartTs) as { attempts: number; fails: number; avgSlipRealBps: number; avgSlipExpBps: number } | undefined;
+  const prevAttempts = row?.attempts ?? 0;
+  const prevFails = row?.fails ?? 0;
+  const attempts = prevAttempts + 1;
+  const fails = prevFails + (success ? 0 : 1);
+  const prevAvgReal = row?.avgSlipRealBps ?? 0;
+  const prevAvgExp = row?.avgSlipExpBps ?? 0;
+  const slipReal = Number.isFinite(slipRealBps) ? slipRealBps : 0;
+  const slipExp = Number.isFinite(slipExpBps) ? slipExpBps : 0;
+  const avgSlipRealBps = (prevAvgReal * prevAttempts + slipReal) / attempts;
+  const avgSlipExpBps = (prevAvgExp * prevAttempts + slipExp) / attempts;
+  const failRate = attempts > 0 ? fails / attempts : 0;
+  const slipExcess = Math.max(0, avgSlipRealBps - avgSlipExpBps);
+  const penalty = failRate * weights.failRateWeight + slipExcess * weights.slipExcessWeight;
+  database
+    .prepare(`INSERT INTO route_stats (route, window_start_ts, attempts, fails, avg_slip_real_bps, avg_slip_exp_bps, penalty) VALUES (@route, @windowStartTs, @attempts, @fails, @avgSlipRealBps, @avgSlipExpBps, @penalty) ON CONFLICT(route, window_start_ts) DO UPDATE SET attempts = @attempts, fails = @fails, avg_slip_real_bps = @avgSlipRealBps, avg_slip_exp_bps = @avgSlipExpBps, penalty = @penalty`)
+    .run({ route, windowStartTs, attempts, fails, avgSlipRealBps, avgSlipExpBps, penalty });
+  return { route, attempts, fails, avgSlipRealBps, avgSlipExpBps, penalty };
+}
+
+export function getRouteStats(windowStartTs: number): Array<{ route: string; attempts: number; fails: number; avgSlipRealBps: number; avgSlipExpBps: number; penalty: number }> {
+  const database = getDb();
+  const rows = database
+    .prepare(`SELECT route, attempts, fails, avg_slip_real_bps AS avgSlipRealBps, avg_slip_exp_bps AS avgSlipExpBps, penalty FROM route_stats WHERE window_start_ts = ?`)
+    .all(windowStartTs) as Array<{ route: string; attempts: number; fails: number; avgSlipRealBps: number; avgSlipExpBps: number; penalty: number }>;
+  return rows;
+}
+
+
 
 export function getLatestMigrationEvent(filter: { mint: string; pool?: string | null }): { ts: number; mint: string; pool: string | null } | undefined {
   const database = getDb();

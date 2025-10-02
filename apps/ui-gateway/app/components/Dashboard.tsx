@@ -105,8 +105,23 @@ function formatPercent(value: number | undefined) {
   if (value === undefined) {
     return '-';
   }
+
+
+
   return `${(value * 100).toFixed(1)}%`;
 }
+
+type RouteQualityRow = {
+  route: string;
+  attempts: number;
+  fails: number;
+  failRate: number;
+  avgSlipRealBps: number;
+  avgSlipExpBps: number;
+  penalty: number;
+  excluded: boolean;
+};
+
 
 function ModeBadge({ mode }: { mode?: AgentMode }) {
   const label = mode ?? 'SIM';
@@ -131,6 +146,8 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
     };
     execution?: { presetActive?: boolean; presetUsesTotal?: number };
   } | null>(null);
+  const [routeQuality, setRouteQuality] = useState<RouteQualityRow[]>([]);
+  const [routeQualityWindow, setRouteQualityWindow] = useState<number | null>(null);
   const [policy, setPolicy] = useState<{ congestion?: string } | null>(null);
   const [exposureHist, setExposureHist] = useState<number[]>([]);
   const [dexHist, setDexHist] = useState<number[]>([]);
@@ -164,6 +181,35 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
     const t = setInterval(load, 7000);
     return () => { cancelled = true; clearInterval(t); };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const r = await fetch('http://127.0.0.1:4011/route-quality', { cache: 'no-store' });
+        if (!r.ok) {
+          throw new Error(`${r.status} ${r.statusText}`);
+        }
+        const j = (await r.json()) as { windowStart?: number; rows?: RouteQualityRow[] };
+        if (!cancelled) {
+          setRouteQuality(Array.isArray(j.rows) ? j.rows : []);
+          setRouteQualityWindow(typeof j.windowStart === 'number' ? j.windowStart : null);
+        }
+      } catch {
+        if (!cancelled) {
+          setRouteQuality([]);
+          setRouteQualityWindow(null);
+        }
+      }
+    }
+    load();
+    const t = setInterval(load, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -547,6 +593,45 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
           </div>
         </div>
       </section>
+      <section className="card" style={{ gridColumn: 'span 4 / span 4' }}>
+        <h2>Route Quality (24h)</h2>
+        {routeQualityWindow ? (
+          <small style={{ display: 'block', color: '#9aa5c4' }}>
+            Window start: {new Date(routeQualityWindow).toLocaleString()}
+          </small>
+        ) : null}
+        {routeQuality.length === 0 ? (
+          <div className="empty-state">No route stats yet.</div>
+        ) : (
+          <div style={{ overflowX: 'auto', marginTop: 8 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ textAlign: 'left', borderBottom: '1px solid #1f2a4d' }}>
+                  <th style={{ padding: '4px 8px' }}>Route</th>
+                  <th style={{ padding: '4px 8px' }}>Attempts</th>
+                  <th style={{ padding: '4px 8px' }}>Fail %</th>
+                  <th style={{ padding: '4px 8px' }}>Avg Slip</th>
+                  <th style={{ padding: '4px 8px' }}>Penalty</th>
+                  <th style={{ padding: '4px 8px' }}>Excluded</th>
+                </tr>
+              </thead>
+              <tbody>
+                {routeQuality.map((row) => (
+                  <tr key={row.route} style={{ color: row.excluded ? '#f87171' : undefined }}>
+                    <td style={{ padding: '4px 8px', borderTop: '1px solid #1f2a4d' }}>{row.route}</td>
+                    <td style={{ padding: '4px 8px', borderTop: '1px solid #1f2a4d' }}>{formatNumber(row.attempts, 0)}</td>
+                    <td style={{ padding: '4px 8px', borderTop: '1px solid #1f2a4d' }}>{formatNumber(row.failRate * 100, 1)}%</td>
+                    <td style={{ padding: '4px 8px', borderTop: '1px solid #1f2a4d' }}>{formatNumber(row.avgSlipRealBps, 1)} bps</td>
+                    <td style={{ padding: '4px 8px', borderTop: '1px solid #1f2a4d' }}>{formatNumber(row.penalty, 1)}</td>
+                    <td style={{ padding: '4px 8px', borderTop: '1px solid #1f2a4d' }}>{row.excluded ? 'Yes' : 'No'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
 
       <section className="card" style={{ gridColumn: 'span 4 / span 4' }}>
         <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

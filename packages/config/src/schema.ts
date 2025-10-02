@@ -327,9 +327,15 @@ export const configSchema = z.object({
         decayMs: z.number().int().nonnegative().default(30000)
       })
       .default({ enabled: true, durationMs: 60000, cuPriceBump: 3000, minSlippageBps: 100, decayMs: 30000 }),
-    quarantine: z
-      .object({ failRate: z.number().min(0).max(1).default(0.4), minAttempts: z.number().int().positive().default(5) })
-      .default({ failRate: 0.4, minAttempts: 5 })
+    routeQuarantine: z
+      .object({
+        windowMinutes: z.number().int().positive().default(1440),
+        minAttempts: z.number().int().positive().default(8),
+        failRateThreshold: z.number().min(0).max(1).default(0.25),
+        slipExcessWeight: z.number().nonnegative().default(0.5),
+        failRateWeight: z.number().nonnegative().default(100)
+      })
+      .default({ windowMinutes: 1440, minAttempts: 8, failRateThreshold: 0.25, slipExcessWeight: 0.5, failRateWeight: 100 })
   }).default({
     tipStrategy: 'auto',
     computeUnitPriceMode: 'auto_oracle',
@@ -349,7 +355,7 @@ export const configSchema = z.object({
     routeRetryMs: 900,
     blockhashStaleMs: 2500,
     migrationPreset: { enabled: true, durationMs: 60000, cuPriceBump: 3000, minSlippageBps: 100, decayMs: 30000 },
-    quarantine: { failRate: 0.4, minAttempts: 5 }
+    routeQuarantine: { windowMinutes: 1440, minAttempts: 8, failRateThreshold: 0.25, slipExcessWeight: 0.5, failRateWeight: 100 }
   }),
   jito: z.object({
     tipLamportsMin: z.number().int().min(0).default(0),
