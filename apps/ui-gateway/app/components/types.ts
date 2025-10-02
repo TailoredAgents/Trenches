@@ -2,7 +2,7 @@ export type AgentMode = 'SIM' | 'SHADOW' | 'SEMI' | 'FULL';
 
 export interface AgentSnapshot {
   status: string;
-  pnl?: { day: number; week: number; month: number };
+  pnl?: { day: number; week: number; month: number; prices?: { solUsdAgeSec?: number; ok?: boolean } };
   topics?: Array<{ topicId: string; label: string; sss: number; secondsLeft: number }>;
   candidates?: Array<{
     mint: string;

@@ -653,6 +653,15 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
           {metrics?.execution?.presetActive ? (
             <span className="badge" style={{ fontSize: 11 }}>Preset Active</span>
           ) : null}
+          {typeof snapshot?.pnl?.prices?.solUsdAgeSec === 'number' ? (
+            snapshot?.pnl?.prices?.ok ? (
+              <span className="badge" style={{ fontSize: 11 }}>Price: OK</span>
+            ) : (
+              <span className="badge" style={{ fontSize: 11 }}>
+                Price: Stale ({Math.floor((snapshot?.pnl?.prices?.solUsdAgeSec ?? 0) / 60)}m)
+              </span>
+            )
+          ) : null}
         </h2>
         <div className="metric-grid">
           <div className="metric-tile">

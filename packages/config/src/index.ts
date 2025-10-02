@@ -199,7 +199,8 @@ const baseConfig: TrenchesConfig = configSchema.parse({
     telegram: { enabled: true, channels: [], downloadDir: './data/tdlib', pollIntervalSec: 10 },
     gdelt: { enabled: true, pollIntervalSec: 900 }
   },
-  leaderWallets: { enabled: true, watchMinutes: 5, minHitsForBoost: 1, scoreHalfLifeDays: 14, rankBoost: 0.03, sizeTierBoost: 1 }
+  leaderWallets: { enabled: true, watchMinutes: 5, minHitsForBoost: 1, scoreHalfLifeDays: 14, rankBoost: 0.03, sizeTierBoost: 1 },
+  priceUpdater: { enabled: true, intervalMs: 60_000, staleWarnSec: 300, pythSolUsdPriceAccount: '' }
 });
 
 function parseJsonRecord(value: string): Record<string, string> {
@@ -299,6 +300,14 @@ try {
   (envMap as any).push(['execution.feeArms', 'EXEC_FEE_ARMS', (v: string) => {
     try { const arr = JSON.parse(v); return Array.isArray(arr) ? arr : []; } catch { return []; }
   }]);
+} catch {}
+
+// Price updater env overrides
+try {
+  (envMap as any).push(['priceUpdater.enabled', 'PRICE_UPDATER_ENABLED', (v: string) => v === 'true']);
+  (envMap as any).push(['priceUpdater.intervalMs', 'PRICE_UPDATER_INTERVAL_MS', (v: string) => Number(v)]);
+  (envMap as any).push(['priceUpdater.staleWarnSec', 'PRICE_UPDATER_STALE_WARN_SEC', (v: string) => Number(v)]);
+  (envMap as any).push(['priceUpdater.pythSolUsdPriceAccount', 'PYTH_SOL_USD_PRICE_ACCOUNT', (v: string) => v]);
 } catch {}
 
 try {

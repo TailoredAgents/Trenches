@@ -268,6 +268,14 @@ export const configSchema = z.object({
         .default({ topicBoost: 0.03, influencerBoost: 0.02, maxBoost: 0.06 })
     })
     .default({ enabled: true, baseUrl: 'https://api.lunarcrush.com', pollSec: 180, endpoints: { topics: '/v2', influencers: '/v2' }, sssBias: { topicBoost: 0.03, influencerBoost: 0.02, maxBoost: 0.06 } }),
+  priceUpdater: z
+    .object({
+      enabled: z.boolean().default(true),
+      intervalMs: z.number().int().positive().default(60_000),
+      staleWarnSec: z.number().int().positive().default(300),
+      pythSolUsdPriceAccount: z.string().default('')
+    })
+    .default({ enabled: true, intervalMs: 60_000, staleWarnSec: 300, pythSolUsdPriceAccount: '' }),
   features: z
     .object({
       migrationWatcher: z.boolean().default(true),

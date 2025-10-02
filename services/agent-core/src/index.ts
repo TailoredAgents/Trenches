@@ -5,17 +5,18 @@ import rateLimit from '@fastify/rate-limit';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
 import { startMetricsServer, registerGauge } from '@trenches/metrics';
-import {
-  closeDb,
-  getDb,
-  recordHeartbeat,
-  shutdownParquetWriters,
-  getOpenPositionsCount,
-  listOpenPositions,
-  fetchActiveTopicWindows,
-  getDailyRealizedPnlSince,
-  listRecentCandidates
-} from '@trenches/persistence';
+  import {
+    closeDb,
+    getDb,
+    recordHeartbeat,
+    shutdownParquetWriters,
+    getOpenPositionsCount,
+    listOpenPositions,
+    fetchActiveTopicWindows,
+    getDailyRealizedPnlSince,
+    listRecentCandidates,
+    getPnLSummary
+  } from '@trenches/persistence';
 import { Snapshot } from '@trenches/shared';
 
 const logger = createLogger('agent-core');
@@ -84,6 +85,19 @@ async function bootstrap() {
     const pnlDay = getDailyRealizedPnlSince(dayAgo);
     const pnlWeek = getDailyRealizedPnlSince(weekAgo);
     const pnlMonth = getDailyRealizedPnlSince(monthAgo);
+
+    // Prices: SOL/USD freshness from SQLite
+    let prices = { solUsdAgeSec: 0, ok: false } as { solUsdAgeSec: number; ok: boolean };
+    try {
+      const row = db
+        .prepare('SELECT ts FROM prices WHERE symbol = ? ORDER BY ts DESC LIMIT 1')
+        .get('SOL') as { ts?: number } | undefined;
+      if (row?.ts) {
+        const ageSec = Math.max(0, Math.floor((Date.now() - row.ts) / 1000));
+        const warn = (config as any).priceUpdater?.staleWarnSec ?? 300;
+        prices = { solUsdAgeSec: ageSec, ok: ageSec <= warn };
+      }
+    } catch {}
 
     const activeWindows = fetchActiveTopicWindows(now.toISOString());
     const topics = activeWindows.map((w) => ({
@@ -172,10 +186,13 @@ async function bootstrap() {
       shadow.feeDisagreePct = feePairs.length ? feePairs.filter(([b,c]) => b !== c).length / feePairs.length : 0;
       shadow.sizingDisagreePct = sizPairs.length ? sizPairs.filter(([b,c]) => b !== c).length / sizPairs.length : 0;
     } catch {}
+    try {
+      pnlSummary = getPnLSummary();
+    } catch {}
 
     const snapshot: Snapshot & { latestMigrations?: any; migrationLag?: any; rugGuard?: any; execution?: any; riskBudget?: any; sizing?: any; survival?: any; backtest?: any; shadow?: any; routes?: any; leaders?: any; leader?: any } = {
       status,
-      pnl: { day: pnlDay, week: pnlWeek, month: pnlMonth },
+      pnl: { day: pnlDay, week: pnlWeek, month: pnlMonth, prices },
       topics,
       candidates,
       positions,
@@ -189,6 +206,7 @@ async function bootstrap() {
       survival,
       backtest,
       shadow,
+      pnlSummary,
       routes,
       leaders
     };
