@@ -5,7 +5,7 @@ import rateLimit from '@fastify/rate-limit';
 import { Connection, PublicKey, LogsCallback } from '@solana/web3.js';
 import { loadConfig } from '@trenches/config';
 import { createRpcConnection } from '@trenches/util';
-import { getDb } from '@trenches/persistence';
+import { getDb, createWriteQueue } from '@trenches/persistence';
 
 async function bootstrap() {
   const cfg = loadConfig();
@@ -18,6 +18,7 @@ async function bootstrap() {
 
   const conn = createRpcConnection(cfg.rpc, { commitment: 'confirmed' });
   const db = getDb();
+  const writeQueue = createWriteQueue('leader-wallets');
   db.exec(`CREATE TABLE IF NOT EXISTS leader_wallets (wallet TEXT PRIMARY KEY, score REAL NOT NULL, lastSeenTs INTEGER NOT NULL);
            CREATE TABLE IF NOT EXISTS leader_hits (pool TEXT NOT NULL, wallet TEXT NOT NULL, ts INTEGER NOT NULL);
            CREATE INDEX IF NOT EXISTS idx_leader_hits_pool_ts ON leader_hits(pool, ts);`);
@@ -33,10 +34,13 @@ async function bootstrap() {
           const acct = tx.transaction.message.getAccountKeys?.({ accountKeysFromLookups: tx.meta?.loadedAddresses });
           const wallet = acct?.staticAccountKeys?.[0]?.toBase58?.() ?? '';
           if (!wallet) return;
-          db.prepare('INSERT INTO leader_hits (pool, wallet, ts) VALUES (?, ?, ?)').run(pool, wallet, Date.now());
-          const row = db.prepare('SELECT score FROM leader_wallets WHERE wallet = ?').get(wallet) as { score?: number } | undefined;
-          const score = typeof row?.score === 'number' ? row!.score : 0.5;
-          db.prepare('INSERT OR REPLACE INTO leader_wallets (wallet, score, lastSeenTs) VALUES (?, ?, ?)').run(wallet, score, Date.now());
+          const now = Date.now();
+          writeQueue.push(() => {
+            db.prepare('INSERT INTO leader_hits (pool, wallet, ts) VALUES (?, ?, ?)').run(pool, wallet, now);
+            const row = db.prepare('SELECT score FROM leader_wallets WHERE wallet = ?').get(wallet) as { score?: number } | undefined;
+            const score = typeof row?.score === 'number' ? row!.score : 0.5;
+            db.prepare('INSERT OR REPLACE INTO leader_wallets (wallet, score, lastSeenTs) VALUES (?, ?, ?)').run(wallet, score, now);
+          });
         } catch {}
       };
       await conn.onLogs(pk, cb, 'confirmed');

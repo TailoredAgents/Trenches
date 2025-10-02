@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AgentSnapshot, AgentEvent, AgentMode } from './types';
 
+import { createInMemoryLastEventIdStore, createSSEClient } from '@trenches/util';
+
 const SNAPSHOT_INTERVAL_MS = 5000;
 const MAX_EVENTS = 50;
 
@@ -49,35 +51,40 @@ function useAgentEvents(baseUrl: string) {
   const [status, setStatus] = useState<'connecting' | 'open' | 'closed'>('connecting');
 
   useEffect(() => {
-    const source = new EventSource(`${baseUrl}/events/agent`);
+    let isActive = true;
     setStatus('connecting');
-
-    source.onopen = () => {
-      setStatus('open');
-    };
-
-    source.onerror = () => {
-      setStatus('closed');
-      source.close();
-    };
-
-    source.onmessage = (evt) => {
-      try {
-        const payload = JSON.parse(evt.data);
-        setEvents((prev) => {
-          const next: AgentEvent[] = [
-            { at: new Date().toISOString(), type: (payload && payload.t) || 'message', payload },
-            ...prev
-          ];
-          return next.slice(0, MAX_EVENTS);
-        });
-      } catch {
-        // ignore malformed payloads
+    const store = createInMemoryLastEventIdStore();
+    const client = createSSEClient(`${baseUrl}/events/agent`, {
+      lastEventIdStore: store,
+      onOpen: () => {
+        if (!isActive) return;
+        setStatus('open');
+      },
+      onError: () => {
+        if (!isActive) return;
+        setStatus('connecting');
+      },
+      onEvent: (evt) => {
+        if (!isActive || !evt?.data || evt.data === 'ping') {
+          return;
+        }
+        try {
+          const payload = JSON.parse(evt.data);
+          setEvents((prev) => {
+            const next: AgentEvent[] = [
+              { at: new Date().toISOString(), type: (payload && payload.t) || 'message', payload },
+              ...prev
+            ];
+            return next.slice(0, MAX_EVENTS);
+          });
+        } catch {
+          // ignore malformed payloads
+        }
       }
-    };
-
+    });
     return () => {
-      source.close();
+      isActive = false;
+      client.dispose();
     };
   }, [baseUrl]);
 
@@ -149,7 +156,7 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
           setBeHist((prev) => [...prev.slice(-19), be]);
           setSocHist((prev) => [...prev.slice(-19), soc]);
         }
-      } catch {}
+      } catch (err) { /* ignore */ }
     }
     load();
     const t = setInterval(load, 7000);
@@ -162,7 +169,7 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
         const r = await fetch('/api/health', { cache: 'no-store' });
         const j = (await r.json()) as Record<string, { status: number | string; body?: any; error?: string }>;
         if (!cancelled) setHealth(j);
-      } catch {}
+      } catch (err) { /* ignore */ }
     }
     load();
     const t = setInterval(load, 7000);
@@ -198,7 +205,7 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
           };
         };
         if (!cancelled) setMetrics(j);
-      } catch {}
+      } catch (err) { /* ignore */ }
     }
     load();
     const t = setInterval(load, 7000);
@@ -229,7 +236,7 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
           setBeHist((prev) => [...prev.slice(-29), be]);
           setSocHist((prev) => [...prev.slice(-29), soc]);
         }
-      } catch {}
+      } catch (err) { /* ignore */ }
     }
     load();
     const t = setInterval(load, 7000);
@@ -252,7 +259,7 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
         const r = await fetch('/api/policy', { cache: 'no-store' });
         const j = (await r.json()) as { congestion?: string };
         if (!cancelled) setPolicy(j);
-      } catch {}
+      } catch (err) { /* ignore */ }
     }
     load();
     const t = setInterval(load, 10000);
@@ -391,7 +398,7 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div className="chip" style={{ marginBottom: 6 }}>OCRS {formatNumber(cand.ocrs, 2)}</div>
-                  <div style={{ fontSize: 12 }}>{cand.buys} buys / {cand.sells} sells • uniques {cand.uniques}</div>
+                  <div style={{ fontSize: 12 }}>{cand.buys} buys / {cand.sells} sells â€¢ uniques {cand.uniques}</div>
                 </div>
               </div>
             ))}
@@ -467,7 +474,7 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
             </header>
             <strong>{formatNumber(metrics?.exposureSol, 2)} SOL</strong>
             <div style={{ fontSize: 12, color: exposureDelta ? (exposureDelta > 0 ? '#10b981' : '#f43f5e') : '#9aa5c4' }}>
-              {exposureDelta === undefined ? '—' : `${exposureDelta > 0 ? '+' : ''}${formatNumber(exposureDelta, 2)} since last`}
+              {exposureDelta === undefined ? 'â€”' : `${exposureDelta > 0 ? '+' : ''}${formatNumber(exposureDelta, 2)} since last`}
             </div>
           </div>
           <div className="health-card">
@@ -494,7 +501,7 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
               />
             </div>
             <div style={{ fontSize: 11, color: '#9aa5c4', marginTop: 6 }}>
-              Tip guide: p25 200–400k, p50 500k–1M, p75 1.5–2.5M, p90 3–4M
+              Tip guide: p25 200â€“400k, p50 500kâ€“1M, p75 1.5â€“2.5M, p90 3â€“4M
             </div>
           </div>
         </div>

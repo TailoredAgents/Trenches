@@ -9,6 +9,7 @@ import { createLogger } from '@trenches/logger';
 import { getRegistry, registerCounter } from '@trenches/metrics';
 import { storeTokenCandidate } from '@trenches/persistence';
 import { TokenCandidate } from '@trenches/shared';
+import { createSSEClient, createInMemoryLastEventIdStore, TtlCache } from '@trenches/util';
 import { DiscoveryEventBus } from './eventBus';
 import { DexScreenerClient } from './dexscreener';
 import { BirdeyeClient } from './birdeye';
@@ -25,6 +26,7 @@ async function bootstrap() {
   const config = loadConfig();
   const app = Fastify({ logger: false });
   const bus = new DiscoveryEventBus();
+  const streamDisposers: Array<() => void> = [];
   const raydiumWatcher = new RpcRaydiumWatcher(bus, {
     primaryUrl: config.rpc.primaryUrl,
     wsUrl: config.rpc.wsUrl || undefined,
@@ -218,23 +220,46 @@ async function bootstrap() {
   // Optionally consume migrations as high-priority seeds
   if ((config as any).features?.migrationWatcher !== false) {
     const url = `http://127.0.0.1:${(config as any).services?.migrationWatcher?.port ?? 4018}/events/migrations`;
-    try {
-      const source = new EventSource(url);
-      source.onmessage = (event) => {
+    const lastEventIdStore = createInMemoryLastEventIdStore();
+    const migrationDedup = new TtlCache<string, boolean>(10 * 60 * 1000);
+    const client = createSSEClient(url, {
+      lastEventIdStore,
+      eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }),
+      onOpen: () => {
+        logger.info({ url }, 'connected to migration watcher');
+      },
+      onEvent: (event) => {
+        if (!event?.data || event.data === 'ping') {
+          return;
+        }
+        let payload: { ts: number; mint: string; pool: string; source: string; initSig: string };
         try {
-          const payload = JSON.parse(event.data) as { ts: number; mint: string; pool: string; source: string; initSig: string };
-          void handleRawPairEvent({ source: payload.source, mint: payload.mint, poolAddress: payload.pool, ts: payload.ts });
+          payload = JSON.parse(event.data) as { ts: number; mint: string; pool: string; source: string; initSig: string };
         } catch (err) {
           logger.error({ err }, 'failed to parse migration event');
+          return;
         }
-      };
-      source.onerror = (err) => {
-        logger.error({ err }, 'migration watcher stream error');
-      };
-      logger.info({ url }, 'connected to migration watcher');
-    } catch (err) {
-      logger.error({ err, url }, 'failed to connect migration watcher');
-    }
+        const eventId = event.lastEventId ?? undefined;
+        if (eventId && migrationDedup.get(eventId)) {
+          return;
+        }
+        if (eventId) {
+          migrationDedup.set(eventId, true);
+        }
+        const dedupKey = payload.initSig ? `sig:${payload.initSig}` : payload.pool ? `pool:${payload.pool}` : undefined;
+        if (dedupKey) {
+          if (migrationDedup.get(dedupKey)) {
+            return;
+          }
+          migrationDedup.set(dedupKey, true);
+        }
+        void handleRawPairEvent({ source: payload.source, mint: payload.mint, poolAddress: payload.pool, ts: payload.ts });
+      },
+      onError: (err, attempt) => {
+        logger.error({ err, attempt, url }, 'migration watcher stream error');
+      }
+    });
+    streamDisposers.push(() => client.dispose());
   }
 
   const trendingIntervalMs = Math.max(10_000, config.caching.dexscreenerTrendingTtlSec * 1000);
@@ -274,6 +299,13 @@ async function bootstrap() {
     logger.warn({ reason }, 'shutting down onchain discovery');
     clearInterval(trendingInterval);
     clearInterval(birdTrendingInterval);
+    for (const dispose of streamDisposers.splice(0)) {
+      try {
+        dispose();
+      } catch (err) {
+        logger.error({ err }, 'failed to dispose stream');
+      }
+    }
     try {
       await raydiumWatcher.stop();
     } catch (err) {

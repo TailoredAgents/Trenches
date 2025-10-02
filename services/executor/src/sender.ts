@@ -40,7 +40,8 @@ export class TransactionSender {
       ordersFailed.inc({ stage: 'primary' });
       logger.error({ err: primaryErr }, 'primary send failed');
       const config = loadConfig();
-      if (!config.rpc.jitoHttpUrl) {
+      const jitoEnabled = Boolean((config.execution as any)?.jitoEnabled);
+      if (!jitoEnabled || !config.rpc.jitoHttpUrl) {
         throw primaryErr;
       }
       try {

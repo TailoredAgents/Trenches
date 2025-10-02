@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import EventSource from 'eventsource';
+import { createSSEClient, createInMemoryLastEventIdStore } from '@trenches/util';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -269,41 +270,29 @@ type StreamHandler = (candidate: TokenCandidate) => void | Promise<void>;
 type StreamDisposer = () => void;
 
 function startCandidateStream(url: string, handler: StreamHandler): StreamDisposer {
-  let disposed = false;
-  let source: EventSource | null = null;
-
-  const connect = () => {
-    if (disposed) return;
-    source = new EventSource(url);
-    logger.info({ url }, 'policy engine connected to candidate stream');
-
-    source.onmessage = async (event) => {
+  const store = createInMemoryLastEventIdStore();
+  const client = createSSEClient(url, {
+    lastEventIdStore: store,
+    eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }),
+    onOpen: () => {
+      logger.info({ url }, 'policy engine connected to candidate stream');
+    },
+    onError: (err, attempt) => {
+      logger.error({ err, attempt }, 'candidate stream error, reconnecting');
+    },
+    onEvent: async (event) => {
+      if (!event?.data || event.data === 'ping') {
+        return;
+      }
       try {
         const candidate = JSON.parse(event.data) as TokenCandidate;
         await handler(candidate);
       } catch (err) {
         logger.error({ err }, 'failed to parse candidate event');
       }
-    };
-
-    source.onerror = (err) => {
-      logger.error({ err }, 'candidate stream error, reconnecting');
-      source?.close();
-      if (!disposed) {
-        setTimeout(connect, 5_000);
-      }
-    };
-  };
-
-  connect();
-
-  return () => {
-    disposed = true;
-    if (source) {
-      source.close();
-      source = null;
     }
-  };
+  });
+  return () => client.dispose();
 }
 
 function createIterator(bus: PolicyEventBus): { iterator: AsyncGenerator<{ data: string }>; close: () => void } {

@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import EventSource from 'eventsource';
+import { createSSEClient, createInMemoryLastEventIdStore } from '@trenches/util';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -113,20 +114,29 @@ async function bootstrap() {
 type TradeHandler = (event: TradeEvent) => Promise<void> | void;
 
 function startTradeStream(url: string, handler: TradeHandler): () => void {
-  const source = new EventSource(url);
-  logger.info({ url }, 'connected to executor trade stream');
-  source.onmessage = async (event) => {
-    try {
-      const payload = JSON.parse(event.data) as TradeEvent;
-      await handler(payload);
-    } catch (err) {
-      logger.error({ err }, 'failed to parse trade event');
+  const store = createInMemoryLastEventIdStore();
+  const client = createSSEClient(url, {
+    lastEventIdStore: store,
+    eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }),
+    onOpen: () => {
+      logger.info({ url }, 'connected to executor trade stream');
+    },
+    onError: (err, attempt) => {
+      logger.error({ err, attempt }, 'trade stream error');
+    },
+    onEvent: async (event) => {
+      if (!event?.data || event.data === 'ping') {
+        return;
+      }
+      try {
+        const payload = JSON.parse(event.data) as TradeEvent;
+        await handler(payload);
+      } catch (err) {
+        logger.error({ err }, 'failed to parse trade event');
+      }
     }
-  };
-  source.onerror = (err) => {
-    logger.error({ err }, 'trade stream error');
-  };
-  return () => source.close();
+  });
+  return () => client.dispose();
 }
 
 async function hydratePositions(
@@ -148,7 +158,10 @@ async function hydratePositions(
         ladderHits: new Set(row.ladderHits.map((value) => Number(value)).filter((value) => !Number.isNaN(value))),
         trailActive: row.trailActive,
         highestPrice: row.averagePrice,
-        decimals
+        decimals,
+        entryPrice: row.quantity > 0 ? row.averagePrice : undefined,
+        lowWaterPrice: row.quantity > 0 ? row.averagePrice : undefined,
+        maeBps: 0
       },
       candidate
     });
@@ -167,7 +180,10 @@ function createEmptyState(mint: string, decimals: number): PositionState {
     ladderHits: new Set<number>(),
     trailActive: false,
     highestPrice: 0,
-    decimals
+    decimals,
+    entryPrice: undefined,
+    lowWaterPrice: undefined,
+    maeBps: 0
   };
 }
 
@@ -195,6 +211,13 @@ async function handleFillEvent(
     state.quantityRaw += event.qty;
     state.avgPrice = state.quantity > 0 ? totalCost / state.quantity : 0;
     state.highestPrice = Math.max(state.highestPrice, event.px);
+    if (state.quantity > 0) {
+      state.entryPrice = state.avgPrice;
+      if (prevQty <= 0) {
+        state.lowWaterPrice = event.px;
+        state.maeBps = 0;
+      }
+    }
     if (state.quantity === qtyTokens) {
       positionsOpened.inc();
     }
@@ -211,18 +234,23 @@ async function handleFillEvent(
       state.trailActive = false;
       state.highestPrice = state.avgPrice;
       positionsClosed.inc();
+      const maeBps = Math.round(state.maeBps ?? 0);
       // Log sizing outcome on close (approximate notional and pnl in USD)
       try {
         const solUsd = await oracle.getPrice('So11111111111111111111111111111111111111112');
         const pnlUsd = (state.realizedPnl ?? 0) * (typeof solUsd === 'number' ? solUsd : 0);
         const notionalUsd = sellQty * state.avgPrice * (typeof solUsd === 'number' ? solUsd : 0);
-        insertSizingOutcome({ ts: Date.now(), mint, notional: notionalUsd, pnlUsd, maeBps: 0, closed: 1 });
+        insertSizingOutcome({ ts: Date.now(), mint, notional: notionalUsd, pnlUsd, maeBps, closed: 1 });
       } catch {}
+      state.entryPrice = undefined;
+      state.lowWaterPrice = undefined;
+      state.maeBps = 0;
     }
   }
   state.lastPrice = event.px;
   state.decimals = decimals;
   state.unrealizedPnl = state.lastPrice ? (state.lastPrice - state.avgPrice) * state.quantity : state.unrealizedPnl;
+  updateMae(state, state.lastPrice);
 
   await persistPosition(state);
   await refreshExposureMetrics(positions);
@@ -250,6 +278,7 @@ async function refreshPrices(
     state.lastPrice = price;
     state.unrealizedPnl = (price - state.avgPrice) * state.quantity;
     state.highestPrice = Math.max(state.highestPrice, price);
+    updateMae(state, price);
 
     await evaluatePosition({ mint, entry, price, config, connection });
     await persistPosition(state);
@@ -497,6 +526,25 @@ async function submitExitPlan(plan: OrderPlan, candidate?: TokenCandidate): Prom
   });
   if (!response.ok) {
     throw new Error(`executor responded ${response.status}`);
+  }
+}
+
+function updateMae(state: PositionState, price?: number): void {
+  if (state.quantity <= 0 || price === undefined || Number.isNaN(price)) {
+    return;
+  }
+  if (state.entryPrice === undefined || state.entryPrice <= 0) {
+    state.entryPrice = state.avgPrice > 0 ? state.avgPrice : price;
+    state.lowWaterPrice = price;
+    state.maeBps = 0;
+    return;
+  }
+  const low = state.lowWaterPrice === undefined ? price : Math.min(state.lowWaterPrice, price);
+  state.lowWaterPrice = low;
+  if (state.entryPrice > 0 && low < state.entryPrice) {
+    const drawdown = state.entryPrice - low;
+    const mae = (drawdown / state.entryPrice) * 10_000;
+    state.maeBps = Math.max(state.maeBps ?? 0, mae);
   }
 }
 

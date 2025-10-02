@@ -10,6 +10,8 @@ import { createLogger } from '@trenches/logger';
 
 import { SocialPost, TopicEvent, TokenCandidate, TradeEvent } from '@trenches/shared';
 
+import { createWriteQueue } from './writeQueue';
+
 
 
 const logger = createLogger('sqlite');
@@ -569,6 +571,7 @@ MIGRATIONS.push({
 
 let db: DatabaseConstructor.Database | null = null;
 
+const candidateWriteQueue = createWriteQueue('candidates');
 
 
 function ensureDataDir(filePath: string) {
@@ -991,78 +994,46 @@ export function upsertPhraseBaseline(entry: PhraseBaselineRow): void {
 
 
 export function storeTokenCandidate(candidate: TokenCandidate) {
-
-  const database = getDb();
-
-  database
-
-    .prepare(`INSERT INTO candidates (mint, name, symbol, source, age_sec, lp_sol, buys60, sells60, uniques60, spread_bps, safety_ok, safety_reasons, ocrs, topic_id, match_score, pool_address, lp_mint, pool_coin_account, pool_pc_account)
-
+  candidateWriteQueue.push(() => {
+    const database = getDb();
+    database
+      .prepare(`INSERT INTO candidates (mint, name, symbol, source, age_sec, lp_sol, buys60, sells60, uniques60, spread_bps, safety_ok, safety_reasons, ocrs, topic_id, match_score, pool_address, lp_mint, pool_coin_account, pool_pc_account)
               VALUES (@mint, @name, @symbol, @source, @ageSec, @lpSol, @buys60, @sells60, @uniques60, @spreadBps, @safetyOk, @safetyReasons, @ocrs, @topicId, @matchScore, @poolAddress, @lpMint, @poolCoinAccount, @poolPcAccount)
-
               ON CONFLICT(mint) DO UPDATE SET
-
                 name = excluded.name,
-
                 symbol = excluded.symbol,
-
                 source = excluded.source,
-
                 age_sec = excluded.age_sec,
-
                 lp_sol = excluded.lp_sol,
-
                 buys60 = excluded.buys60,
-
                 sells60 = excluded.sells60,
-
                 uniques60 = excluded.uniques60,
-
                 spread_bps = excluded.spread_bps,
-
                 safety_ok = excluded.safety_ok,
-
                 safety_reasons = excluded.safety_reasons,
-
                 ocrs = excluded.ocrs,
-
                 topic_id = excluded.topic_id,
-
                 match_score = excluded.match_score,
-
                 pool_address = excluded.pool_address,
-
                 lp_mint = excluded.lp_mint,
-
                 pool_coin_account = excluded.pool_coin_account,
-
                 pool_pc_account = excluded.pool_pc_account,
-
                 updated_at = datetime('now')`)
-
-    .run({
-
-      ...candidate,
-
-      safetyOk: candidate.safety.ok ? 1 : 0,
-
-      safetyReasons: JSON.stringify(candidate.safety.reasons ?? []),
-
-      topicId: candidate.topicId ?? null,
-
-      matchScore: candidate.matchScore ?? null,
-
-      poolAddress: candidate.poolAddress ?? null,
-
-      lpMint: candidate.lpMint ?? null,
-
-      poolCoinAccount: candidate.poolCoinAccount ?? null,
-
-      poolPcAccount: candidate.poolPcAccount ?? null
-
-    });
-
+      .run({
+        ...candidate,
+        safetyOk: candidate.safety.ok ? 1 : 0,
+        safetyReasons: JSON.stringify(candidate.safety.reasons ?? []),
+        topicId: candidate.topicId ?? null,
+        matchScore: candidate.matchScore ?? null,
+        poolAddress: candidate.poolAddress ?? null,
+        lpMint: candidate.lpMint ?? null,
+        poolCoinAccount: candidate.poolCoinAccount ?? null,
+        poolPcAccount: candidate.poolPcAccount ?? null
+      });
+  });
 }
+
+
 
 
 

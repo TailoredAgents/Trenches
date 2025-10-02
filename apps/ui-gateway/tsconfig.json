@@ -25,7 +25,13 @@
       {
         "name": "next"
       }
-    ]
+    ],
+    "paths": {
+      "@trenches/util": [
+        "../../packages/util/src/index.ts"
+      ]
+    },
+    "baseUrl": "."
   },
   "include": [
     "next-env.d.ts",

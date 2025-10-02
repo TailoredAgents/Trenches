@@ -464,38 +464,34 @@ interface StreamHandle {
 }
 
 function startStream(url: string, onStatus: (status: StreamStatus) => void): StreamHandle {
-  let source: EventSource | null = null;
   let disposed = false;
   let attempts = 0;
   const emitter = new EventEmitter();
-
-  const connect = () => {
-    attempts += 1;
-    onStatus({ state: 'connecting', attempts });
-    source = new EventSource(url);
-    source.onopen = () => {
+  const store = createInMemoryLastEventIdStore();
+  onStatus({ state: 'connecting', attempts: 1 });
+  const client = createSSEClient(url, {
+    lastEventIdStore: store,
+    eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }),
+    onOpen: () => {
       attempts = 0;
       onStatus({ state: 'connected', attempts: 0 });
-    };
-    source.onmessage = (event) => {
-      emitter.emit('message', String(event.data));
-    };
-    source.onerror = (err) => {
+    },
+    onError: (err, attempt) => {
+      attempts = attempt;
       const nextStatus: StreamStatus = {
         state: 'error',
-        attempts,
-        lastError: (err instanceof Error ? err.message : 'stream error')
+        attempts: attempt,
+        lastError: err instanceof Error ? err.message : 'stream error'
       };
       onStatus(nextStatus);
-      source?.close();
-      if (!disposed) {
-        const backoff = Math.min(30_000, Math.max(1_000, 1_000 * attempts));
-        setTimeout(connect, backoff);
+    },
+    onEvent: (event) => {
+      if (!event?.data || event.data === 'ping') {
+        return;
       }
-    };
-  };
-
-  connect();
+      emitter.emit('message', String(event.data));
+    }
+  });
 
   return {
     on: (event, handler) => {
@@ -503,7 +499,7 @@ function startStream(url: string, onStatus: (status: StreamStatus) => void): Str
     },
     close: () => {
       disposed = true;
-      source?.close();
+      client.dispose();
       emitter.removeAllListeners();
     }
   };

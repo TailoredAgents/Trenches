@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import EventSource from 'eventsource';
+import { createSSEClient, createInMemoryLastEventIdStore } from '@trenches/util';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -18,9 +19,33 @@ async function bootstrap() {
   await app.register(fastifySse as any);
 
   const url = `http://127.0.0.1:${cfg.services.safetyEngine.port}/events/safe`;
-  const source = new EventSource(url);
   const subscribers = new Set<(s: CandidateScore) => void>();
   const last: CandidateScore[] = [];
+  const eventStore = createInMemoryLastEventIdStore();
+  const sse = createSSEClient(url, {
+    lastEventIdStore: eventStore,
+    eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }),
+    onOpen: () => console.log('alpha-ranker connected to safety stream'),
+    onError: (err, attempt) => console.error('alpha-ranker stream error', attempt, err),
+    onEvent: async (evt) => {
+      if (!evt?.data || evt.data === 'ping') {
+        return;
+      }
+      try {
+        const c = JSON.parse(evt.data) as Candidate;
+        const s = scoreCandidate(c);
+        const ts = Date.now();
+        for (const h of (cfg.alpha?.horizons ?? ['10m'])) {
+          const row: CandidateScore = { ts, mint: c.mint, horizon: h as any, score: s, features: {} };
+          last.push(row);
+          try { insertScore(row); } catch {}
+          for (const sub of subscribers) sub(row);
+        }
+      } catch (err) {
+        console.error('alpha-ranker failed to parse candidate', err);
+      }
+    }
+  });
 
   function scoreCandidate(c: Candidate): number {
     const buys = c.buys60 ?? 0;
@@ -42,19 +67,8 @@ async function bootstrap() {
     return s;
   }
 
-  source.onmessage = async (evt) => {
-    try {
-      const c = JSON.parse(evt.data) as Candidate;
-      const s = scoreCandidate(c);
-      const ts = Date.now();
-      for (const h of (cfg.alpha?.horizons ?? ['10m'])) {
-        const row: CandidateScore = { ts, mint: c.mint, horizon: h as any, score: s, features: {} };
-        last.push(row);
-        try { insertScore(row); } catch {}
-        for (const sub of subscribers) sub(row);
-      }
-    } catch {}
-  };
+  process.on('SIGINT', () => sse.dispose());
+  process.on('SIGTERM', () => sse.dispose());
 
   app.get('/events/scores', async (req, reply) => {
     const iterator = (async function* () {

@@ -42,9 +42,9 @@ export async function GET(_req: NextRequest) {
   const si = siText ? parseProm(siText) : {};
   const od = odText ? parseProm(odText) : {};
 
-  const exposure = pm['position_manager_total_size_sol'];
-  const opened = pm['positions_opened_total'];
-  const trailing = pm['position_trailing_activated_total'];
+  const exposure = pm['position_manager_total_size_sol'] ?? 0;
+  const opened = pm['positions_opened_total'] ?? 0;
+  const trailing = pm['position_trailing_activated_total'] ?? 0;
 
   const exits: Record<string, number> = {};
   for (const [k, v] of Object.entries(pm)) {

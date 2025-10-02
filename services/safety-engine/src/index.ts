@@ -11,7 +11,7 @@ import { getRegistry } from '@trenches/metrics';
 import { insertRugVerdict } from '@trenches/persistence';
 import { storeTokenCandidate } from '@trenches/persistence';
 import { TokenCandidate } from '@trenches/shared';
-import { TtlCache, createRpcConnection } from '@trenches/util';
+import { TtlCache, createRpcConnection, createSSEClient, createInMemoryLastEventIdStore } from '@trenches/util';
 import { SafetyEventBus } from './eventBus';
 import { safetyEvaluations, safetyPasses, safetyBlocks, ocrsGauge, evaluationDuration, authorityPassRatio, avgRugProb } from './metrics';
 import { checkTokenSafety } from './tokenSafety';
@@ -113,41 +113,44 @@ async function bootstrap() {
 type StreamHandler = (candidate: TokenCandidate) => void | Promise<void>;
 
 function startCandidateStream(url: string, handler: StreamHandler) {
-  let disposed = false;
-  let current: EventSource | null = null;
-
-  const connect = () => {
-    if (disposed) return;
-    const source = new EventSource(url);
-    current = source;
-    logger.info({ url }, 'connected to candidate stream');
-
-    source.onmessage = async (event) => {
+  const lastEventIdStore = createInMemoryLastEventIdStore();
+  const dedup = new TtlCache<string, boolean>(5 * 60 * 1000);
+  const client = createSSEClient(url, {
+    lastEventIdStore,
+    eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }),
+    onOpen: () => {
+      logger.info({ url }, 'connected to candidate stream');
+    },
+    onEvent: async (event) => {
+      if (!event?.data || event.data === 'ping') {
+        return;
+      }
+      const eventId = event.lastEventId ?? undefined;
+      if (eventId && dedup.get(eventId)) {
+        return;
+      }
+      if (eventId) {
+        dedup.set(eventId, true);
+      }
+      let candidate: TokenCandidate;
       try {
-        const candidate = JSON.parse(event.data) as TokenCandidate;
+        candidate = JSON.parse(event.data) as TokenCandidate;
+      } catch (err) {
+        logger.error({ err }, 'failed to parse candidate payload');
+        return;
+      }
+      try {
         await handler(candidate);
       } catch (err) {
-        logger.error({ err }, 'failed to handle candidate payload');
+        logger.error({ err }, 'candidate handler failed');
       }
-    };
-
-    source.onerror = (err) => {
-      logger.error({ err }, 'candidate stream error');
-      source.close();
-      if (!disposed) {
-        setTimeout(connect, 5_000);
-      }
-    };
-  };
-
-  connect();
-
-  return () => {
-    disposed = true;
-    if (current) {
-      current.close();
-      current = null;
+    },
+    onError: (err, attempt) => {
+      logger.error({ err, attempt, url }, 'candidate stream error');
     }
+  });
+  return () => {
+    client.dispose();
   };
 }
 
@@ -202,31 +205,31 @@ async function evaluateCandidate(
   const gatingReasons = evaluateGating({ ...candidate, ocrs: ocrsPayload.score }, config);
   reasons.push(...gatingReasons);
 
-  // RugGuard v1
+  const featureFlags = (config as any).features ?? {};
+  const rugGuardEnabled = featureFlags.rugGuard !== false;
   let rugProb = 0.5;
-  try {
-    const verdict = await classify(candidate.mint, candidateToFeatures(candidate), { connection });
-    rugProb = verdict.rugProb;
-    insertRugVerdict({ ts: verdict.ts, mint: verdict.mint, rugProb: verdict.rugProb, reasons: verdict.reasons });
-    // Authority gating: if mint/freeze not revoked, block immediately
-    if (verdict.reasons.includes('mint_or_freeze_active')) {
-      reasons.push('mint_or_freeze_active');
+  if (rugGuardEnabled) {
+    try {
+      const verdict = await classify(candidate.mint, candidateToFeatures(candidate), { connection });
+      rugProb = verdict.rugProb;
+      insertRugVerdict({ ts: verdict.ts, mint: verdict.mint, rugProb: verdict.rugProb, reasons: verdict.reasons });
+      if (verdict.reasons.includes('mint_or_freeze_active')) {
+        reasons.push('mint_or_freeze_active');
+      }
+      const prev = (authorityPassRatio as any)._last || { pass: 0, total: 0 };
+      const pass = verdict.reasons.includes('mint_or_freeze_active') ? 0 : 1;
+      const total = prev.total + 1;
+      const passes = prev.pass + pass;
+      (authorityPassRatio as any)._last = { pass: passes, total };
+      authorityPassRatio.set(total > 0 ? passes / total : 0);
+      const prevR = (avgRugProb as any)._last || { sum: 0, n: 0 };
+      const sum = prevR.sum + rugProb;
+      const n = prevR.n + 1;
+      (avgRugProb as any)._last = { sum, n };
+      avgRugProb.set(sum / Math.max(1, n));
+    } catch (err) {
+      logger.error({ err }, 'rugguard classify failed');
     }
-    // Metrics aggregation (moving averages)
-    // Track ratio and avg
-    const prev = (authorityPassRatio as any)._last || { pass: 0, total: 0 };
-    const pass = verdict.reasons.includes('mint_or_freeze_active') ? 0 : 1;
-    const total = prev.total + 1;
-    const passes = prev.pass + pass;
-    (authorityPassRatio as any)._last = { pass: passes, total };
-    authorityPassRatio.set(total > 0 ? passes / total : 0);
-    const prevR = (avgRugProb as any)._last || { sum: 0, n: 0 };
-    const sum = prevR.sum + rugProb;
-    const n = prevR.n + 1;
-    (avgRugProb as any)._last = { sum, n };
-    avgRugProb.set(sum / Math.max(1, n));
-  } catch (err) {
-    logger.error({ err }, 'rugguard classify failed');
   }
 
   const ok = reasons.length === 0;

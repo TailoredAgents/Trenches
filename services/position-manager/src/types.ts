@@ -12,6 +12,9 @@ export type PositionState = {
   highestPrice: number;
   decimals: number;
   lastPrice?: number;
+  entryPrice?: number;
+  lowWaterPrice?: number;
+  maeBps: number;
 };
 
 export type ExitOrder = {

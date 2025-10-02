@@ -17,7 +17,7 @@ import { ordersReceived, ordersFailed, ordersSubmitted, simpleModeGauge, flagJit
 import { predictFill } from './fillnet';
 import { decideFees, updateArm } from './fee-bandit';
 import { ExecutorEventBus } from './eventBus';
-import { createRpcConnection } from '@trenches/util';
+import { createRpcConnection, createSSEClient, createInMemoryLastEventIdStore } from '@trenches/util';
 
 const logger = createLogger('executor');
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -151,25 +151,37 @@ function startPlanStream(
   bus: ExecutorEventBus,
   handler: (payload: { plan: OrderPlan; context: { candidate: TokenCandidate } }) => Promise<void>
 ): () => void {
-  const source = new EventSource(url);
-  logger.info({ url }, 'connected to policy plan stream');
-
-  source.onmessage = async (event) => {
-    try {
-      const payload = JSON.parse(event.data) as { plan: OrderPlan; context: { candidate: TokenCandidate } };
+  const lastEventIdStore = createInMemoryLastEventIdStore();
+  const client = createSSEClient(url, {
+    lastEventIdStore,
+    eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }),
+    onOpen: () => {
+      logger.info({ url }, 'connected to policy plan stream');
+    },
+    onEvent: async (event) => {
+      if (!event?.data || event.data === 'ping') {
+        return;
+      }
+      let payload: { plan: OrderPlan; context: { candidate: TokenCandidate } };
+      try {
+        payload = JSON.parse(event.data) as { plan: OrderPlan; context: { candidate: TokenCandidate } };
+      } catch (err) {
+        logger.error({ err }, 'failed to parse plan payload');
+        return;
+      }
       bus.emitTrade({ t: 'order_plan', plan: payload.plan });
-      await handler(payload);
-    } catch (err) {
-      logger.error({ err }, 'failed to parse plan payload');
+      try {
+        await handler(payload);
+      } catch (err) {
+        logger.error({ err }, 'plan handler failed');
+      }
+    },
+    onError: (err, attempt) => {
+      logger.error({ err, attempt, url }, 'plan stream error');
     }
-  };
-
-  source.onerror = (err) => {
-    logger.error({ err }, 'plan stream error');
-  };
-
+  });
   return () => {
-    source.close();
+    client.dispose();
   };
 }
 
@@ -181,7 +193,7 @@ async function executePlan(opts: {
   sender: TransactionSender;
   bus: ExecutorEventBus;
 }): Promise<void> {
-  const { payload, wallet, jupiter, sender, bus } = opts;
+  const { payload, wallet, jupiter, sender, bus, connection } = opts;
   const plan = payload.plan;
   const candidate = payload.context.candidate;
   const orderId = `${candidate.mint}-${Date.now()}`;
@@ -201,10 +213,11 @@ async function executePlan(opts: {
     expectedSol: plan.expectedSol ?? null
   });
 
+  const isBuy = (plan.side ?? 'buy') === 'buy';
   let amountLamports: number;
   let inputMint: string;
   let outputMint: string;
-  if ((plan.side ?? 'buy') === 'buy') {
+  if (isBuy) {
     amountLamports = Math.round(plan.sizeSol * 1_000_000_000);
     if (amountLamports <= 0) {
       throw new Error('invalid amount');
@@ -297,10 +310,17 @@ async function executePlan(opts: {
     wallet.publicKey.toBase58()
   );
 
+  const quotePrice = computeExecutionPrice({
+    isBuy,
+    sizeSol: plan.sizeSol,
+    quoteOutAmount: quote.outAmount,
+    amountIn: amountLamports
+  });
+
   let lastError: unknown = null;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
     try {
-      const { transaction, lastValidBlockHeight, prioritizationFeeLamports } = await jupiter.buildSwapTx({
+      const { transaction, prioritizationFeeLamports } = await jupiter.buildSwapTx({
         quoteResponse: quote,
         userPublicKey: wallet.publicKey.toBase58(),
         computeUnitPriceMicroLamports: cuPriceToUse
@@ -316,20 +336,59 @@ async function executePlan(opts: {
         label: orderId
       });
 
-      const isBuy = (plan.side ?? 'buy') === 'buy';
-      const qtyRaw = isBuy ? Number(quote.outAmount) : amountLamports;
-      const price = computeExecutionPrice({
-        isBuy,
-        sizeSol: plan.sizeSol,
-        quoteOutAmount: quote.outAmount,
-        amountIn: amountLamports
-      });
+      let quantityRaw = isBuy ? Number(quote.outAmount) : amountLamports;
+      let amountInUsed = amountLamports;
+      let amountOutUsed = isBuy ? quantityRaw : Number(quote.outAmount);
+      let execPrice = quotePrice;
+      let slipReal = 0;
+
+      try {
+        const txResult = await connection.getTransaction(signature, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 });
+        if (txResult?.meta) {
+          const walletAddress = wallet.publicKey.toBase58();
+          const tokenDelta = diffTokenBalance(txResult.meta, candidate.mint, walletAddress);
+          if (isBuy) {
+            if (tokenDelta.delta > 0) {
+              quantityRaw = tokenDelta.delta;
+              amountOutUsed = tokenDelta.delta;
+              execPrice = computeExecutionPrice({ isBuy, sizeSol: plan.sizeSol, quoteOutAmount: String(amountOutUsed), amountIn: amountInUsed });
+            }
+          } else {
+            if (tokenDelta.delta !== 0) {
+              amountInUsed = Math.abs(tokenDelta.delta);
+              quantityRaw = amountInUsed;
+            }
+            const solDelta = diffSolBalance(txResult.meta);
+            if (solDelta > 0) {
+              amountOutUsed = solDelta;
+              execPrice = computeExecutionPrice({ isBuy, sizeSol: plan.sizeSol, quoteOutAmount: String(amountOutUsed), amountIn: amountInUsed });
+            }
+          }
+        }
+      } catch (err) {
+        logger.warn({ err }, 'failed to compute realized slip');
+      }
+
+      if (!Number.isFinite(execPrice) || execPrice <= 0) {
+        execPrice = quotePrice;
+      }
+      slipReal = quotePrice > 0 ? ((execPrice - quotePrice) / quotePrice) * 10_000 : 0;
+      if (!Number.isFinite(slipReal)) {
+        slipReal = 0;
+      }
+      if (!Number.isFinite(amountOutUsed) || amountOutUsed < 0) {
+        amountOutUsed = isBuy ? quantityRaw : Number(quote.outAmount);
+      }
+      if (!Number.isFinite(amountInUsed) || amountInUsed <= 0) {
+        amountInUsed = amountLamports;
+      }
+
       const t0 = Date.now();
       recordFill({
         signature,
         mint: candidate.mint,
-        price,
-        quantity: qtyRaw,
+        price: execPrice,
+        quantity: quantityRaw,
         route: plan.route,
         tipLamports: plan.jitoTipLamports,
         slot
@@ -338,8 +397,8 @@ async function executePlan(opts: {
         t: 'fill',
         mint: candidate.mint,
         sig: signature,
-        px: price,
-        qty: qtyRaw,
+        px: execPrice,
+        qty: quantityRaw,
         route: plan.route,
         tip: plan.jitoTipLamports,
         slot,
@@ -347,11 +406,26 @@ async function executePlan(opts: {
       };
       logTradeEvent(fillEvent);
       const ttl = Date.now() - tSend;
-      const slipReal = 0; // TODO: compute vs expected price
       const feeLamportsTotal = (prioritizationFeeLamports ?? 0) + (plan.jitoTipLamports ?? 0);
-      const amountIn = amountLamports;
-      const amountOut = qtyRaw;
-      insertExecOutcome({ ts: t0, quotePrice: price, execPrice: price, filled: 1, route: plan.route, cuPrice: cuPriceToUse, slippageReq: slippageToUse, slippageReal: slipReal, timeToLandMs: ttl, errorCode: null, notes: null, priorityFeeLamports: prioritizationFeeLamports ?? 0, amountIn, amountOut, feeLamportsTotal });
+      const amountIn = amountInUsed;
+      const amountOut = amountOutUsed;
+      insertExecOutcome({
+        ts: t0,
+        quotePrice,
+        execPrice,
+        filled: 1,
+        route: plan.route,
+        cuPrice: cuPriceToUse,
+        slippageReq: slippageToUse,
+        slippageReal: slipReal,
+        timeToLandMs: ttl,
+        errorCode: null,
+        notes: null,
+        priorityFeeLamports: prioritizationFeeLamports ?? 0,
+        amountIn,
+        amountOut,
+        feeLamportsTotal
+      });
       bus.emitTrade(fillEvent);
       recordOrderPlan({
         id: orderId,
@@ -367,8 +441,20 @@ async function executePlan(opts: {
         tokenAmount: plan.tokenAmountLamports ?? null,
         expectedSol: plan.expectedSol ?? null
       });
-      try { landedRateGauge.set(1); slipAvgGauge.set(0); timeToLandHistogram.set(ttl); } catch {}
-      try { updateArm({ congestionScore: 0.7, sizeSol: plan.sizeSol, equity: plan.sizeSol * 10, lpSol: candidate.lpSol, spreadBps: candidate.spreadBps }, { cuPrice: cuPriceToUse, slippageBps: slippageToUse }, { filled: true, realizedSlipBps: 0, feeBps: 0 }); } catch {}
+      try {
+        landedRateGauge.set(1);
+        slipAvgGauge.set(slipReal);
+        timeToLandHistogram.set(ttl);
+      } catch {}
+      const feeBaseLamports = isBuy ? amountInUsed : amountOutUsed;
+      const feeBps = feeBaseLamports > 0 ? (feeLamportsTotal / feeBaseLamports) * 10_000 : 0;
+      try {
+        updateArm(
+          { congestionScore: 0.7, sizeSol: plan.sizeSol, equity: plan.sizeSol * 10, lpSol: candidate.lpSol, spreadBps: candidate.spreadBps },
+          { cuPrice: cuPriceToUse, slippageBps: slippageToUse },
+          { filled: true, realizedSlipBps: slipReal, feeBps }
+        );
+      } catch {}
       return;
     } catch (err) {
       lastError = err;
@@ -443,6 +529,24 @@ function createTradeIterator(bus: ExecutorEventBus): { iterator: AsyncGenerator<
   };
 
   return { iterator, close };
+}
+
+function diffTokenBalance(meta: any, mint: string, owner: string): { delta: number; decimals: number } {
+  const findEntry = (list: any[]) => list?.find((entry) => entry?.mint === mint && entry?.owner === owner);
+  const pre = findEntry(meta?.preTokenBalances ?? []);
+  const post = findEntry(meta?.postTokenBalances ?? []);
+  const preAmount = pre ? Number(pre.uiTokenAmount?.amount ?? pre.amount ?? 0) : 0;
+  const postAmount = post ? Number(post.uiTokenAmount?.amount ?? post.amount ?? 0) : 0;
+  const decimals = post?.uiTokenAmount?.decimals ?? pre?.uiTokenAmount?.decimals ?? 0;
+  return { delta: postAmount - preAmount, decimals };
+}
+
+function diffSolBalance(meta: any): number {
+  const preBalances = Array.isArray(meta?.preBalances) ? meta.preBalances : [];
+  const postBalances = Array.isArray(meta?.postBalances) ? meta.postBalances : [];
+  const pre = preBalances.length > 0 ? preBalances[0] ?? 0 : 0;
+  const post = postBalances.length > 0 ? postBalances[0] ?? 0 : 0;
+  return post - pre;
 }
 
 function computeExecutionPrice(params: { isBuy: boolean; sizeSol: number; quoteOutAmount: string; amountIn: number }): number {
