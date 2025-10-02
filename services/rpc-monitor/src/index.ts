@@ -2,12 +2,15 @@ import 'dotenv/config';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import { createLogger } from '@trenches/logger';
 import { Gauge, Histogram, Registry } from 'prom-client';
 
 const registry = new Registry();
 const slotLag = new Gauge({ name: 'rpc_slot_lag', help: 'Slot lag vs. observed last slot', registers: [registry] });
 const txErr = new Gauge({ name: 'rpc_tx_error_rate', help: 'Recent tx error rate', registers: [registry] });
 const latency = new Histogram({ name: 'rpc_latency_ms', help: 'RPC latency ms', buckets: [50, 100, 200, 400, 800, 1500], registers: [registry] });
+
+const logger = createLogger('rpc-monitor');
 
 async function bootstrap() {
   const app = Fastify({ logger: false });
@@ -22,11 +25,11 @@ async function bootstrap() {
   app.get('/healthz', async () => ({ status: 'ok' }));
 
   const address = await app.listen({ host: '0.0.0.0', port: 0 });
-  console.log('rpc-monitor listening at', address);
+  logger.info({ address }, 'rpc-monitor listening');
 }
 
 bootstrap().catch((err) => {
-  console.error('rpc-monitor failed to start', err);
+  logger.error({ err }, 'rpc-monitor failed to start');
   process.exit(1);
 });
 

@@ -23,6 +23,7 @@ const logger = createLogger('agent-core');
 
 async function bootstrap() {
   const config = loadConfig();
+  const controlsEnabled = Boolean(config.security.killSwitchToken);
   const metricsServer = startMetricsServer();
   const lagP50 = registerGauge({ name: 'migration_to_candidate_lag_ms', help: 'Lag between migration and candidate (ms)', labelNames: ['quantile'] });
   const lagHist = (await import('@trenches/metrics')).registerHistogram({ name: 'migration_to_candidate_lag_hist_ms', help: 'Lag histogram', buckets: [50, 100, 200, 400, 900, 2000, 5000] });
@@ -50,6 +51,7 @@ async function bootstrap() {
         status: 'ok',
         mode: modeOverride ?? config.mode,
         killSwitchArmed,
+        controlsEnabled,
         db: 'up'
       };
     } catch (err) {
@@ -59,6 +61,7 @@ async function bootstrap() {
         status: 'degraded',
         mode: modeOverride ?? config.mode,
         killSwitchArmed,
+        controlsEnabled,
         db: 'down'
       };
     }
@@ -204,8 +207,9 @@ async function bootstrap() {
       pnlSummary = getPnLSummary();
     } catch {}
 
-    const snapshot: Snapshot & { latestMigrations?: any; migrationLag?: any; rugGuard?: any; execution?: any; riskBudget?: any; sizing?: any; survival?: any; backtest?: any; shadow?: any; routes?: any; leaders?: any; leader?: any; providers?: any } = {
+    const snapshot: Snapshot & { controlsEnabled: boolean; latestMigrations?: any; migrationLag?: any; rugGuard?: any; execution?: any; riskBudget?: any; sizing?: any; survival?: any; backtest?: any; shadow?: any; routes?: any; leaders?: any; leader?: any; providers?: any } = {
       status,
+      controlsEnabled,
       pnl: { day: pnlDay, week: pnlWeek, month: pnlMonth, prices },
       topics,
       candidates,
@@ -228,24 +232,109 @@ async function bootstrap() {
     return snapshot;
   });
 
-  app.post('/kill', async (request, reply) => {
-    if (!config.security.killSwitchToken) {
-      reply.code(501).send({ status: 'disabled' });
-      return;
-    }
-    const auth = request.headers.authorization ?? '';
-    const token = auth.startsWith('Bearer ')
-      ? auth.slice('Bearer '.length)
-      : (request.body as { token?: string } | undefined)?.token;
-    if (token !== config.security.killSwitchToken) {
-      reply.code(403).send({ status: 'forbidden' });
-      return;
-    }
-    killSwitchArmed = true;
-    logger.warn('kill switch engaged, shutting down agents');
-    reply.code(202).send({ status: 'shutting-down' });
-    setImmediate(() => shutdown('kill-switch'));
-  });
+  if (controlsEnabled) {
+    const killSwitchToken = config.security.killSwitchToken as string;
+
+    app.post('/kill', async (request, reply) => {
+      const auth = request.headers.authorization ?? '';
+      const token = auth.startsWith('Bearer ')
+        ? auth.slice('Bearer '.length)
+        : (request.body as { token?: string } | undefined)?.token;
+      if (token !== killSwitchToken) {
+        reply.code(403).send({ status: 'forbidden' });
+        return;
+      }
+      killSwitchArmed = true;
+      logger.warn('kill switch engaged, shutting down agents');
+      reply.code(202).send({ status: 'shutting-down' });
+      setImmediate(() => shutdown('kill-switch'));
+    });
+
+    // Control endpoints (simple token auth via killSwitchToken)
+    app.post('/control/pause', async (request, reply) => {
+      const auth = request.headers.authorization ?? '';
+      const token = auth.startsWith('Bearer ')
+        ? auth.slice('Bearer '.length)
+        : (request.body as { token?: string } | undefined)?.token;
+      if (token !== killSwitchToken) {
+        reply.code(403).send({ status: 'forbidden' });
+        return;
+      }
+      killSwitchArmed = true;
+      recordHeartbeat('agent-core', 'PAUSED', 'paused via control API');
+      reply.code(202).send({ status: 'paused' });
+    });
+
+    app.post('/control/resume', async (request, reply) => {
+      const auth = request.headers.authorization ?? '';
+      const token = auth.startsWith('Bearer ')
+        ? auth.slice('Bearer '.length)
+        : (request.body as { token?: string } | undefined)?.token;
+      if (token !== killSwitchToken) {
+        reply.code(403).send({ status: 'forbidden' });
+        return;
+      }
+      killSwitchArmed = false;
+      recordHeartbeat('agent-core', 'OK', 'resumed via control API');
+      reply.code(202).send({ status: 'resumed' });
+    });
+
+    app.post('/control/mode', async (request, reply) => {
+      const body = (request.body as { mode?: string; token?: string }) ?? {};
+      const next = String(body.mode || '').toUpperCase();
+      if (!['SIM', 'SHADOW', 'SEMI', 'FULL'].includes(next)) {
+        reply.code(400).send({ error: 'invalid_mode' });
+        return;
+      }
+      const auth = request.headers.authorization ?? '';
+      const token = auth.startsWith('Bearer ')
+        ? auth.slice('Bearer '.length)
+        : body.token;
+      if (token !== killSwitchToken) {
+        reply.code(403).send({ status: 'forbidden' });
+        return;
+      }
+      modeOverride = next as typeof modeOverride;
+      recordHeartbeat('agent-core', 'OK', `mode set to ${modeOverride}`);
+      reply.code(202).send({ status: 'ok', mode: modeOverride });
+    });
+
+    app.post('/control/flatten', async (request, reply) => {
+      const auth = request.headers.authorization ?? '';
+      const token = auth.startsWith('Bearer ')
+        ? auth.slice('Bearer '.length)
+        : (request.body as { token?: string } | undefined)?.token;
+      if (token !== killSwitchToken) {
+        reply.code(403).send({ status: 'forbidden' });
+        return;
+      }
+      // Probe wallet readiness from policy-engine
+      try {
+        const pe = await fetch(`http://127.0.0.1:${config.services.policyEngine.port}/healthz`);
+        const health = (await pe.json()) as { status?: string; wallet?: string };
+        if (health.status === 'awaiting_credentials' || health.wallet === 'missing_keystore') {
+          reply.code(503).send({ status: 'awaiting_credentials', detail: 'wallet_unavailable' });
+          return;
+        }
+      } catch {
+        // If policy engine not reachable, report unavailable
+        reply.code(503).send({ status: 'degraded', detail: 'policy_engine_unreachable' });
+        return;
+      }
+      // Forward to position-manager
+      try {
+        const res = await fetch(`http://127.0.0.1:${config.services.positionManager.port}/control/flatten`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${killSwitchToken}` }
+        });
+        reply.code(res.status).send(await res.json());
+      } catch (err) {
+        reply.code(502).send({ status: 'error', detail: 'position_manager_unreachable' });
+      }
+    });
+  } else {
+    logger.info('control endpoints disabled; kill switch token not configured');
+  }
 
   app.get('/events/agent', async (request, reply) => {
     reply.raw.writeHead(200, {
@@ -255,11 +344,8 @@ async function bootstrap() {
     });
     sseClients.add(reply);
     const send = (event: string, data: unknown) => {
-      reply.raw.write(`event: ${event}
-`);
-      reply.raw.write(`data: ${JSON.stringify(data)}
-
-`);
+      reply.raw.write(`event: ${event}\r\n`);
+      reply.raw.write(`data: ${JSON.stringify(data)}\r\n\r\n`);
     };
     send('hello', { status: 'ok' });
     const ping = setInterval(() => {
@@ -272,102 +358,6 @@ async function bootstrap() {
     return reply;
   });
 
-  // Control endpoints (simple token auth via killSwitchToken)
-  app.post('/control/pause', async (request, reply) => {
-    if (!config.security.killSwitchToken) {
-      reply.code(501).send({ status: 'disabled' });
-      return;
-    }
-    const auth = request.headers.authorization ?? '';
-    const token = auth.startsWith('Bearer ')
-      ? auth.slice('Bearer '.length)
-      : (request.body as { token?: string } | undefined)?.token;
-    if (token !== config.security.killSwitchToken) {
-      reply.code(403).send({ status: 'forbidden' });
-      return;
-    }
-    killSwitchArmed = true;
-    recordHeartbeat('agent-core', 'PAUSED', 'paused via control API');
-    reply.code(202).send({ status: 'paused' });
-  });
-
-  app.post('/control/resume', async (request, reply) => {
-    if (!config.security.killSwitchToken) {
-      reply.code(501).send({ status: 'disabled' });
-      return;
-    }
-    const auth = request.headers.authorization ?? '';
-    const token = auth.startsWith('Bearer ')
-      ? auth.slice('Bearer '.length)
-      : (request.body as { token?: string } | undefined)?.token;
-    if (token !== config.security.killSwitchToken) {
-      reply.code(403).send({ status: 'forbidden' });
-      return;
-    }
-    killSwitchArmed = false;
-    recordHeartbeat('agent-core', 'OK', 'resumed via control API');
-    reply.code(202).send({ status: 'resumed' });
-  });
-
-  app.post('/control/mode', async (request, reply) => {
-    const body = (request.body as { mode?: string; token?: string }) ?? {};
-    const next = String(body.mode || '').toUpperCase();
-    if (!['SIM', 'SHADOW', 'SEMI', 'FULL'].includes(next)) {
-      reply.code(400).send({ error: 'invalid_mode' });
-      return;
-    }
-    if (config.security.killSwitchToken) {
-      const auth = request.headers.authorization ?? '';
-      const token = auth.startsWith('Bearer ')
-        ? auth.slice('Bearer '.length)
-        : (request.body as { token?: string } | undefined)?.token;
-      if (token !== config.security.killSwitchToken) {
-        reply.code(403).send({ status: 'forbidden' });
-        return;
-      }
-    }
-    modeOverride = next as typeof modeOverride;
-    recordHeartbeat('agent-core', 'OK', `mode set to ${modeOverride}`);
-    reply.code(202).send({ status: 'ok', mode: modeOverride });
-  });
-
-  app.post('/control/flatten', async (request, reply) => {
-    if (!config.security.killSwitchToken) {
-      reply.code(501).send({ status: 'disabled' });
-      return;
-    }
-    const auth = request.headers.authorization ?? '';
-    const token = auth.startsWith('Bearer ')
-      ? auth.slice('Bearer '.length)
-      : (request.body as { token?: string } | undefined)?.token;
-    if (token !== config.security.killSwitchToken) {
-      reply.code(403).send({ status: 'forbidden' });
-      return;
-    }
-    // Probe wallet readiness from policy-engine
-    try {
-      const pe = await fetch(`http://127.0.0.1:${config.services.policyEngine.port}/healthz`);
-      const health = (await pe.json()) as { status?: string; wallet?: string };
-      if (health.status === 'awaiting_credentials' || health.wallet === 'missing_keystore') {
-        reply.code(503).send({ status: 'awaiting_credentials', detail: 'wallet_unavailable' });
-        return;
-      }
-    } catch {
-      // If policy engine not reachable, report unavailable
-      reply.code(503).send({ status: 'degraded', detail: 'policy_engine_unreachable' });
-      return;
-    }
-    // Forward to position-manager
-    try {
-      const res = await fetch(`http://127.0.0.1:${config.services.positionManager.port}/control/flatten`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${config.security.killSwitchToken}` }
-      });
-      reply.code(res.status).send(await res.json());
-    } catch (err) {
-      reply.code(502).send({ status: 'error', detail: 'position_manager_unreachable' });
-    }
-  });
 
   const address = await app.listen({ port: config.services.agentCore.port, host: '0.0.0.0' });
   logger.info({ address, mode: config.mode }, 'agent core listening');

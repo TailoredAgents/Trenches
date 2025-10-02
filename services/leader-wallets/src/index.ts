@@ -6,6 +6,7 @@ import type { ServerResponse } from 'http';
 import { Connection, PublicKey, LogsCallback } from '@solana/web3.js';
 import { loadConfig } from '@trenches/config';
 import { startMetricsServer, registerCounter, registerGauge } from '@trenches/metrics';
+import { createLogger } from '@trenches/logger';
 import { createRpcConnection } from '@trenches/util';
 import {
   insertLeaderHit,
@@ -25,6 +26,7 @@ const FORWARD_RETURN_MIN_OFFSET_MS = 15 * 60 * 1000;
 const FORWARD_RETURN_MAX_OFFSET_MS = 60 * 60 * 1000;
 
 const metricsServer = startMetricsServer();
+const logger = createLogger('leader-wallets');
 const leaderHitsTotal = registerCounter({ name: 'leader_hits_total', help: 'Total leader wallet swap hits captured' });
 const leaderTopGauge = registerGauge({ name: 'leader_wallets_top', help: 'Top leader wallet scores', labelNames: ['rank', 'wallet'] });
 
@@ -217,7 +219,7 @@ async function bootstrap(): Promise<void> {
       metricsServer.close(() => resolve());
     });
     if (reason) {
-      console.log('leader-wallets shutting down:', reason);
+      logger.info({ reason }, 'leader-wallets shutting down');
     }
   }
 
@@ -254,7 +256,7 @@ async function bootstrap(): Promise<void> {
         }
       });
     } catch (err) {
-      console.error('leader-wallets log handler error', err);
+      logger.error({ err }, 'leader-wallets log handler error');
     }
   };
 
@@ -272,7 +274,7 @@ async function bootstrap(): Promise<void> {
       const subId = await connection.onLogs(pk, logHandlerForPool(pool), 'confirmed');
       activePools.set(pool, { subId, expiresAt: watchUntil });
     } catch (err) {
-      console.error('leader-wallets failed to subscribe pool', { pool, err });
+      logger.error({ err, pool }, 'leader-wallets failed to subscribe pool');
     }
   }
 
@@ -303,7 +305,7 @@ async function bootstrap(): Promise<void> {
       }
       lastMigrationTs = Math.max(lastMigrationTs, fresh[fresh.length - 1].ts);
     } catch (err) {
-      console.error('leader-wallets migration poll failed', err);
+      logger.error({ err }, 'leader-wallets migration poll failed');
     }
   }
 
@@ -329,7 +331,7 @@ async function bootstrap(): Promise<void> {
         await recomputeLeaderScoresInternal();
       } catch (err) {
         scoreDirty = true;
-        console.error('leader-wallets score recompute failed', err);
+        logger.error({ err }, 'leader-wallets score recompute failed');
       }
     });
   }
@@ -373,7 +375,7 @@ async function bootstrap(): Promise<void> {
 
   const port = cfg.services?.leaderWallets?.port ?? 4019;
   await app.listen({ host: '0.0.0.0', port });
-  console.log('leader-wallets listening on port', port);
+  logger.info({ port }, 'leader-wallets listening');
 
   if (leaderCfg.enabled) {
     connection = createRpcConnection(cfg.rpc, { commitment: 'confirmed' });
@@ -395,7 +397,7 @@ async function bootstrap(): Promise<void> {
 }
 
 bootstrap().catch((err) => {
-  console.error('leader-wallets failed to start', err);
+  logger.error({ err }, 'leader-wallets failed to start');
   process.exit(1);
 });
 

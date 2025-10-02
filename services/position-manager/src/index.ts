@@ -27,6 +27,7 @@ const POSITION_GAUGE_REFRESH = registerGauge({
 
 async function bootstrap() {
   const config = loadConfig();
+  const killSwitchToken = config.security.killSwitchToken;
   const app = Fastify({ logger: false });
 
   await app.register(helmet as any, { global: true });
@@ -47,42 +48,44 @@ async function bootstrap() {
     reply.send(await registry.metrics());
   });
 
+  if (killSwitchToken) {
+    app.post('/control/flatten', async (request, reply) => {
+      const token = (request.headers.authorization ?? '').startsWith('Bearer ')
+        ? (request.headers.authorization as string).slice('Bearer '.length)
+        : undefined;
+      if (token !== killSwitchToken) {
+        reply.code(403).send({ status: 'forbidden' });
+        return;
+      }
+      let count = 0;
+      for (const [mint, entry] of positions.entries()) {
+        if (entry.state.quantity > 0) {
+          try {
+            await triggerExit({
+              reason: 'manual_flatten',
+              share: 1,
+              mint,
+              entry,
+              price: entry.state.lastPrice ?? entry.state.avgPrice,
+              config,
+              connection
+            });
+            count += 1;
+          } catch (err) {
+            logger.error({ err, mint }, 'flatten trigger failed');
+          }
+        }
+      }
+      reply.code(202).send({ status: 'accepted', positions: count });
+    });
+  } else {
+    logger.info('control/flatten endpoint disabled; kill switch token not configured');
+  }
+
   const address = await app.listen({ port: config.services.positionManager.port, host: '0.0.0.0' });
   logger.info({ address }, 'position manager listening');
 
-  app.post('/control/flatten', async (request, reply) => {
-    const token = (request.headers.authorization ?? '').startsWith('Bearer ')
-      ? (request.headers.authorization as string).slice('Bearer '.length)
-      : undefined;
-    if (!config.security.killSwitchToken) {
-      reply.code(501).send({ status: 'disabled' });
-      return;
-    }
-    if (token !== config.security.killSwitchToken) {
-      reply.code(403).send({ status: 'forbidden' });
-      return;
-    }
-    let count = 0;
-    for (const [mint, entry] of positions.entries()) {
-      if (entry.state.quantity > 0) {
-        try {
-          await triggerExit({
-            reason: 'manual_flatten',
-            share: 1,
-            mint,
-            entry,
-            price: entry.state.lastPrice ?? entry.state.avgPrice,
-            config,
-            connection
-          });
-          count += 1;
-        } catch (err) {
-          logger.error({ err, mint }, 'flatten trigger failed');
-        }
-      }
-    }
-    reply.code(202).send({ status: 'accepted', positions: count });
-  });
+
 
   const executorFeed = `http://127.0.0.1:${config.services.executor.port}/events/trades`;
   const disposeStream = startTradeStream(executorFeed, async (event) => {

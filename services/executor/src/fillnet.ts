@@ -1,8 +1,11 @@
 import { FillPrediction } from '@trenches/shared';
 import { insertFillPrediction } from '@trenches/persistence';
+import { createLogger } from '@trenches/logger';
 import { registerGauge, registerCounter } from '@trenches/metrics';
 import fs from 'fs';
 import { loadConfig } from '@trenches/config';
+
+const logger = createLogger('fillnet');
 
 export type PredictContext = {
   route: string;
@@ -20,6 +23,7 @@ const pfillAvg = registerGauge({ name: 'fillnet_pfill_avg', help: 'Average predi
 const slipExpGauge = registerGauge({ name: 'fillnet_slip_expected_bps', help: 'Expected slippage bps' });
 const timeExpGauge = registerGauge({ name: 'fillnet_time_expected_ms', help: 'Expected time to land ms' });
 const calibBucket = registerCounter({ name: 'fillnet_calib_bucket', help: 'FillNet predictions by bucket', labelNames: ['bucket'] });
+const fillnetInsertPredErrors = registerCounter({ name: 'fillnet_insert_pred_errors_total', help: 'FillNet prediction persist errors' });
 const brierGauge = registerGauge({ name: 'fillnet_calib_brier', help: 'Approximate Brier score (expected)' });
 
 let model: { wFill?: number[]; wSlip?: number[]; wTime?: number[] } | null = null;
@@ -64,7 +68,12 @@ export async function predictFill(ctx: PredictContext, persistCtx?: Record<strin
   const zTime = dot(model?.wTime ?? undefined);
   const expTimeMs = zTime !== null ? Math.max(50, Math.round(zTime as number)) : Math.max(200, Math.round(400 + (1 - sCong) * 900 + (1 - sDepth) * 700 + (spread / 200) * 500));
   const pred: FillPrediction = { ts, route: ctx.route, pFill, expSlipBps, expTimeMs };
-  try { insertFillPrediction(pred, { ctx }); } catch {}
+  try {
+    insertFillPrediction(pred, { ctx });
+  } catch (err) {
+    logger.warn({ err, route: ctx.route }, 'failed to persist fill prediction');
+    fillnetInsertPredErrors.inc();
+  }
   try {
     pfillAvg.set(pFill); slipExpGauge.set(expSlipBps); timeExpGauge.set(expTimeMs);
     const p = pFill;
