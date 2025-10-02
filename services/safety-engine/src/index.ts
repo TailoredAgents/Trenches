@@ -13,12 +13,13 @@ import { storeTokenCandidate } from '@trenches/persistence';
 import { TokenCandidate } from '@trenches/shared';
 import { TtlCache, createRpcConnection, createSSEClient, createInMemoryLastEventIdStore } from '@trenches/util';
 import { SafetyEventBus } from './eventBus';
-import { safetyEvaluations, safetyPasses, safetyBlocks, ocrsGauge, evaluationDuration, authorityPassRatio, avgRugProb } from './metrics';
+import { safetyEvaluations, safetyPasses, safetyBlocks, ocrsGauge, evaluationDuration, authorityPassRatio, avgRugProb, pumpInferencesTotal, rugguardAvgPumpProb } from './metrics';
 import { checkTokenSafety } from './tokenSafety';
 import { checkLpSafety } from './lpSafety';
 import { checkHolderSkew } from './holderSafety';
 // OCRS deprecated: RugGuard is the sole gate
 import { classify, candidateToFeatures } from './rugguard';
+import { scoreText } from './pumpClassifier';
 import { SafetyEvaluation } from './types';
 const logger = createLogger('safety-engine');
 const EVALUATION_CACHE_MS = 30_000;
@@ -202,9 +203,19 @@ async function evaluateCandidate(
   let rugProb = 0.5;
   if (rugGuardEnabled) {
     try {
-      const verdict = await classify(candidate.mint, candidateToFeatures(candidate), { connection });
+      let pumpProb = 0.5;
+      try {
+        pumpProb = scoreText(`${candidate.name ?? ''} ${candidate.symbol ?? ''}`);
+        pumpInferencesTotal.inc();
+        const prev = (rugguardAvgPumpProb as any)._last || { sum: 0, n: 0 };
+        const sum = (prev.sum ?? 0) + pumpProb;
+        const n = (prev.n ?? 0) + 1;
+        (rugguardAvgPumpProb as any)._last = { sum, n };
+        rugguardAvgPumpProb.set(sum / Math.max(1, n));
+      } catch {}
+      const verdict = await classify(candidate.mint, { ...candidateToFeatures(candidate), pumpProb }, { connection });
       rugProb = verdict.rugProb;
-      insertRugVerdict({ ts: verdict.ts, mint: verdict.mint, rugProb: verdict.rugProb, reasons: verdict.reasons });
+      insertRugVerdict({ ts: verdict.ts, mint: verdict.mint, rugProb: verdict.rugProb, reasons: [...(verdict.reasons ?? []), `pump_prob:${pumpProb.toFixed(3)}`] });
       if (verdict.reasons.includes('mint_or_freeze_active')) {
         reasons.push('mint_or_freeze_active');
       }

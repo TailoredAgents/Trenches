@@ -21,3 +21,6 @@
 - UI:
   - Execution card shows Price: OK/Stale badge derived from snapshot price age.
 
+## Offline ML Pack
+- Features Job: computes author_quality nightly; persists into author_features.
+- Pump Classifier: computes pump_prob; included as a RugGuard feature (soft signal).

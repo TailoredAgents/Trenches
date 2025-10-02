@@ -1,6 +1,6 @@
 import { FillPrediction } from '@trenches/shared';
 import { insertFillPrediction } from '@trenches/persistence';
-import { registerGauge } from '@trenches/metrics';
+import { registerGauge, registerCounter } from '@trenches/metrics';
 import fs from 'fs';
 import { loadConfig } from '@trenches/config';
 
@@ -19,6 +19,8 @@ export type PredictContext = {
 const pfillAvg = registerGauge({ name: 'fillnet_pfill_avg', help: 'Average predicted fill probability' });
 const slipExpGauge = registerGauge({ name: 'fillnet_slip_expected_bps', help: 'Expected slippage bps' });
 const timeExpGauge = registerGauge({ name: 'fillnet_time_expected_ms', help: 'Expected time to land ms' });
+const calibBucket = registerCounter({ name: 'fillnet_calib_bucket', help: 'FillNet predictions by bucket', labelNames: ['bucket'] });
+const brierGauge = registerGauge({ name: 'fillnet_calib_brier', help: 'Approximate Brier score (expected)' });
 
 let model: { wFill?: number[]; wSlip?: number[]; wTime?: number[] } | null = null;
 function ensureModel(): void {
@@ -63,6 +65,13 @@ export async function predictFill(ctx: PredictContext, persistCtx?: Record<strin
   const expTimeMs = zTime !== null ? Math.max(50, Math.round(zTime as number)) : Math.max(200, Math.round(400 + (1 - sCong) * 900 + (1 - sDepth) * 700 + (spread / 200) * 500));
   const pred: FillPrediction = { ts, route: ctx.route, pFill, expSlipBps, expTimeMs };
   try { insertFillPrediction(pred, { ctx }); } catch {}
-  try { pfillAvg.set(pFill); slipExpGauge.set(expSlipBps); timeExpGauge.set(expTimeMs); } catch {}
+  try {
+    pfillAvg.set(pFill); slipExpGauge.set(expSlipBps); timeExpGauge.set(expTimeMs);
+    const p = pFill;
+    const bucket = p < 0.5 ? '[0.0,0.5)' : p < 0.7 ? '[0.5,0.7)' : p < 0.85 ? '[0.7,0.85)' : p < 0.95 ? '[0.85,0.95)' : '[0.95,1.0]';
+    calibBucket.inc({ bucket });
+    const expBrier = p * (1 - p); // expectation without label
+    brierGauge.set(expBrier);
+  } catch {}
   return pred;
 }

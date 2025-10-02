@@ -13,3 +13,6 @@
 ## Next: Soak & Tune
 - Run 24–48h SHADOW soak with Preset + Quarantine + Leader + Price Updater.
 - Use `pnpm soak:summary` to review route quality and execution SLOs.
+
+## Done: Offline ML Pack
+- Nightly features job and pump classifier (offline); FillNet calibration; docs and smokes.

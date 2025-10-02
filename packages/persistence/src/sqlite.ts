@@ -626,6 +626,26 @@ MIGRATIONS.push({
   ]
 });
 
+// Offline features and pump signals
+MIGRATIONS.push({
+  id: '0017_offline_features',
+  statements: [
+    `CREATE TABLE IF NOT EXISTS author_features(
+      author TEXT PRIMARY KEY,
+      quality REAL NOT NULL,
+      posts24h INTEGER NOT NULL,
+      lastCalcTs INTEGER NOT NULL
+    );`,
+    `CREATE TABLE IF NOT EXISTS pump_signals(
+      ts INTEGER NOT NULL,
+      mint TEXT NOT NULL,
+      pump_prob REAL NOT NULL,
+      samples INTEGER NOT NULL
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_pump_signals_mint_ts ON pump_signals(mint, ts);`
+  ]
+});
+
 let db: DatabaseConstructor.Database | null = null;
 
 const candidateWriteQueue = createWriteQueue('candidates');
@@ -1814,6 +1834,34 @@ export function getPnLSummary(): { netUsd: number; grossUsd: number; feeUsd: num
   const grossUsd = srows.reduce((a, r) => a + (r.pnl_usd ?? 0), 0);
   const netUsd = grossUsd - feeUsd - slipUsd;
   return { netUsd, grossUsd, feeUsd, slipUsd };
+}
+
+// ---- Offline features helpers ----
+export function listRecentSocialPosts(sinceTs: number): Array<{ author: string; text: string; ts: number; platform: string }> {
+  const database = getDb();
+  const rows = database
+    .prepare(`SELECT author_id AS author, text, CAST(strftime('%s', captured_at) AS INTEGER) * 1000 AS ts, platform FROM social_posts WHERE CAST(strftime('%s', captured_at) AS INTEGER) * 1000 >= ? ORDER BY captured_at DESC LIMIT 5000`)
+    .all(sinceTs) as Array<{ author: string; text: string; ts: number; platform: string }>;
+  return rows.map((r) => ({ author: String(r.author ?? ''), text: String(r.text ?? ''), ts: Number(r.ts ?? 0), platform: String(r.platform ?? '') }));
+}
+
+export function upsertAuthorFeature(row: { author: string; quality: number; posts24h: number; lastCalcTs: number }): void {
+  const database = getDb();
+  database
+    .prepare(`INSERT INTO author_features (author, quality, posts24h, lastCalcTs)
+              VALUES (@author, @quality, @posts24h, @lastCalcTs)
+              ON CONFLICT(author) DO UPDATE SET
+                quality = excluded.quality,
+                posts24h = excluded.posts24h,
+                lastCalcTs = excluded.lastCalcTs`)
+    .run(row);
+}
+
+export function insertPumpSignal(row: { ts: number; mint: string; pumpProb: number; samples: number }): void {
+  const database = getDb();
+  database
+    .prepare(`INSERT INTO pump_signals (ts, mint, pump_prob, samples) VALUES (@ts, @mint, @pumpProb, @samples)`)
+    .run(row);
 }
 
 // ---- Phase C helpers ----

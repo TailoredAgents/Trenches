@@ -22,6 +22,16 @@ export const ocrsGauge: Gauge<string> = registerGauge({
   help: 'OCRS value of last evaluated candidate'
 });
 
+export const pumpInferencesTotal: Counter<string> = registerCounter({
+  name: 'pump_classifier_inferences_total',
+  help: 'Total pump classifier inferences'
+});
+
+export const rugguardAvgPumpProb: Gauge<string> = registerGauge({
+  name: 'rugguard_avg_pump_prob',
+  help: 'Average pump probability (rolling)'
+});
+
 export const evaluationDuration: Gauge<string> = registerGauge({
   name: 'safety_evaluation_ms',
   help: 'Duration of last safety evaluation in milliseconds'

@@ -276,6 +276,15 @@ export const configSchema = z.object({
       pythSolUsdPriceAccount: z.string().default('')
     })
     .default({ enabled: true, intervalMs: 60_000, staleWarnSec: 300, pythSolUsdPriceAccount: '' }),
+  featuresJob: z
+    .object({
+      enabled: z.boolean().default(true),
+      intervalMs: z.number().int().positive().default(86_400_000),
+      embedder: z.string().default('bge-small-en'),
+      lookbackHours: z.number().int().positive().default(24),
+      minPostsPerAuthor: z.number().int().positive().default(5)
+    })
+    .default({ enabled: true, intervalMs: 86_400_000, embedder: 'bge-small-en', lookbackHours: 24, minPostsPerAuthor: 5 }),
   features: z
     .object({
       migrationWatcher: z.boolean().default(true),
