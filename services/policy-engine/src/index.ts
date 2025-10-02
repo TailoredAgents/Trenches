@@ -1,7 +1,7 @@
 import { computeLeaderBoostInfo, applyLeaderSizeBoost, LeaderWalletConfig } from './leader';
 import 'dotenv/config';
 import EventSource from 'eventsource';
-import { createSSEClient, createInMemoryLastEventIdStore } from '@trenches/util';
+import { createInMemoryLastEventIdStore, sseQueue, sseRoute, subscribeJsonStream } from '@trenches/util';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -113,11 +113,15 @@ async function bootstrap() {
     congestion: cachedCongestionLevel
   }));
 
-  app.get('/events/plans', async (request, reply) => {
-    const { iterator, close } = createIterator(bus);
-    reply.sse(iterator);
-    request.raw.on('close', close);
-    request.raw.on('error', close);
+  app.get('/events/plans', async (_request, reply) => {
+    const stream = sseQueue<PlanEnvelope>();
+    const unsubscribe = bus.onPlan((plan) => {
+      stream.push(plan);
+    });
+    sseRoute(reply, stream.iterator, () => {
+      unsubscribe();
+      stream.close();
+    });
   });
 
   const address = await app.listen({ port: config.services.policyEngine.port, host: '0.0.0.0' });
@@ -303,7 +307,7 @@ type StreamDisposer = () => void;
 
 function startCandidateStream(url: string, handler: StreamHandler): StreamDisposer {
   const store = createInMemoryLastEventIdStore();
-  const client = createSSEClient(url, {
+  const client = subscribeJsonStream<TokenCandidate>(url, {
     lastEventIdStore: store,
     eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }) as any,
     onOpen: () => {
@@ -312,65 +316,20 @@ function startCandidateStream(url: string, handler: StreamHandler): StreamDispos
     onError: (err, attempt) => {
       logger.error({ err, attempt }, 'candidate stream error, reconnecting');
     },
-    onEvent: async (event) => {
-      if (!event?.data || event.data === 'ping') {
-        return;
-      }
+    onParseError: (err) => {
+      logger.error({ err }, 'failed to parse candidate event');
+    },
+    onMessage: async (candidate) => {
       try {
-        const candidate = JSON.parse(event.data) as TokenCandidate;
         await handler(candidate);
       } catch (err) {
-        logger.error({ err }, 'failed to parse candidate event');
+        logger.error({ err }, 'candidate handler failed');
       }
     }
   });
   return () => client.dispose();
 }
 
-function createIterator(bus: PolicyEventBus): { iterator: AsyncGenerator<{ data: string }>; close: () => void } {
-  const queue: Array<{ data: string }> = [];
-  let notify: (() => void) | undefined;
-
-  const unsubscribe = bus.onPlan((plan) => {
-    queue.push({ data: JSON.stringify(plan) });
-    if (notify) {
-      notify();
-      notify = undefined;
-    }
-  });
-
-  const iterator = (async function* () {
-    try {
-      while (true) {
-        if (queue.length === 0) {
-          await new Promise<void>((resolve) => {
-            notify = resolve;
-          });
-        }
-        const next = queue.shift();
-        if (!next) {
-          continue;
-        }
-        yield next;
-      }
-    } finally {
-      unsubscribe();
-    }
-  })();
-
-  const close = () => {
-    if (notify) {
-      notify();
-      notify = undefined;
-    }
-    if (iterator.return) {
-      void iterator.return(undefined as never);
-    }
-    unsubscribe();
-  };
-
-  return { iterator, close };
-}
 
 function congestionToScore(level: string): number {
   switch (level) {
@@ -391,18 +350,4 @@ bootstrap().catch((err) => {
   logger.error({ err }, 'policy engine failed to start');
   process.exit(1);
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

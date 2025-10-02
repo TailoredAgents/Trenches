@@ -11,7 +11,7 @@ import { getRegistry } from '@trenches/metrics';
 import { insertRugVerdict } from '@trenches/persistence';
 import { storeTokenCandidate } from '@trenches/persistence';
 import { TokenCandidate } from '@trenches/shared';
-import { TtlCache, createRpcConnection, createSSEClient, createInMemoryLastEventIdStore } from '@trenches/util';
+import { TtlCache, createRpcConnection, createInMemoryLastEventIdStore, subscribeJsonStream, sseQueue, sseRoute } from '@trenches/util';
 import { SafetyEventBus } from './eventBus';
 import { safetyEvaluations, safetyPasses, safetyBlocks, ocrsGauge, evaluationDuration, authorityPassRatio, avgRugProb, pumpInferencesTotal, rugguardAvgPumpProb } from './metrics';
 import { checkTokenSafety } from './tokenSafety';
@@ -51,18 +51,26 @@ async function bootstrap() {
     reply.send(await registry.metrics());
   });
 
-  app.get('/events/safe', async (request, reply) => {
-    const { iterator, close } = createIterator(bus, 'safe');
-    reply.sse(iterator);
-    request.raw.on('close', close);
-    request.raw.on('error', close);
+  app.get('/events/safe', async (_request, reply) => {
+    const stream = sseQueue<TokenCandidate>();
+    const unsubscribe = bus.onSafe((candidate) => {
+      stream.push(candidate);
+    });
+    sseRoute(reply, stream.iterator, () => {
+      unsubscribe();
+      stream.close();
+    });
   });
 
-  app.get('/events/blocked', async (request, reply) => {
-    const { iterator, close } = createIterator(bus, 'blocked');
-    reply.sse(iterator);
-    request.raw.on('close', close);
-    request.raw.on('error', close);
+  app.get('/events/blocked', async (_request, reply) => {
+    const stream = sseQueue<{ candidate: TokenCandidate; reasons: string[] }>();
+    const unsubscribe = bus.onBlocked((payload) => {
+      stream.push(payload);
+    });
+    sseRoute(reply, stream.iterator, () => {
+      unsubscribe();
+      stream.close();
+    });
   });
 
   const address = await app.listen({ port: config.services.safetyEngine.port, host: '0.0.0.0' });
@@ -116,16 +124,19 @@ type StreamHandler = (candidate: TokenCandidate) => void | Promise<void>;
 function startCandidateStream(url: string, handler: StreamHandler) {
   const lastEventIdStore = createInMemoryLastEventIdStore();
   const dedup = new TtlCache<string, boolean>(2 * 60 * 1000);
-  const client = createSSEClient(url, {
+  const client = subscribeJsonStream<TokenCandidate>(url, {
     lastEventIdStore,
     eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }) as any,
     onOpen: () => {
       logger.info({ url }, 'connected to candidate stream');
     },
-    onEvent: async (event) => {
-      if (!event?.data || event.data === 'ping') {
-        return;
-      }
+    onError: (err, attempt) => {
+      logger.error({ err, attempt, url }, 'candidate stream error');
+    },
+    onParseError: (err) => {
+      logger.error({ err }, 'failed to parse candidate payload');
+    },
+    onMessage: async (candidate, event) => {
       const eventId = event.lastEventId ?? undefined;
       if (eventId && dedup.get(eventId)) {
         return;
@@ -133,26 +144,14 @@ function startCandidateStream(url: string, handler: StreamHandler) {
       if (eventId) {
         dedup.set(eventId, true);
       }
-      let candidate: TokenCandidate;
-      try {
-        candidate = JSON.parse(event.data) as TokenCandidate;
-      } catch (err) {
-        logger.error({ err }, 'failed to parse candidate payload');
-        return;
-      }
       try {
         await handler(candidate);
       } catch (err) {
         logger.error({ err }, 'candidate handler failed');
       }
-    },
-    onError: (err, attempt) => {
-      logger.error({ err, attempt, url }, 'candidate stream error');
     }
   });
-  return () => {
-    client.dispose();
-  };
+  return () => client.dispose();
 }
 
 async function evaluateCandidate(
@@ -274,66 +273,7 @@ function evaluateGating(candidate: TokenCandidate, config: ReturnType<typeof loa
   return reasons;
 }
 
-type EventChannel = 'safe' | 'blocked';
 
-type IteratorPayload = { data: string };
-
-type IteratorFactory = (bus: SafetyEventBus, channel: EventChannel) => { iterator: AsyncGenerator<IteratorPayload>; close: () => void };
-
-const createIterator: IteratorFactory = (bus, channel) => {
-  const queue: IteratorPayload[] = [];
-  let notify: (() => void) | undefined;
-
-  const listenerSafe = (payload: TokenCandidate) => {
-    queue.push({ data: JSON.stringify(payload) });
-    if (notify) {
-      notify();
-      notify = undefined;
-    }
-  };
-
-  const listenerBlocked = (payload: { candidate: TokenCandidate; reasons: string[] }) => {
-    queue.push({ data: JSON.stringify(payload) });
-    if (notify) {
-      notify();
-      notify = undefined;
-    }
-  };
-
-  const unsubscribe = channel === 'safe' ? bus.onSafe(listenerSafe) : bus.onBlocked(listenerBlocked);
-
-  const iterator = (async function* () {
-    try {
-      while (true) {
-        if (queue.length === 0) {
-          await new Promise<void>((resolve) => {
-            notify = resolve;
-          });
-        }
-        const next = queue.shift();
-        if (!next) {
-          continue;
-        }
-        yield next;
-      }
-    } finally {
-      unsubscribe();
-    }
-  })();
-
-  const close = () => {
-    if (notify) {
-      notify();
-      notify = undefined;
-    }
-    if (iterator.return) {
-      void iterator.return(undefined as never);
-    }
-    unsubscribe();
-  };
-
-  return { iterator, close };
-};
 
 bootstrap().catch((err) => {
   logger.error({ err }, 'safety engine failed to start');

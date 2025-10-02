@@ -195,3 +195,193 @@ export function createSSEClient(url: string, options: SSEClientOptions): { dispo
 
   return { dispose };
 }
+
+export type SSEStreamMessage = { data: string; event?: string };
+
+type SerializeFn<T> = (value: T) => SSEStreamMessage;
+
+const defaultSerialize: SerializeFn<unknown> = (value) => {
+  if (typeof value === 'string') {
+    return { data: value };
+  }
+  if (value && typeof value === 'object' && 'data' in (value as Record<string, unknown>)) {
+    const message = value as { data: unknown; event?: unknown };
+    const data = typeof message.data === 'string' ? message.data : JSON.stringify(message.data);
+    const event = message.event !== undefined ? String(message.event) : undefined;
+    return event ? { data, event } : { data };
+  }
+  return { data: JSON.stringify(value) };
+};
+
+export type SSEQueue<T> = {
+  iterator: AsyncGenerator<SSEStreamMessage>;
+  push(value: T): void;
+  close(): void;
+};
+
+export function sseQueue<T>(serialize: SerializeFn<T> = defaultSerialize as SerializeFn<T>): SSEQueue<T> {
+  const queue: SSEStreamMessage[] = [];
+  let notify: (() => void) | undefined;
+  let closed = false;
+
+  const awaken = () => {
+    if (notify) {
+      notify();
+      notify = undefined;
+    }
+  };
+
+  const iterator = (async function* (): AsyncGenerator<SSEStreamMessage> {
+    try {
+      while (true) {
+        if (queue.length === 0) {
+          if (closed) {
+            break;
+          }
+          await new Promise<void>((resolve) => {
+            notify = resolve;
+          });
+          if (queue.length === 0 && closed) {
+            break;
+          }
+          if (queue.length === 0) {
+            continue;
+          }
+        }
+        const next = queue.shift();
+        if (!next) {
+          if (closed) {
+            break;
+          }
+          continue;
+        }
+        yield next;
+      }
+    } finally {
+      closed = true;
+      queue.length = 0;
+    }
+  })();
+
+  const push = (value: T) => {
+    if (closed) {
+      return;
+    }
+    queue.push(serialize(value));
+    awaken();
+  };
+
+  const close = () => {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    awaken();
+    if (typeof iterator.return === 'function') {
+      void iterator.return(undefined as never);
+    }
+  };
+
+  return { iterator, push, close };
+}
+
+type FastifySSEReply = {
+  raw: {
+    on(event: 'close' | 'error', handler: () => void): void;
+    removeListener?: (event: 'close' | 'error', handler: () => void) => void;
+  };
+  sse(iterator: AsyncGenerator<SSEStreamMessage>): void;
+};
+
+export function sseRoute(
+  reply: FastifySSEReply,
+  iterator: AsyncGenerator<SSEStreamMessage>,
+  close?: () => void
+): void {
+  let finished = false;
+  const raw = reply.raw as typeof reply.raw & { removeListener?: (event: string, handler: () => void) => void };
+  const finalize = () => {
+    if (finished) {
+      return;
+    }
+    finished = true;
+    try {
+      raw.removeListener?.('close', finalize);
+      raw.removeListener?.('error', finalize);
+    } catch {
+      // ignore listener removal errors
+    }
+    if (close) {
+      try {
+        close();
+      } catch {
+        // ignore close errors
+      }
+    }
+  };
+
+  raw.on('close', finalize);
+  raw.on('error', finalize);
+  try {
+    reply.sse(iterator);
+  } catch (err) {
+    finalize();
+    throw err;
+  }
+}
+
+export type SubscribeJsonStreamOptions<T> = Omit<SSEClientOptions, 'onEvent'> & {
+  onMessage: (payload: T, event: SSEMessageEvent) => void | Promise<void>;
+  parse?: (raw: string) => T;
+  ignorePings?: boolean;
+  onParseError?: (err: unknown, raw: string, event: SSEMessageEvent) => void;
+};
+
+export function subscribeJsonStream<T = unknown>(
+  url: string,
+  options: SubscribeJsonStreamOptions<T>
+): { dispose: () => void } {
+  const {
+    onMessage,
+    parse,
+    ignorePings = true,
+    onParseError,
+    ...clientOptions
+  } = options;
+
+  const parser = parse ?? ((raw: string) => JSON.parse(raw) as T);
+
+  return createSSEClient(url, {
+    ...clientOptions,
+    onEvent: async (event) => {
+      if (!event?.data) {
+        return;
+      }
+      const trimmed = event.data.trim();
+      if (ignorePings && (trimmed.length === 0 || trimmed === 'ping')) {
+        return;
+      }
+      let payload: T;
+      try {
+        payload = parser(event.data);
+      } catch (err) {
+        if (onParseError) {
+          onParseError(err, event.data, event);
+        } else if (clientOptions.onError) {
+          clientOptions.onError(err, 0);
+        }
+        return;
+      }
+      try {
+        const result = onMessage(payload, event);
+        if (result && typeof (result as Promise<void>).then === 'function') {
+          await result;
+        }
+      } catch (err) {
+        if (clientOptions.onError) {
+          clientOptions.onError(err, 0);
+        }
+      }
+    }
+  });
+}

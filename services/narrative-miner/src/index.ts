@@ -11,7 +11,7 @@ import { performance } from 'perf_hooks';
 import { loadConfig, TrenchesConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
 import { getRegistry } from '@trenches/metrics';
-import { createSSEClient, createInMemoryLastEventIdStore, SSEMessageEvent } from '@trenches/util';
+import { createInMemoryLastEventIdStore, sseQueue, sseRoute, subscribeJsonStream } from '@trenches/util';
 import { SocialEngagement, SocialPost, TokenCandidate, TopicEvent } from '@trenches/shared';
 import { fetchTopicClusters, fetchTopicWindows } from '@trenches/persistence';
 import { NarrativeEventBus } from './eventBus';
@@ -194,18 +194,26 @@ export async function createNarrativeMiner(options: NarrativeMinerOptions = {}):
     reply.send(await registry.metrics());
   });
 
-  app.get('/events/topics', async (request, reply) => {
-    const { iterator, close } = createTopicIterator(bus);
-    reply.sse(iterator);
-    request.raw.on('close', close);
-    request.raw.on('error', close);
+  app.get('/events/topics', async (_request, reply) => {
+    const stream = sseQueue<TopicEvent>();
+    const unsubscribe = bus.onTopic((event) => {
+      stream.push(event);
+    });
+    sseRoute(reply, stream.iterator, () => {
+      unsubscribe();
+      stream.close();
+    });
   });
 
-  app.get('/events/candidates', async (request, reply) => {
-    const { iterator, close } = createCandidateIterator(bus);
-    reply.sse(iterator);
-    request.raw.on('close', close);
-    request.raw.on('error', close);
+  app.get('/events/candidates', async (_request, reply) => {
+    const stream = sseQueue<TokenCandidate>();
+    const unsubscribe = bus.onCandidate((candidate) => {
+      stream.push(candidate);
+    });
+    sseRoute(reply, stream.iterator, () => {
+      unsubscribe();
+      stream.close();
+    });
   });
 
   const pruneInterval = setInterval(() => {
@@ -465,14 +473,14 @@ interface StreamHandle {
 }
 
 function startStream(url: string, onStatus: (status: StreamStatus) => void): StreamHandle {
-  let disposed = false;
   let attempts = 0;
   const emitter = new EventEmitter();
   const store = createInMemoryLastEventIdStore();
   onStatus({ state: 'connecting', attempts: 1 });
-  const client = createSSEClient(url, {
+  const client = subscribeJsonStream<string>(url, {
     lastEventIdStore: store,
     eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }) as any,
+    parse: (raw) => raw,
     onOpen: () => {
       attempts = 0;
       onStatus({ state: 'connected', attempts: 0 });
@@ -486,11 +494,8 @@ function startStream(url: string, onStatus: (status: StreamStatus) => void): Str
       };
       onStatus(nextStatus);
     },
-    onEvent: (event: SSEMessageEvent) => {
-      if (!event?.data || event.data === 'ping') {
-        return;
-      }
-      emitter.emit('message', String(event.data));
+    onMessage: (payload) => {
+      emitter.emit('message', payload);
     }
   });
 
@@ -499,7 +504,6 @@ function startStream(url: string, onStatus: (status: StreamStatus) => void): Str
       emitter.on(event, handler);
     },
     close: () => {
-      disposed = true;
       client.dispose();
       emitter.removeAllListeners();
     }
@@ -535,92 +539,6 @@ function handleWindowEvents(
       logger.error({ err }, 'failed persisting watch window');
     });
   }
-}
-
-function createTopicIterator(bus: NarrativeEventBus) {
-  const queue: TopicEvent[] = [];
-  let notify: (() => void) | undefined;
-  const unsubscribe = bus.onTopic((event) => {
-    queue.push(event);
-    if (notify) {
-      notify();
-      notify = undefined;
-    }
-  });
-
-  const iterator = (async function* () {
-    try {
-      while (true) {
-        if (queue.length === 0) {
-          await new Promise<void>((resolve) => {
-            notify = resolve;
-          });
-        }
-        const next = queue.shift();
-        if (!next) {
-          continue;
-        }
-        yield { data: JSON.stringify(next) };
-      }
-    } finally {
-      unsubscribe();
-    }
-  })();
-
-  const close = () => {
-    if (notify) {
-      notify();
-      notify = undefined;
-    }
-    if (iterator.return) {
-      void iterator.return(undefined as never);
-    }
-  };
-
-  return { iterator, close };
-}
-
-function createCandidateIterator(bus: NarrativeEventBus) {
-  const queue: TokenCandidate[] = [];
-  let notify: (() => void) | undefined;
-  const unsubscribe = bus.onCandidate((candidate) => {
-    queue.push(candidate);
-    if (notify) {
-      notify();
-      notify = undefined;
-    }
-  });
-
-  const iterator = (async function* () {
-    try {
-      while (true) {
-        if (queue.length === 0) {
-          await new Promise<void>((resolve) => {
-            notify = resolve;
-          });
-        }
-        const next = queue.shift();
-        if (!next) {
-          continue;
-        }
-        yield { data: JSON.stringify(next) };
-      }
-    } finally {
-      unsubscribe();
-    }
-  })();
-
-  const close = () => {
-    if (notify) {
-      notify();
-      notify = undefined;
-    }
-    if (iterator.return) {
-      void iterator.return(undefined as never);
-    }
-  };
-
-  return { iterator, close };
 }
 
 function updateGauges(clusterManager: ClusterManager, watchManager: WatchWindowManager, now: number) {

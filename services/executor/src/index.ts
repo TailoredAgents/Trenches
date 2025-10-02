@@ -19,7 +19,7 @@ import { decideFees, updateArm } from './fee-bandit';
 import { ExecutorEventBus } from './eventBus';
 import { computeWindowStart, loadRouteStats, recordRouteAttempt, markRouteExcluded, RouteQuarantineConfig, RouteStatSnapshot } from './routeQuarantine';
 import { applyMigrationPresetAdjustment, MigrationPresetConfig } from './migrationPreset';
-import { createRpcConnection, createSSEClient, createInMemoryLastEventIdStore } from '@trenches/util';
+import { createRpcConnection, createInMemoryLastEventIdStore, sseQueue, sseRoute, subscribeJsonStream } from '@trenches/util';
 
 const logger = createLogger('executor');
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -31,7 +31,6 @@ const ROUTE_QUARANTINE_DEFAULT: RouteQuarantineConfig = {
   slipExcessWeight: 0.5,
   failRateWeight: 100
 };
-
 
 async function bootstrap() {
   const config = loadConfig();
@@ -87,12 +86,15 @@ async function bootstrap() {
     return { windowStart, rows };
   });
 
-
-  app.get('/events/trades', async (request, reply) => {
-    const { iterator, close } = createTradeIterator(bus);
-    reply.sse(iterator);
-    request.raw.on('close', close);
-    request.raw.on('error', close);
+  app.get('/events/trades', async (_request, reply) => {
+    const stream = sseQueue<TradeEvent>();
+    const unsubscribe = bus.onTrade((event) => {
+      stream.push(event);
+    });
+    sseRoute(reply, stream.iterator, () => {
+      unsubscribe();
+      stream.close();
+    });
   });
 
   app.post('/execute', async (request, reply) => {
@@ -181,37 +183,28 @@ function startPlanStream(
   handler: (payload: { plan: OrderPlan; context: { candidate: TokenCandidate } }) => Promise<void>
 ): () => void {
   const lastEventIdStore = createInMemoryLastEventIdStore();
-  const client = createSSEClient(url, {
+  const client = subscribeJsonStream<{ plan: OrderPlan; context: { candidate: TokenCandidate } }>(url, {
     lastEventIdStore,
     eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }) as any,
     onOpen: () => {
       logger.info({ url }, 'connected to policy plan stream');
     },
-    onEvent: async (event) => {
-      if (!event?.data || event.data === 'ping') {
-        return;
-      }
-      let payload: { plan: OrderPlan; context: { candidate: TokenCandidate } };
-      try {
-        payload = JSON.parse(event.data) as { plan: OrderPlan; context: { candidate: TokenCandidate } };
-      } catch (err) {
-        logger.error({ err }, 'failed to parse plan payload');
-        return;
-      }
+    onError: (err, attempt) => {
+      logger.error({ err, attempt, url }, 'plan stream error');
+    },
+    onParseError: (err) => {
+      logger.error({ err }, 'failed to parse plan payload');
+    },
+    onMessage: async (payload) => {
       bus.emitTrade({ t: 'order_plan', plan: payload.plan });
       try {
         await handler(payload);
       } catch (err) {
         logger.error({ err }, 'plan handler failed');
       }
-    },
-    onError: (err, attempt) => {
-      logger.error({ err, attempt, url }, 'plan stream error');
     }
   });
-  return () => {
-    client.dispose();
-  };
+  return () => client.dispose();
 }
 
 async function executePlan(opts: {
@@ -556,49 +549,6 @@ async function executePlan(opts: {
   throw lastError instanceof Error ? lastError : new Error('execution failed');
 }
 
-function createTradeIterator(bus: ExecutorEventBus): { iterator: AsyncGenerator<{ data: string }>; close: () => void } {
-  const queue: Array<{ data: string }> = [];
-  let notify: (() => void) | undefined;
-  const unsubscribe = bus.onTrade((event) => {
-    queue.push({ data: JSON.stringify(event) });
-    if (notify) {
-      notify();
-      notify = undefined;
-    }
-  });
-
-  const iterator = (async function* () {
-    try {
-      while (true) {
-        if (queue.length === 0) {
-          await new Promise<void>((resolve) => {
-            notify = resolve;
-          });
-        }
-        const next = queue.shift();
-        if (!next) {
-          continue;
-        }
-        yield next;
-      }
-    } finally {
-      unsubscribe();
-    }
-  })();
-
-  const close = () => {
-    if (notify) {
-      notify();
-      notify = undefined;
-    }
-    if (iterator.return) {
-      void iterator.return(undefined as never);
-    }
-    unsubscribe();
-  };
-
-  return { iterator, close };
-}
 
 function diffTokenBalance(meta: any, mint: string, owner: string): { delta: number; decimals: number } {
   const findEntry = (list: any[]) => list?.find((entry) => entry?.mint === mint && entry?.owner === owner);

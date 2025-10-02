@@ -4,6 +4,7 @@ import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import fastifySse from 'fastify-sse-v2';
 import { loadConfig } from '@trenches/config';
+import { sseQueue, sseRoute } from '@trenches/util';
 import { createLogger } from '@trenches/logger';
 import { getRegistry, registerCounter } from '@trenches/metrics';
 import { SocialPost } from '@trenches/shared';
@@ -132,11 +133,15 @@ async function bootstrap() {
     }
   });
 
-  app.get('/events/social', async (request, reply) => {
-    const { iterator, close } = createSocialIterator(bus);
-    reply.sse(iterator);
-    request.raw.on('close', close);
-    request.raw.on('error', close);
+  app.get('/events/social', async (_request, reply) => {
+    const stream = sseQueue<SocialPost>();
+    const unsubscribe = bus.on('post', (payload) => {
+      stream.push(payload);
+    });
+    sseRoute(reply, stream.iterator, () => {
+      unsubscribe();
+      stream.close();
+    });
   });
 
   const address = await app.listen({ port: config.services.socialIngestor.port, host: '0.0.0.0' });
@@ -163,52 +168,8 @@ async function bootstrap() {
   }
 }
 
-function createSocialIterator(bus: SocialEventBus) {
-  const queue: SocialPost[] = [];
-  let notify: (() => void) | undefined;
-  const unsubscribe = bus.on('post', (payload) => {
-    queue.push(payload);
-    if (notify) {
-      notify();
-      notify = undefined;
-    }
-  });
-
-  const iterator = (async function* () {
-    try {
-      while (true) {
-        if (queue.length === 0) {
-          await new Promise<void>((resolve) => {
-            notify = resolve;
-          });
-        }
-        const next = queue.shift();
-        if (!next) {
-          continue;
-        }
-        yield { data: JSON.stringify(next) };
-      }
-    } finally {
-      unsubscribe();
-    }
-  })();
-
-  const close = () => {
-    if (notify) {
-      notify();
-      notify = undefined;
-    }
-    if (iterator.return) {
-      void iterator.return(undefined as never);
-    }
-  };
-
-  return { iterator, close };
-}
-
 bootstrap().catch((err) => {
   logger.error({ err }, 'social ingestor failed to start');
   process.exit(1);
 });
-
 

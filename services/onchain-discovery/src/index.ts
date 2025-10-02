@@ -9,7 +9,7 @@ import { createLogger } from '@trenches/logger';
 import { getRegistry, registerCounter } from '@trenches/metrics';
 import { storeTokenCandidate } from '@trenches/persistence';
 import { TokenCandidate } from '@trenches/shared';
-import { createSSEClient, createInMemoryLastEventIdStore, TtlCache } from '@trenches/util';
+import { createInMemoryLastEventIdStore, TtlCache, sseQueue, sseRoute, subscribeJsonStream } from '@trenches/util';
 import { DiscoveryEventBus } from './eventBus';
 import { DexScreenerClient } from './dexscreener';
 import { BirdeyeClient } from './birdeye';
@@ -205,11 +205,16 @@ async function bootstrap() {
     reply.send(metrics);
   });
 
-  app.get('/events/candidates', async (request, reply) => {
-    const { iterator, close } = createCandidateIterator(candidateSubscribers);
-    reply.sse(iterator);
-    request.raw.on('close', close);
-    request.raw.on('error', close);
+  app.get('/events/candidates', async (_request, reply) => {
+    const stream = sseQueue<TokenCandidate>();
+    const listener = (candidate: TokenCandidate) => {
+      stream.push(candidate);
+    };
+    candidateSubscribers.add(listener);
+    sseRoute(reply, stream.iterator, () => {
+      candidateSubscribers.delete(listener);
+      stream.close();
+    });
   });
 
   const address = await app.listen({ port: config.services.onchainDiscovery.port, host: '0.0.0.0' });
@@ -222,23 +227,19 @@ async function bootstrap() {
     const url = `http://127.0.0.1:${(config as any).services?.migrationWatcher?.port ?? 4018}/events/migrations`;
     const lastEventIdStore = createInMemoryLastEventIdStore();
     const migrationDedup = new TtlCache<string, boolean>(2 * 60 * 1000);
-    const client = createSSEClient(url, {
+    const client = subscribeJsonStream<{ ts: number; mint: string; pool: string; source: string; initSig: string }>(url, {
       lastEventIdStore,
       eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }) as any,
       onOpen: () => {
         logger.info({ url }, 'connected to migration watcher');
       },
-      onEvent: (event) => {
-        if (!event?.data || event.data === 'ping') {
-          return;
-        }
-        let payload: { ts: number; mint: string; pool: string; source: string; initSig: string };
-        try {
-          payload = JSON.parse(event.data) as { ts: number; mint: string; pool: string; source: string; initSig: string };
-        } catch (err) {
-          logger.error({ err }, 'failed to parse migration event');
-          return;
-        }
+      onError: (err, attempt) => {
+        logger.error({ err, attempt, url }, 'migration watcher stream error');
+      },
+      onParseError: (err) => {
+        logger.error({ err }, 'failed to parse migration event');
+      },
+      onMessage: (payload, event) => {
         const eventId = event.lastEventId ?? undefined;
         if (eventId && migrationDedup.get(eventId)) {
           return;
@@ -254,9 +255,6 @@ async function bootstrap() {
           migrationDedup.set(dedupKey, true);
         }
         void handleRawPairEvent({ source: payload.source, mint: payload.mint, poolAddress: payload.pool, ts: payload.ts });
-      },
-      onError: (err, attempt) => {
-        logger.error({ err, attempt, url }, 'migration watcher stream error');
       }
     });
     streamDisposers.push(() => client.dispose());
@@ -318,51 +316,6 @@ async function bootstrap() {
     }
     process.exit(0);
   }
-}
-
-function createCandidateIterator(subscribers: Set<(candidate: TokenCandidate) => void>) {
-  const queue: TokenCandidate[] = [];
-  let notify: (() => void) | undefined;
-  const listener = (candidate: TokenCandidate) => {
-    queue.push(candidate);
-    if (notify) {
-      notify();
-      notify = undefined;
-    }
-  };
-  subscribers.add(listener);
-
-  const iterator = (async function* () {
-    try {
-      while (true) {
-        if (queue.length === 0) {
-          await new Promise<void>((resolve) => {
-            notify = resolve;
-          });
-        }
-        const next = queue.shift();
-        if (!next) {
-          continue;
-        }
-        yield { data: JSON.stringify(next) };
-      }
-    } finally {
-      subscribers.delete(listener);
-    }
-  })();
-
-  const close = () => {
-    if (notify) {
-      notify();
-      notify = undefined;
-    }
-    if (iterator.return) {
-      void iterator.return(undefined as never);
-    }
-    subscribers.delete(listener);
-  };
-
-  return { iterator, close };
 }
 
 bootstrap().catch((err) => {
