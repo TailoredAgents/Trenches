@@ -53,3 +53,8 @@ _tmp_*.py# Recursive build directories
 **/dist/
 **/build/
 **/.next/
+# Ignore compiled artefacts in src and generated providers
+services/onchain-discovery/providers/*.js
+services/onchain-discovery/providers/*.js.map
+packages/*/src/**/*.js
+packages/*/src/**/*.d.ts
