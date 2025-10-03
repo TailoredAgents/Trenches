@@ -21,7 +21,10 @@
                     "test":  "vitest run",
                     "test:watch":  "vitest",
                     "dev":  "pnpm -r --parallel run dev",
+                    "dev:core":  "pnpm --parallel --filter services/agent-core --filter services/policy-engine --filter services/safety-engine --filter services/executor --filter services/position-manager --filter services/onchain-discovery --filter services/social-ingestor --filter services/migration-watcher --filter services/price-updater dev",
                     "smoke":  "tsx tools/smoke/sse-smoke.ts",
+                    "smoke:healthz":  "tsx tools/smoke/healthz-smoke.ts",
+                    "smoke:sse":  "tsx tools/smoke/sse-ping-smoke.ts",
                     "smoke:exec":  "tsx tools/smoke/execution-smoke.ts",
                     "smoke:survival":  "tsx tools/smoke/survival-smoke.ts",
                     "smoke:sizing":  "tsx tools/smoke/sizing-smoke.ts",
@@ -52,6 +55,9 @@
                     "ci:audit":  "node tools/audit/run-ci-audit.js",
                     "ci:check":  "pnpm ci:build && pnpm lint:sse && pnpm lint:todo && pnpm ci:audit"
                 },
+    "dependencies":  {
+                         "dotenv":  "^16.4.5"
+                     },
     "devDependencies":  {
                             "@types/eventsource":  "^1.1.11",
                             "@types/node":  "^20.12.7",

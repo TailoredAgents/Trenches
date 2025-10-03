@@ -22,7 +22,7 @@ type Migration = {
 
   id: string;
 
-  statements: string[];
+  statements: Array<string | ((db: DatabaseConstructor.Database) => void)>;
 
 };
 
@@ -644,6 +644,50 @@ MIGRATIONS.push({
   ]
 });
 
+function columnExists(db: DatabaseConstructor.Database, table: string, col: string): boolean {
+
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+
+  return rows.some((r) => (r?.name || '').toLowerCase() === col.toLowerCase());
+
+}
+
+function indexExists(db: DatabaseConstructor.Database, idx: string): boolean {
+
+  const row = db
+
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND lower(name) = ?")
+
+    .get(idx.toLowerCase()) as { name?: string } | undefined;
+
+  return Boolean(row?.name);
+
+}
+
+export function ensureColumn(db: DatabaseConstructor.Database, table: string, col: string, ddl: string): void {
+
+  if (!columnExists(db, table, col)) {
+
+    const trimmed = ddl.trim().replace(/;$/, '');
+
+    db.prepare(`ALTER TABLE ${table} ADD COLUMN ${col} ${trimmed}`).run();
+
+  }
+
+}
+
+export function ensureIndex(db: DatabaseConstructor.Database, idx: string, ddl: string): void {
+
+  if (!indexExists(db, idx)) {
+
+    const statement = ddl.trim().replace(/;$/, '');
+
+    db.prepare(statement).run();
+
+  }
+
+}
+
 let db: DatabaseConstructor.Database | null = null;
 
 const candidateWriteQueue = createWriteQueue('candidates');
@@ -702,9 +746,55 @@ function runMigrations(instance: DatabaseConstructor.Database) {
 
     }
 
-    const transaction = instance.transaction(() => {
+    const applyMigration = instance.transaction(() => {
 
       for (const statement of migration.statements) {
+
+        if (typeof statement === 'function') {
+
+          statement(instance);
+
+          continue;
+
+        }
+
+        const trimmed = statement.trim();
+
+        const withoutSemicolon = trimmed.endsWith(';') ? trimmed.slice(0, -1) : trimmed;
+
+        const upper = withoutSemicolon.toUpperCase();
+
+        if (upper.startsWith('ALTER TABLE') && upper.includes('ADD COLUMN')) {
+
+          const match = withoutSemicolon.match(/^ALTER\s+TABLE\s+[\"`]?([A-Za-z0-9_]+)[\"`]?\s+ADD\s+COLUMN\s+[\"`]?([A-Za-z0-9_]+)[\"`]?\s+(.+)$/i);
+
+          if (match) {
+
+            const [, table, column, ddl] = match;
+
+            ensureColumn(instance, table, column, ddl.trim());
+
+            continue;
+
+          }
+
+        }
+
+        if (upper.startsWith('CREATE') && upper.includes(' INDEX ')) {
+
+          const match = withoutSemicolon.match(/^CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?[\"`]?([A-Za-z0-9_]+)[\"`]?/i);
+
+          if (match) {
+
+            const [, indexName] = match;
+
+            ensureIndex(instance, indexName, trimmed);
+
+            continue;
+
+          }
+
+        }
 
         instance.exec(statement);
 
@@ -714,9 +804,17 @@ function runMigrations(instance: DatabaseConstructor.Database) {
 
     });
 
-    transaction();
+    try {
 
-    logger.info({ migration: migration.id }, 'applied sqlite migration');
+      applyMigration();
+
+      logger.info({ migration: migration.id }, 'applied sqlite migration');
+
+    } catch (err) {
+
+      logger.error({ err, migration: migration.id }, 'failed to apply sqlite migration');
+
+    }
 
   }
 
@@ -1988,3 +2086,4 @@ export function insertShadowSizingDecision(row: { ts: number; mint: string; chos
     .prepare(`INSERT INTO shadow_decisions_sizing (ts, mint, chosen_arm, baseline_arm, delta_reward_est, ctx_json) VALUES (@ts, @mint, @chosenArm, @baselineArm, @deltaRewardEst, @ctx)`)
     .run({ ...row, baselineArm: row.baselineArm ?? null, deltaRewardEst: row.deltaRewardEst ?? null, ctx: JSON.stringify(ctx) });
 }
+
