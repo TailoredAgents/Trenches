@@ -32,6 +32,7 @@ function decodePythPriceV2(data: Buffer): { price: number; expo: number; pubSlot
     if (!Number.isFinite(scaled)) return null;
     return { price: scaled, expo, pubSlot };
   } catch (err) {
+    logger.error({ err }, 'failed to decode pyth price');
     return null;
   }
 }
@@ -76,7 +77,9 @@ async function bootstrap() {
         if (typeof lastVal === 'number' && Number.isFinite(lastVal)) {
           staleSeconds.set(nowSec - lastVal);
         }
-      } catch {}
+      } catch (err) {
+        logger.error({ err }, 'failed to update stale seconds without account');
+      }
     }, intervalMs).unref();
     return;
   }
@@ -106,7 +109,9 @@ async function bootstrap() {
       if (typeof last === 'number' && Number.isFinite(last)) {
         staleSeconds.set(nowSec - last);
       }
-    } catch {}
+    } catch (err) {
+      logger.error({ err }, 'failed to update stale seconds gauge');
+    }
   }, intervalMs).unref();
 }
 

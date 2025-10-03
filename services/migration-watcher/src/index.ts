@@ -92,7 +92,9 @@ async function bootstrap() {
           for (const k of keys.staticAccountKeys) accounts.push(k.toBase58());
           const lu = keys.accountKeysFromLookups;
           if (lu) { for (const k of lu.writable) accounts.push(k.toBase58()); for (const k of lu.readonly) accounts.push(k.toBase58()); }
-        } catch {}
+        } catch (err) {
+          logger.error({ err }, 'failed to extract account keys from message');
+        }
       }
       // Pool heuristic: first writable account beyond program index
       const pool = accounts[0] ?? '';

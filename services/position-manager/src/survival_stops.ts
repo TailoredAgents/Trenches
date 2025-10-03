@@ -1,5 +1,6 @@
 import { HazardState } from '@trenches/shared';
 import { insertHazardState } from '@trenches/persistence';
+import { createLogger } from '@trenches/logger';
 import { loadConfig } from '@trenches/config';
 import { registerCounter, registerGauge } from '@trenches/metrics';
 
@@ -9,6 +10,8 @@ export type PositionSnapshot = {
   highestPrice: number;
   lastPrice?: number;
 };
+
+const logger = createLogger('position-manager:survival');
 
 const hazardAvg = registerGauge({ name: 'survival_hazard_avg', help: 'Average hazard over recent evaluations' });
 const trailAvg = registerGauge({ name: 'survival_trail_bps_avg', help: 'Average computed trailing width (bps)' });
@@ -47,11 +50,15 @@ export function computeStops(state: PositionSnapshot, extras: {
     ladderLevels = ladderLevels.slice(0, Math.max(1, Math.floor(ladderLevels.length / 2)));
   }
   const ladder: [number, number][] = ladderLevels.map((lvl) => [lvl, 0.25]);
-  try { hazardAvg.set(hazard); trailAvg.set(trailBps); } catch {}
+  try { hazardAvg.set(hazard); trailAvg.set(trailBps); } catch (err) {
+    logger.error({ err, mint: state.mint }, 'failed to update survival gauges');
+  }
   if (hazard >= ((cfg as any).survival?.hazardPanic ?? 0.85)) {
     forcedFlatten.inc();
   }
   const hs: HazardState = { ts, mint: state.mint, sellTrailBps: trailBps, ladder, hazard };
-  try { insertHazardState({ ts, mint: state.mint, hazard, trailBps, ladder }); } catch {}
+  try { insertHazardState({ ts, mint: state.mint, hazard, trailBps, ladder }); } catch (err) {
+    logger.error({ err, mint: state.mint }, 'failed to persist hazard state');
+  }
   return hs;
 }

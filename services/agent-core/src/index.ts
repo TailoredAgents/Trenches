@@ -21,6 +21,10 @@ import { Snapshot } from '@trenches/shared';
 
 const logger = createLogger('agent-core');
 
+const PROVIDER_STATUS_TTL_MS = 20_000;
+type ProviderHealthCacheEntry<T> = { data: T | null; fetchedAt: number; error?: string };
+const providerHealthCache = new Map<string, ProviderHealthCacheEntry<any>>();
+
 type ProviderEntry = {
   state?: string;
   status?: string;
@@ -31,6 +35,9 @@ type ProviderEntry = {
   lastEventTs?: number | null;
   lastPollTs?: number | null;
   apiKey?: boolean;
+  stale?: boolean;
+  error?: string;
+  lastFetchedTs?: number | null;
 };
 
 type MetricsSummary = {
@@ -70,10 +77,37 @@ async function fetchJsonWithTimeout<T = any>(url: string, timeoutMs = SUMMARY_FE
       return null;
     }
     return (await res.json()) as T;
-  } catch {
+  } catch (err) {
+    logger.error({ err, url }, 'fetchJsonWithTimeout failed');
     return null;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+async function fetchProviderHealth<T>(key: string, fetcher: () => Promise<T | null>): Promise<{ data: T | null; stale: boolean; error?: string; fetchedAt: number }> {
+  const now = Date.now();
+  const cached = providerHealthCache.get(key) as ProviderHealthCacheEntry<T> | undefined;
+  if (cached && now - cached.fetchedAt <= PROVIDER_STATUS_TTL_MS) {
+    return { data: cached.data, stale: Boolean(cached.error), error: cached.error, fetchedAt: cached.fetchedAt };
+  }
+  try {
+    const data = await fetcher();
+    if (data === null) {
+      const error = 'empty provider health response';
+      const entry: ProviderHealthCacheEntry<T> = { data: cached?.data ?? null, fetchedAt: now, error };
+      providerHealthCache.set(key, entry);
+      return { data: entry.data, stale: true, error, fetchedAt: entry.fetchedAt };
+    }
+    const entry: ProviderHealthCacheEntry<T> = { data, fetchedAt: now };
+    providerHealthCache.set(key, entry);
+    return { data, stale: false, fetchedAt: entry.fetchedAt };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    logger.error({ err, service: key }, 'failed to fetch provider health');
+    const entry: ProviderHealthCacheEntry<T> = { data: cached?.data ?? null, fetchedAt: now, error: errorMessage };
+    providerHealthCache.set(key, entry);
+    return { data: entry.data, stale: true, error: errorMessage, fetchedAt: entry.fetchedAt };
   }
 }
 
@@ -96,9 +130,15 @@ function computePriceStatus(db: any, config: any): { solUsdAgeSec: number; ok: b
 
 async function collectProviderStatuses(config: any): Promise<Record<string, ProviderEntry>> {
   const out: Record<string, ProviderEntry> = {};
-  const socialHealth = await fetchJsonWithTimeout<{
-    sources?: Array<{ name: string; status?: { state?: string; detail?: string; lastSuccessAt?: string; lastEventTs?: number } }>;
-  }>(`http://127.0.0.1:${config.services.socialIngestor.port}/healthz`);
+
+  const socialResult = await fetchProviderHealth(
+    'social-ingestor',
+    () =>
+      fetchJsonWithTimeout<{
+        sources?: Array<{ name: string; status?: { state?: string; detail?: string; lastSuccessAt?: string; lastEventTs?: number } }>
+      }>(`http://127.0.0.1:${config.services.socialIngestor.port}/healthz`)
+  );
+  const socialHealth = socialResult.data;
   if (socialHealth?.sources) {
     for (const entry of socialHealth.sources) {
       const status = entry.status ?? {};
@@ -109,16 +149,33 @@ async function collectProviderStatuses(config: any): Promise<Record<string, Prov
         detail: status.detail,
         lastSuccessTs,
         lastSuccessAt: status.lastSuccessAt ?? null,
-        lastEventTs
+        lastEventTs,
+        stale: socialResult.stale,
+        error: socialResult.error,
+        lastFetchedTs: socialResult.fetchedAt
       };
     }
+  } else if (socialResult.error) {
+    out['social-ingestor'] = {
+      state: 'degraded',
+      detail: socialResult.error,
+      message: socialResult.error,
+      stale: true,
+      error: socialResult.error,
+      lastFetchedTs: socialResult.fetchedAt
+    };
   }
 
-  const discoveryHealth = await fetchJsonWithTimeout<{
-    providers?: { solanatracker?: { status?: string; lastPollTs?: number; message?: string } };
-    birdeyeApiKey?: boolean;
-  }>(`http://127.0.0.1:${config.services.onchainDiscovery.port}/healthz`);
+  const discoveryResult = await fetchProviderHealth(
+    'onchain-discovery',
+    () =>
+      fetchJsonWithTimeout<{
+        providers?: { solanatracker?: { status?: string; lastPollTs?: number; message?: string } };
+        birdeyeApiKey?: boolean;
+      }>(`http://127.0.0.1:${config.services.onchainDiscovery.port}/healthz`)
+  );
 
+  const discoveryHealth = discoveryResult.data;
   const sol = discoveryHealth?.providers?.solanatracker;
   if (sol) {
     const lastPollTs = coerceTimestamp(sol.lastPollTs);
@@ -128,13 +185,37 @@ async function collectProviderStatuses(config: any): Promise<Record<string, Prov
       detail: sol.message,
       message: sol.message,
       lastSuccessTs: lastPollTs,
-      lastPollTs
+      lastPollTs,
+      stale: discoveryResult.stale,
+      error: discoveryResult.error,
+      lastFetchedTs: discoveryResult.fetchedAt
+    };
+  } else if (discoveryResult.error && !out.solanatracker) {
+    out.solanatracker = {
+      state: 'degraded',
+      detail: discoveryResult.error,
+      message: discoveryResult.error,
+      stale: true,
+      error: discoveryResult.error,
+      lastFetchedTs: discoveryResult.fetchedAt
     };
   }
   if (typeof discoveryHealth?.birdeyeApiKey === 'boolean') {
     out.birdeye = {
       state: discoveryHealth.birdeyeApiKey ? 'configured' : 'missing_key',
-      apiKey: discoveryHealth.birdeyeApiKey
+      apiKey: discoveryHealth.birdeyeApiKey,
+      stale: discoveryResult.stale,
+      error: discoveryResult.error,
+      lastFetchedTs: discoveryResult.fetchedAt
+    };
+  } else if (discoveryResult.error) {
+    out.birdeye = {
+      state: 'degraded',
+      detail: discoveryResult.error,
+      message: discoveryResult.error,
+      stale: true,
+      error: discoveryResult.error,
+      lastFetchedTs: discoveryResult.fetchedAt
     };
   }
 

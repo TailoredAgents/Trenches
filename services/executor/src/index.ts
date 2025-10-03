@@ -315,7 +315,9 @@ async function executePlan(opts: {
       const { insertShadowFeeDecision } = await import('@trenches/persistence');
       insertShadowFeeDecision({ ts: Date.now(), mint: candidate.mint, chosenArm: shadowIndex, baselineArm: baselineIndex, deltaRewardEst: delta }, { baseline: { cuPrice: feeDecision.cuPrice, slippageBps: feeDecision.slippageBps }, shadow: shadowArm });
     }
-  } catch {}
+  } catch (err) {
+    logger.error({ err }, 'failed to record shadow fee decision');
+  }
 
   let slippageToUse = feeDecision.slippageBps;
   let cuPriceToUse = feeDecision.cuPrice;
@@ -486,7 +488,9 @@ async function executePlan(opts: {
         landedRateGauge.set(1);
         slipAvgGauge.set(slipReal);
         timeToLandHistogram.set(ttl);
-      } catch {}
+      } catch (err) {
+        logger.error({ err }, 'failed to set execution gauges');
+      }
       const feeBaseLamports = isBuy ? amountInUsed : amountOutUsed;
       const feeBps = feeBaseLamports > 0 ? (feeLamportsTotal / feeBaseLamports) * 10_000 : 0;
       try {
@@ -495,7 +499,9 @@ async function executePlan(opts: {
           { cuPrice: cuPriceToUse, slippageBps: slippageToUse },
           { filled: true, realizedSlipBps: slipReal, feeBps }
         );
-      } catch {}
+      } catch (err) {
+        logger.error({ err }, 'failed to update fee bandit arm');
+      }
       const successStats = recordRouteAttempt({
         config: rqConfig,
         route: routeKey,

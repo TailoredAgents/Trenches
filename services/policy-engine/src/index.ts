@@ -165,7 +165,9 @@ async function bootstrap() {
           return;
         }
       }
-    } catch {}
+    } catch (err) {
+      logger.error({ err, mint: candidate.mint }, 'failed to evaluate alpha gating');
+    }
     if (typeof (candidate as any).rugProb === 'number') {
       const rugProb = (candidate as any).rugProb as number;
       if (rugProb > 0.6) {
@@ -228,7 +230,9 @@ async function bootstrap() {
         const { insertShadowSizingDecision } = await import('@trenches/persistence');
         insertShadowSizingDecision({ ts: Date.now(), mint: candidate.mint, chosenArm: shadowArm, baselineArm, deltaRewardEst: 0 }, { ctx: { walletEquity: walletSnapshot.equity } });
       }
-    } catch {}
+    } catch (err) {
+      logger.error({ err, mint: candidate.mint }, 'failed to record shadow sizing decision');
+    }
     sizingDurationMs.set(Date.now() - sizingStart);
 
     if (sizing.size <= 0) {

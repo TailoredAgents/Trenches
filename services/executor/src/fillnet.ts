@@ -38,7 +38,10 @@ function ensureModel(): void {
     } else {
       model = {};
     }
-  } catch { model = {}; }
+  } catch (err) {
+    logger.error({ err }, 'failed to load fillnet model');
+    model = {};
+  }
 }
 
 export async function predictFill(ctx: PredictContext, persistCtx?: Record<string, unknown>): Promise<FillPrediction> {
@@ -85,6 +88,8 @@ export async function predictFill(ctx: PredictContext, persistCtx?: Record<strin
     const nextBrier = prevBrier + alpha * (expectedBrier - prevBrier);
     (brierGauge as any)._ema = nextBrier;
     brierGauge.set(nextBrier);
-  } catch {}
+  } catch (err) {
+    logger.error({ err, route: ctx.route }, 'failed to record fillnet metrics');
+  }
   return pred;
 }

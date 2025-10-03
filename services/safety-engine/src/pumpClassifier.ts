@@ -1,4 +1,5 @@
 ﻿import fs from 'fs';
+import { createLogger } from '@trenches/logger';
 
 type PumpModel = {
   dim: number;
@@ -8,6 +9,7 @@ type PumpModel = {
 };
 
 let model: PumpModel | null = null;
+const logger = createLogger('safety-engine:pumpClassifier');
 let embedDim = 512;
 
 function tokenize(text: string): string[] {
@@ -43,7 +45,9 @@ function ensureModel(): void {
         return;
       }
     }
-  } catch {}
+  } catch (err) {
+    logger.error({ err }, 'failed to load pump classifier model');
+  }
   model = null;
   embedDim = 512;
 }

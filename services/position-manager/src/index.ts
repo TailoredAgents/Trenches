@@ -244,7 +244,9 @@ async function handleFillEvent(
         const pnlUsd = (state.realizedPnl ?? 0) * (typeof solUsd === 'number' ? solUsd : 0);
         const notionalUsd = sellQty * state.avgPrice * (typeof solUsd === 'number' ? solUsd : 0);
         insertSizingOutcome({ ts: Date.now(), mint, notional: notionalUsd, pnlUsd, maeBps, closed: 1 });
-      } catch {}
+      } catch (err) {
+        logger.error({ err, mint }, 'failed to record sizing outcome');
+      }
       state.entryPrice = undefined;
       state.lowWaterPrice = undefined;
       state.maeBps = 0;

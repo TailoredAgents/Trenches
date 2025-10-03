@@ -25,7 +25,9 @@ class BirdeyeBdsProvider {
         try {
             this.ws?.close();
         }
-        catch { }
+        catch (err) {
+            logger.error({ err }, 'failed to close birdeye websocket');
+        }
         this.ws = undefined;
         if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
@@ -85,7 +87,8 @@ class BirdeyeBdsProvider {
                     try {
                         payload = JSON.parse(text);
                     }
-                    catch {
+                    catch (err) {
+                        logger.error({ err }, 'failed to parse birdeye payload');
                         payload = text;
                     }
                     const ev = this.parseEvent(payload);
