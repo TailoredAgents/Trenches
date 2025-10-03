@@ -88,7 +88,9 @@ function computePriceStatus(db: any, config: any): { solUsdAgeSec: number; ok: b
       const warn = (config?.priceUpdater?.staleWarnSec ?? 300) as number;
       result = { solUsdAgeSec: ageSec, ok: ageSec <= warn };
     }
-  } catch {}
+  } catch (err) {
+    logger.error({ err }, 'failed to compute price status');
+  }
   return result;
 }
 
@@ -156,7 +158,9 @@ function collectMetricTotals(registry: ReturnType<typeof getRegistry>, metricNam
         totals.byProvider[provider] = (totals.byProvider[provider] ?? 0) + value;
       }
     }
-  } catch {}
+  } catch (err) {
+    logger.error({ err, metricName }, 'failed to collect metric totals');
+  }
   return totals;
 }
 
@@ -188,7 +192,9 @@ async function buildMetricsSummary(config: any, db: any): Promise<MetricsSummary
   try {
     const { getExecSummary } = await import('@trenches/persistence');
     execution = getExecSummary();
-  } catch {}
+  } catch (err) {
+    logger.error({ err }, 'failed to load execution summary');
+  }
 
   const providers = await collectProviderStatuses(config);
   const discovery = summarizeProviderCache();
@@ -315,7 +321,9 @@ async function bootstrap() {
       // Observe into histogram (representative)
       lagHist.observe(lag.p50);
       lagHist.observe(lag.p95);
-    } catch {}
+    } catch (err) {
+      logger.error({ err }, 'failed to load migration metrics');
+    }
 
     // Execution summary (from SQLite exec_outcomes)
     let execution = { landedRate: 0, avgSlipBps: 0, p50Ttl: 0, p95Ttl: 0 };
@@ -333,7 +341,9 @@ async function bootstrap() {
       execution = getExecSummary();
       riskBudget = getRiskBudget();
       sizingDist = getSizingDistribution();
-    } catch {}
+    } catch (err) {
+      logger.error({ err }, 'failed to load execution metrics');
+    }
     // Provider health (social-ingestor + onchain birdeye key)
     const providerSummary = await collectProviderStatuses(config);
     providersBlock = Object.keys(providerSummary).length > 0 ? providerSummary : undefined;
@@ -363,10 +373,14 @@ async function bootstrap() {
       const sizPairs = sizRows.map((r) => { try { const j = JSON.parse(r.ctx_json); return [j.baselineArm, j.chosenArm]; } catch { return null } }).filter(Boolean) as Array<[string, string]>;
       shadow.feeDisagreePct = feePairs.length ? feePairs.filter(([b,c]) => b !== c).length / feePairs.length : 0;
       shadow.sizingDisagreePct = sizPairs.length ? sizPairs.filter(([b,c]) => b !== c).length / sizPairs.length : 0;
-    } catch {}
+    } catch (err) {
+      logger.error({ err }, 'failed to aggregate snapshot metrics');
+    }
     try {
       pnlSummary = getPnLSummary();
-    } catch {}
+    } catch (err) {
+      logger.error({ err }, 'failed to load pnl summary');
+    }
 
     const snapshot: Snapshot & { controlsEnabled: boolean; latestMigrations?: any; migrationLag?: any; rugGuard?: any; execution?: any; riskBudget?: any; sizing?: any; survival?: any; backtest?: any; shadow?: any; routes?: any; leaders?: any; leader?: any; providers?: any } = {
       status,

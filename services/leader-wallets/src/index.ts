@@ -122,7 +122,9 @@ async function bootstrap(): Promise<void> {
         sseClients.delete(client);
         try {
           client.end();
-        } catch {}
+        } catch (closeErr) {
+          logger.error({ err: closeErr }, 'failed to close SSE client after write failure');
+        }
       }
     }
   }
@@ -201,20 +203,26 @@ async function bootstrap(): Promise<void> {
     for (const res of sseClients) {
       try {
         res.end();
-      } catch {}
+      } catch (err) {
+        logger.error({ err }, 'failed to end SSE client during shutdown');
+      }
     }
     sseClients.clear();
     if (connection) {
       for (const { subId } of Array.from(activePools.values())) {
         try {
           await connection.removeOnLogsListener(subId);
-        } catch {}
+        } catch (err) {
+          logger.error({ err, subId }, 'failed to remove logs listener during shutdown');
+        }
       }
     }
     activePools.clear();
     try {
       await app.close();
-    } catch {}
+    } catch (err) {
+      logger.error({ err }, 'failed to close leader-wallets fastify app');
+    }
     await new Promise<void>((resolve) => {
       metricsServer.close(() => resolve());
     });
@@ -316,7 +324,9 @@ async function bootstrap(): Promise<void> {
       if (info.expiresAt <= now) {
         try {
           await connection.removeOnLogsListener(info.subId);
-        } catch {}
+        } catch (err) {
+          logger.error({ err, pool, subId: info.subId }, 'failed to remove expired pool listener');
+        }
         activePools.delete(pool);
       }
     }

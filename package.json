@@ -45,12 +45,12 @@
                     "train:rugguard":  "tsx training/rugguard/train.ts",
                     "smoke:route-quarantine":  "tsx tools/smoke/route-quarantine-smoke.ts",
                     "soak:summary":  "tsx tools/soak/soak-summary.ts --db ${PERSISTENCE_SQLITE_PATH:-./data/trenches.db}",
-                    "lint:sse":  "node -e \"const {execSync}=require(\u0027child_process\u0027); try{const out=execSync(\u0027rg -n \\\"new EventSource\\(\\\"\u0027, {stdio:[\u0027ignore\u0027,\u0027pipe\u0027,\u0027ignore\u0027]}).toString(); if(out.trim()){ console.log(\u0027SSE audit warning: direct new EventSource found. Use createSSEClient.\\n\u0027+out);} }catch(e){}\"",
+                    "lint:sse":  "rg -n \"new EventSource\\(\" services || true",
                     "smoke:leader-wallets":  "tsx tools/smoke/leader-wallets-smoke.ts",
                     "ci:build":  "pnpm -r build",
                     "lint:todo":  "rg -n \"TODO|FIXME|XXX|NOTIMPL|NotImplemented\" -S || true",
-                    "ci:audit":  "if [ -f tools/audit/audit-repo.ts ]; then pnpm audit:repo || true; else echo \"audit:repo not present\"; fi",
-                    "ci:check":  "pnpm ci:build \u0026\u0026 (pnpm lint:sse || true) \u0026\u0026 (pnpm lint:todo || true) \u0026\u0026 (pnpm ci:audit || true)"
+                    "ci:audit":  "node tools/audit/run-ci-audit.js",
+                    "ci:check":  "pnpm ci:build && pnpm lint:sse && pnpm lint:todo && pnpm ci:audit"
                 },
     "devDependencies":  {
                             "@types/eventsource":  "^1.1.11",

@@ -79,15 +79,18 @@ export async function GET(_req: NextRequest) {
   const dexscreenerMissByType: Record<string, number> = {};
   const birdeyeMissByType: Record<string, number> = {};
   for (const [k, v] of Object.entries(od)) {
-    if (k.startsWith('dexscreener_cache_misses_total{')) {
-      const m = k.match(/type="([^"]+)"/);
-      const typ = m ? m[1] : 'unknown';
-      dexscreenerMissByType[typ] = (dexscreenerMissByType[typ] ?? 0) + (v as number);
-    }
-    if (k.startsWith('birdeye_cache_misses_total{')) {
-      const m = k.match(/type="([^"]+)"/);
-      const typ = m ? m[1] : 'unknown';
-      birdeyeMissByType[typ] = (birdeyeMissByType[typ] ?? 0) + (v as number);
+    if (!k.startsWith('provider_cache_misses_total{')) continue;
+    const providerMatch = k.match(/provider="([^"]+)"/);
+    if (!providerMatch) continue;
+    const provider = providerMatch[1];
+    const typMatch = k.match(/type="([^"]+)"/);
+    const typ = typMatch ? typMatch[1] : 'unknown';
+    const val = Number(v);
+    if (!Number.isFinite(val)) continue;
+    if (provider === 'dexscreener') {
+      dexscreenerMissByType[typ] = (dexscreenerMissByType[typ] ?? 0) + val;
+    } else if (provider === 'birdeye') {
+      birdeyeMissByType[typ] = (birdeyeMissByType[typ] ?? 0) + val;
     }
   }
   const dexMiss = Object.values(dexscreenerMissByType).reduce((a, b) => a + b, 0);
