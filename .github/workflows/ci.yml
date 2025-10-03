@@ -30,3 +30,43 @@ jobs:
         run: pnpm --filter "./apps/*" run build || true
       - name: Build tools
         run: pnpm --filter "./tools/*" run build || true
+name: ci
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+
+jobs:
+  build-and-hygiene:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Install
+        run: pnpm install --frozen-lockfile=false
+
+      - name: Build (fatal on failure)
+        run: pnpm ci:build
+
+      - name: Hygiene (warn-only)
+        run: |
+          echo "### SSE scan" >> $GITHUB_STEP_SUMMARY
+          pnpm lint:sse | tee -a $GITHUB_STEP_SUMMARY || true
+          echo "### TODO scan" >> $GITHUB_STEP_SUMMARY
+          pnpm lint:todo | tee -a $GITHUB_STEP_SUMMARY || true
+          echo "### Repo audit (if present)" >> $GITHUB_STEP_SUMMARY
+          pnpm ci:audit | tee -a $GITHUB_STEP_SUMMARY || true

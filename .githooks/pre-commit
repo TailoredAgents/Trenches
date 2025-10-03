@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+pnpm lint:sse || true
+pnpm lint:todo || true
+
