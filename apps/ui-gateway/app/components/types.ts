@@ -61,4 +61,31 @@ export type AgentMetricsSummary = {
     };
   };
   price?: { solUsdAgeSec: number | null; ok: boolean };
+  metrics?: {
+    exposureSol?: number;
+    opened?: number;
+    trailing?: number;
+    exits?: Record<string, number>;
+    apiRpm?: {
+      social?: Record<string, number>;
+      dexscreener?: number;
+      birdeye?: number;
+      dexscreenerTypes?: Record<string, number>;
+      birdeyeTypes?: Record<string, number>;
+      providers?: Record<string, number>;
+    };
+    execution?: { presetActive?: boolean; presetUsesTotal?: number };
+  };
+  exposureSol?: number;
+  opened?: number;
+  trailing?: number;
+  exits?: Record<string, number>;
+  apiRpm?: {
+    social?: Record<string, number>;
+    dexscreener?: number;
+    birdeye?: number;
+    dexscreenerTypes?: Record<string, number>;
+    birdeyeTypes?: Record<string, number>;
+    providers?: Record<string, number>;
+  };
 };

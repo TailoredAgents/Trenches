@@ -31,13 +31,18 @@ function parseProm(text: string): Record<string, number> {
 type PrevState = { t: number; counters: Record<string, number> };
 let prev: PrevState | null = null;
 
-export async function GET(_req: NextRequest) {
-  const [pmText, siText, odText, execText] = await Promise.all([
+export async function GET(req: NextRequest) {
+  const fallbackParam = req.nextUrl?.searchParams.get('scrape');
+  const fallbackScrapeEnabled = process.env.UI_METRICS_SCRAPE_FALLBACK === '1';
+  const shouldScrapeDiscovery = fallbackScrapeEnabled || fallbackParam === '1';
+
+  const [pmText, siText, execText, odText] = await Promise.all([
     scrape('http://127.0.0.1:4016/metrics'),
     scrape('http://127.0.0.1:4012/metrics'),
-    scrape('http://127.0.0.1:4013/metrics'),
-    scrape('http://127.0.0.1:4011/metrics')
+    scrape('http://127.0.0.1:4011/metrics'),
+    shouldScrapeDiscovery ? scrape('http://127.0.0.1:4013/metrics') : Promise.resolve(null)
   ]);
+
   const now = Date.now();
   const pm = pmText ? parseProm(pmText) : {};
   const si = siText ? parseProm(siText) : {};
@@ -150,3 +155,4 @@ export async function GET(_req: NextRequest) {
     { status: 200, headers: { 'Content-Type': 'application/json' } }
   );
 }
+

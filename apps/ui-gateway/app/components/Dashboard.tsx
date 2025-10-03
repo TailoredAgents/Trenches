@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentSnapshot, AgentEvent, AgentMode, AgentMetricsSummary } from './types';
 
 import { createInMemoryLastEventIdStore, createSSEClient } from '@trenches/util';
@@ -138,6 +138,103 @@ type RouteQualityRow = {
 };
 
 
+type DashboardMetrics = {
+  exposureSol?: number;
+  exits?: Record<string, number>;
+  trailing?: number;
+  opened?: number;
+  apiRpm?: {
+    social?: Record<string, number>;
+    dexscreener?: number;
+    birdeye?: number;
+    dexscreenerTypes?: Record<string, number>;
+    birdeyeTypes?: Record<string, number>;
+    providers?: Record<string, number>;
+  };
+  execution?: { presetActive?: boolean; presetUsesTotal?: number };
+};
+
+type ProviderCacheSnapshot = { timestamp: number; totals: Record<string, number> };
+type DerivedSummaryMetrics = { metrics: DashboardMetrics | null; snapshot: ProviderCacheSnapshot | null };
+
+function deriveMetricsFromSummary(
+  summary: AgentMetricsSummary,
+  previous: ProviderCacheSnapshot | null,
+  timestamp: number
+): DerivedSummaryMetrics {
+  const block: any = (summary as any)?.metrics ?? summary;
+  const metrics: DashboardMetrics = {};
+  let hasData = false;
+
+  if (typeof block?.exposureSol === 'number') {
+    metrics.exposureSol = block.exposureSol;
+    hasData = true;
+  }
+  if (typeof block?.opened === 'number') {
+    metrics.opened = block.opened;
+    hasData = true;
+  }
+  if (typeof block?.trailing === 'number') {
+    metrics.trailing = block.trailing;
+    hasData = true;
+  }
+  if (block?.exits && typeof block.exits === 'object') {
+    metrics.exits = Object.fromEntries(
+      Object.entries(block.exits).filter(([, value]) => typeof value === 'number')
+    ) as Record<string, number>;
+    if (metrics.exits && Object.keys(metrics.exits).length > 0) {
+      hasData = true;
+    }
+  }
+  if (block?.apiRpm && typeof block.apiRpm === 'object') {
+    metrics.apiRpm = { ...block.apiRpm };
+    hasData = true;
+  }
+  if (block?.execution && typeof block.execution === 'object') {
+    metrics.execution = { ...block.execution };
+    hasData = true;
+  }
+
+  let snapshot: ProviderCacheSnapshot | null = previous;
+  const providerCache = summary.discovery?.providerCache;
+  if (providerCache) {
+    const totals: Record<string, number> = {};
+    for (const [provider, stats] of Object.entries(providerCache.byProvider ?? {})) {
+      const hits = typeof stats?.hits === 'number' ? stats.hits : 0;
+      const misses = typeof stats?.misses === 'number' ? stats.misses : 0;
+      totals[provider] = hits + misses;
+    }
+    totals.__all = (typeof providerCache.hits === 'number' ? providerCache.hits : 0) +
+      (typeof providerCache.misses === 'number' ? providerCache.misses : 0);
+    snapshot = { timestamp, totals };
+    if (!metrics.apiRpm) {
+      metrics.apiRpm = {};
+    }
+    hasData = true;
+
+    if (previous) {
+      const dtMin = Math.max((timestamp - previous.timestamp) / 60000, 0.001);
+      const providerRpm: Record<string, number> = {};
+      for (const [provider, total] of Object.entries(totals)) {
+        if (provider === '__all') continue;
+        const prevTotal = previous.totals[provider] ?? 0;
+        const delta = Math.max(0, total - prevTotal);
+        providerRpm[provider] = delta / dtMin;
+      }
+      if (Object.keys(providerRpm).length > 0) {
+        const rpmBlock = metrics.apiRpm ? { ...metrics.apiRpm } : {};
+        rpmBlock.providers = { ...(rpmBlock.providers ?? {}), ...providerRpm };
+        if (providerRpm.dexscreener !== undefined) rpmBlock.dexscreener = providerRpm.dexscreener;
+        if (providerRpm.birdeye !== undefined) rpmBlock.birdeye = providerRpm.birdeye;
+        metrics.apiRpm = rpmBlock;
+      }
+    }
+  }
+
+  return { metrics: hasData ? metrics : null, snapshot };
+}
+
+
 function ModeBadge({ mode }: { mode?: AgentMode }) {
   const label = mode ?? 'SIM';
   return <span className="badge">Mode: {label}</span>;
@@ -147,20 +244,7 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
   const { snapshot, error } = useAgentSnapshot(agentBaseUrl);
   const { events, status: eventStreamStatus } = useAgentEvents(agentBaseUrl);
   const [health, setHealth] = useState<Record<string, { status: number | string; body?: any; error?: string }> | null>(null);
-  const [metrics, setMetrics] = useState<{
-    exposureSol?: number;
-    exits?: Record<string, number>;
-    trailing?: number;
-    opened?: number;
-    apiRpm?: {
-      social?: Record<string, number>;
-      dexscreener?: number;
-      birdeye?: number;
-      dexscreenerTypes?: Record<string, number>;
-      birdeyeTypes?: Record<string, number>;
-    };
-    execution?: { presetActive?: boolean; presetUsesTotal?: number };
-  } | null>(null);
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [summary, setSummary] = useState<AgentMetricsSummary | null>(null);
   const [routeQuality, setRouteQuality] = useState<RouteQualityRow[]>([]);
   const [routeQualityWindow, setRouteQualityWindow] = useState<number | null>(null);
@@ -169,61 +253,95 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
   const [dexHist, setDexHist] = useState<number[]>([]);
   const [beHist, setBeHist] = useState<number[]>([]);
   const [socHist, setSocHist] = useState<number[]>([]);
+  const providerCacheSnapshotRef = useRef<ProviderCacheSnapshot | null>(null);
+
+  const pushMetricHistories = useCallback((data: DashboardMetrics) => {
+    const exposureValue = data.exposureSol;
+    if (typeof exposureValue === 'number') {
+      setExposureHist((prev) => [...prev.slice(-29), exposureValue]);
+    }
+    const dexValue = data.apiRpm?.dexscreener;
+    if (typeof dexValue === 'number') {
+      setDexHist((prev) => [...prev.slice(-29), dexValue]);
+    }
+    const beValue = data.apiRpm?.birdeye;
+    if (typeof beValue === 'number') {
+      setBeHist((prev) => [...prev.slice(-29), beValue]);
+    }
+    const socialMap = data.apiRpm?.social;
+    if (socialMap) {
+      const totalSocial = Object.values(socialMap).reduce(
+        (sum, value) => sum + (typeof value === 'number' ? value : 0),
+        0
+      );
+      if (Number.isFinite(totalSocial)) {
+        setSocHist((prev) => [...prev.slice(-29), totalSocial]);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const intervalMs = 10000;
-    async function load() {
+
+    async function loadFallback() {
+      if (cancelled) return;
+      try {
+        const resp = await fetch('/api/metrics', { cache: 'no-store' });
+        if (!resp.ok) return;
+        const fallback = (await resp.json()) as DashboardMetrics;
+        if (cancelled) return;
+        providerCacheSnapshotRef.current = null;
+        setMetrics(fallback);
+        pushMetricHistories(fallback);
+      } catch {
+        // ignore fallback errors to avoid log noise
+      }
+    }
+
+    async function loadSummary() {
+      const now = Date.now();
       try {
         const resp = await fetch(`${agentBaseUrl}/metrics/summary`, { cache: 'no-store' });
         if (!resp.ok) {
           throw new Error(`${resp.status} ${resp.statusText}`);
         }
         const json = (await resp.json()) as AgentMetricsSummary;
-        if (!cancelled) {
-          setSummary(json);
+        if (cancelled) return;
+        setSummary(json);
+        const derived = deriveMetricsFromSummary(json, providerCacheSnapshotRef.current, now);
+        providerCacheSnapshotRef.current = derived.snapshot;
+        if (derived.metrics) {
+          setMetrics(derived.metrics);
+          pushMetricHistories(derived.metrics);
+        } else {
+          await loadFallback();
         }
       } catch {
-        if (!cancelled) {
-          // retain last good summary when endpoint is unavailable
-        }
+        await loadFallback();
       }
     }
-    load();
-    const timer = setInterval(load, intervalMs);
+
+    loadSummary();
+    const timer = setInterval(loadSummary, intervalMs);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [agentBaseUrl]);
+  }, [agentBaseUrl, pushMetricHistories]);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const r = await fetch('/api/metrics', { cache: 'no-store' });
-        const j = (await r.json()) as {
-          exposureSol?: number;
-          exits?: Record<string, number>;
-          trailing?: number;
-          opened?: number;
-          apiRpm?: { social?: Record<string, number>; dexscreener?: number; birdeye?: number };
-          execution?: { presetActive?: boolean; presetUsesTotal?: number };
-        };
-        if (!cancelled) {
-          setMetrics(j as any);
-          const dex = j.apiRpm?.dexscreener ?? 0;
-          const be = j.apiRpm?.birdeye ?? 0;
-          const soc = j.apiRpm?.social ? Object.values(j.apiRpm.social).reduce((a, b) => a + b, 0) : 0;
-          setDexHist((prev) => [...prev.slice(-19), dex]);
-          setBeHist((prev) => [...prev.slice(-19), be]);
-          setSocHist((prev) => [...prev.slice(-19), soc]);
-        }
-      } catch (err) { /* ignore */ }
-    }
-    load();
-    const t = setInterval(load, 7000);
-    return () => { cancelled = true; clearInterval(t); };
-  }, []);
+  const migrations = snapshot?.latestMigrations ?? [];
+  const lag = snapshot?.migrationLag;
+  const rug = snapshot?.rugGuard;
+  const exec = (summary?.execution ?? snapshot?.execution) as any;
+  const priceInfo = (summary?.price ?? snapshot?.pnl?.prices) as { solUsdAgeSec?: number | null; ok?: boolean } | undefined;
+  const providersData = summary?.providers ?? ((snapshot as any)?.providers as Record<string, any> | undefined);
+  const providerCacheSummary = summary?.discovery?.providerCache;
+  const risk = (snapshot as any)?.riskBudget as any;
+  const sizingTop = (snapshot as any)?.sizing?.topArms as Array<{ arm: string; share: number }> | undefined;
+  const surv = (snapshot as any)?.survival as any;
+  const bt = (snapshot as any)?.backtest as any;
+  const sh = (snapshot as any)?.shadow as any;
 
   useEffect(() => {
     let cancelled = false;
@@ -253,6 +371,12 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
     };
   }, []);
 
+  const maxExposure = Math.max(1, ...exposureHist);
+  const exposureLast = exposureHist.length > 0 ? exposureHist[exposureHist.length - 1] : undefined;
+  const exposurePrev = exposureHist.length > 1 ? exposureHist[exposureHist.length - 2] : undefined;
+  const exposureDelta =
+    typeof exposureLast === 'number' && typeof exposurePrev === 'number' ? exposureLast - exposurePrev : undefined;
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -266,87 +390,6 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
     const t = setInterval(load, 7000);
     return () => { cancelled = true; clearInterval(t); };
   }, []);
-
-  const migrations = snapshot?.latestMigrations ?? [];
-  const lag = snapshot?.migrationLag;
-  const rug = snapshot?.rugGuard;
-  const exec = (summary?.execution ?? snapshot?.execution) as any;
-  const priceInfo = (summary?.price ?? snapshot?.pnl?.prices) as { solUsdAgeSec?: number | null; ok?: boolean } | undefined;
-  const providersData = (summary?.providers ?? ((snapshot as any)?.providers as Record<string, any> | undefined));
-  const providerCacheSummary = summary?.discovery?.providerCache;
-  const risk = (snapshot as any)?.riskBudget as any;
-  const sizingTop = (snapshot as any)?.sizing?.topArms as Array<{ arm: string; share: number }> | undefined;
-  const surv = (snapshot as any)?.survival as any;
-  const bt = (snapshot as any)?.backtest as any;
-  const sh = (snapshot as any)?.shadow as any;
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const r = await fetch('/api/metrics', { cache: 'no-store' });
-        const j = (await r.json()) as {
-          exposureSol?: number;
-          exits?: Record<string, number>;
-          trailing?: number;
-          opened?: number;
-          apiRpm?: {
-            social?: Record<string, number>;
-            dexscreener?: number;
-            birdeye?: number;
-            dexscreenerTypes?: Record<string, number>;
-            birdeyeTypes?: Record<string, number>;
-          };
-          execution?: { presetActive?: boolean; presetUsesTotal?: number };
-        };
-        if (!cancelled) setMetrics(j);
-      } catch (err) { /* ignore */ }
-    }
-    load();
-    const t = setInterval(load, 7000);
-    return () => { cancelled = true; clearInterval(t); };
-  }, []);
-
-  // Poll metrics (also builds simple histories for sparklines)
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const r = await fetch('/api/metrics', { cache: 'no-store' });
-        const j = (await r.json()) as {
-          exposureSol?: number;
-          exits?: Record<string, number>;
-          trailing?: number;
-          opened?: number;
-          apiRpm?: { social?: Record<string, number>; dexscreener?: number; birdeye?: number };
-          execution?: { presetActive?: boolean; presetUsesTotal?: number };
-        };
-        if (!cancelled) {
-          setMetrics(j as any);
-          const exp = typeof j.exposureSol === 'number' ? j.exposureSol : 0;
-          const dex = j.apiRpm?.dexscreener ?? 0;
-          const be = j.apiRpm?.birdeye ?? 0;
-          const soc = j.apiRpm?.social ? Object.values(j.apiRpm.social).reduce((a, b) => a + b, 0) : 0;
-          setExposureHist((prev) => [...prev.slice(-29), exp]);
-          setDexHist((prev) => [...prev.slice(-29), dex]);
-          setBeHist((prev) => [...prev.slice(-29), be]);
-          setSocHist((prev) => [...prev.slice(-29), soc]);
-        }
-      } catch (err) { /* ignore */ }
-    }
-    load();
-    const t = setInterval(load, 7000);
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-    };
-  }, []);
-
-  const maxExposure = Math.max(1, ...exposureHist);
-  const exposureLast = exposureHist.length > 0 ? exposureHist[exposureHist.length - 1] : undefined;
-  const exposurePrev = exposureHist.length > 1 ? exposureHist[exposureHist.length - 2] : undefined;
-  const exposureDelta =
-    typeof exposureLast === 'number' && typeof exposurePrev === 'number' ? exposureLast - exposurePrev : undefined;
 
   useEffect(() => {
     let cancelled = false;
@@ -1060,4 +1103,3 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
     </div>
   );
 }
-
