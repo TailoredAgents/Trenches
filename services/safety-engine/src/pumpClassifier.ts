@@ -1,5 +1,6 @@
-﻿import fs from 'fs';
+import fs from 'fs';
 import { createLogger } from '@trenches/logger';
+import { sigmoid } from '@trenches/util';
 
 type PumpModel = {
   dim: number;
@@ -52,10 +53,6 @@ function ensureModel(): void {
   embedDim = 512;
 }
 
-function sigmoid(z: number): number {
-  return 1 / (1 + Math.exp(-z));
-}
-
 export function scoreText(text: string): number {
   ensureModel();
   const fallback = 0.5;
@@ -82,3 +79,5 @@ export function scoreText(text: string): number {
   }
   return Math.min(0.999, Math.max(0.001, p));
 }
+
+

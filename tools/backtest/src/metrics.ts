@@ -1,16 +1,10 @@
 import DatabaseConstructor from 'better-sqlite3';
+import { quantileFloor } from '@trenches/util';
 
 export type ExecPnL = { netUsd: number; grossUsd: number; feeUsd: number; slipUsd: number };
 export type Segments = { [segment: string]: ExecPnL };
 export type ExecMetrics = { landedRate: number; avgSlipBps: number; p50Ttl: number; p95Ttl: number; count: number };
 export type BacktestSummary = ExecPnL & { segments: Segments; metrics: ExecMetrics };
-
-function quantile(arr: number[], p: number): number {
-  if (arr.length === 0) return 0;
-  const s = [...arr].sort((a, b) => a - b);
-  const idx = Math.floor((s.length - 1) * p);
-  return s[idx];
-}
 
 function toMs(row: { created_at: string }): number {
   const iso = row.created_at.includes('T') ? row.created_at : row.created_at.replace(' ', 'T');
@@ -32,9 +26,9 @@ export function computeBacktestSummary(db: DatabaseConstructor, fromTs?: number,
   ).all(...params) as Array<{ ts:number; filled:number; slip:number|null; ttl:number|null; feeLamports:number|null; amountIn:number|null; route:string|null; pri:number|null }>;
 
   const ttls = execRows.map(r=> (r.ttl??0) as number).filter(v=>Number.isFinite(v));
-  const ttlThresh = ttls.length ? quantile(ttls, 0.75) : 0;
+  const ttlThresh = ttls.length ? quantileFloor(ttls, 0.75) : 0;
   const priVals = execRows.map(r=> (r.pri??0) as number).filter(v=>Number.isFinite(v));
-  const priThresh = priVals.length ? quantile(priVals, 0.75) : 0;
+  const priThresh = priVals.length ? quantileFloor(priVals, 0.75) : 0;
 
   // Helper: nearest fill by ts to retrieve mint + route
   const fillStmt = db.prepare(`SELECT mint, route, CAST(strftime('%s', created_at) AS INTEGER) * 1000 AS tsMs FROM fills ORDER BY tsMs`);
@@ -122,11 +116,14 @@ export function computeBacktestSummary(db: DatabaseConstructor, fromTs?: number,
     const filled = execRows.reduce((a,r)=>a+(r.filled?1:0),0);
     const slips = execRows.map(r=>r.slip??0);
     const ttls2 = execRows.map(r=>r.ttl??0).filter(v=>Number.isFinite(v));
-    return { landedRate: filled/execRows.length, avgSlipBps: slips.reduce((a,b)=>a+b,0)/execRows.length, p50Ttl: quantile(ttls2,0.5), p95Ttl: quantile(ttls2,0.95), count: execRows.length };
+    return { landedRate: filled/execRows.length, avgSlipBps: slips.reduce((a,b)=>a+b,0)/execRows.length, p50Ttl: quantileFloor(ttls2,0.5), p95Ttl: quantileFloor(ttls2,0.95), count: execRows.length };
   })();
 
   return { netUsd, grossUsd, feeUsd, slipUsd, segments, metrics };
 }
+
+
+
 
 
 

@@ -1,8 +1,6 @@
 import DatabaseConstructor from 'better-sqlite3';
-
 function toEpoch(s?: string): number | undefined { if (!s) return undefined; const t = Date.parse(s); return Number.isFinite(t)? t : undefined; }
 function nowIsoMinus(minutes: number): string { return new Date(Date.now() - minutes*60*1000).toISOString(); }
-function quantile(arr: number[], p: number): number { if (arr.length===0) return 0; const s=[...arr].sort((a,b)=>a-b); const idx=Math.floor((s.length-1)*p); return s[idx]; }
 
 type OpeStats = { IPS:number; WIS:number; DR:number };
 
@@ -35,4 +33,9 @@ async function run(policy: 'fee'|'sizing') {
 }
 
 void (async () => { await run('fee'); await run('sizing'); })();
+
+
+
+
+
 

@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { TopicClusterRecord } from '@trenches/persistence';
+import { clamp01, sigmoid } from '@trenches/util';
 import { ExtractedPhrase } from './phraseExtractor';
 import { PhraseObservation } from './phraseTracker';
 import { BaselineSnapshot } from './baseline';
@@ -381,16 +382,6 @@ class LshIndex {
   }
 }
 
-function clamp01(value: number): number {
-  if (value <= 0) return 0;
-  if (value >= 1) return 1;
-  return value;
-}
-
-function sigmoid(x: number): number {
-  return 1 / (1 + Math.exp(-x));
-}
-
 function hasMagnitude(vec: Float32Array): boolean {
   for (let i = 0; i < vec.length; i += 1) {
     if (vec[i] !== 0) return true;
@@ -417,6 +408,8 @@ function createRandom(seed: number): () => number {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+
 
 
 

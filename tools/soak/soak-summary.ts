@@ -4,6 +4,7 @@ import path from 'path';
 import DatabaseConstructor from 'better-sqlite3';
 import type { Database as BetterSqlite3Database } from 'better-sqlite3';
 import { loadConfig } from '@trenches/config';
+import { quantileFloor } from '@trenches/util';
 
 type CLIOptions = {
   dbPath: string;
@@ -156,15 +157,18 @@ function parseArgs(): CLIOptions {
 
 function quantile(values: number[], p: number): number {
   if (values.length === 0) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const index = (sorted.length - 1) * p;
+  if (values.length === 1) return values[0];
+  const maxIndex = values.length - 1;
+  const index = maxIndex * p;
   const lower = Math.floor(index);
   const upper = Math.ceil(index);
   if (lower === upper) {
-    return sorted[lower];
+    return quantileFloor(values, p);
   }
   const weight = index - lower;
-  return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+  const lowerValue = quantileFloor(values, lower / maxIndex);
+  const upperValue = quantileFloor(values, upper / maxIndex);
+  return lowerValue * (1 - weight) + upperValue * weight;
 }
 
 function mean(values: number[]): number {
@@ -628,3 +632,6 @@ if (require.main === module) {
     process.exit(1);
   });
 }
+
+
+

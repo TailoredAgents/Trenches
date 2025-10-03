@@ -1,4 +1,5 @@
 import { getLatestMigrationEvent } from '@trenches/persistence';
+import { clamp01 } from '@trenches/util';
 import { migrationPresetActive, migrationPresetUses } from './metrics';
 
 export type MigrationPresetConfig = {
@@ -27,15 +28,6 @@ export type MigrationPresetResult = {
   ageMs?: number;
   decayProgress?: number;
 };
-
-function clamp01(value: number): number {
-  if (!Number.isFinite(value)) {
-    return 0;
-  }
-  if (value <= 0) return 0;
-  if (value >= 1) return 1;
-  return value;
-}
 
 export function applyMigrationPresetAdjustment(input: MigrationPresetInput): MigrationPresetResult {
   const { preset } = input;
@@ -94,3 +86,4 @@ export function applyMigrationPresetAdjustment(input: MigrationPresetInput): Mig
 
   return { cuPrice, slippageBps, applied, migrationTs, ageMs, decayProgress };
 }
+

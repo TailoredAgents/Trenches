@@ -1,5 +1,5 @@
 #!/usr/bin/env tsx
-import { createSSEClient, createInMemoryLastEventIdStore, TtlCache } from '@trenches/util';
+import { createSSEClient, createInMemoryLastEventIdStore, TtlCache, quantileFloor } from '@trenches/util';
 
 type Migration = { ts: number; mint: string; pool: string; source: string };
 type Candidate = { t: string; mint: string };
@@ -10,13 +10,6 @@ const safeUrl = process.env.SAFE_URL ?? 'http://127.0.0.1:4014/events/safe';
 
 const recent: Map<string, number> = new Map();
 const lags: number[] = [];
-
-function quantile(arr: number[], p: number): number {
-  if (arr.length === 0) return 0;
-  const sorted = [...arr].sort((a, b) => a - b);
-  const idx = Math.floor((sorted.length - 1) * p);
-  return sorted[idx];
-}
 
 function start() {
   const storeM = createInMemoryLastEventIdStore();
@@ -43,7 +36,7 @@ function start() {
         const lag = Date.now() - mTs;
         lags.push(lag);
         if (lags.length % 5 === 0) {
-          console.log('p50', quantile(lags, 0.5), 'ms p95', quantile(lags, 0.95), 'ms');
+          console.log('p50', quantileFloor(lags, 0.5), 'ms p95', quantileFloor(lags, 0.95), 'ms');
         }
       }
     } catch {}
@@ -58,10 +51,12 @@ function start() {
   });
 
   process.on('SIGINT', () => {
-    console.log('final p50', quantile(lags, 0.5), 'ms p95', quantile(lags, 0.95), 'ms');
+    console.log('final p50', quantileFloor(lags, 0.5), 'ms p95', quantileFloor(lags, 0.95), 'ms');
     srcM.dispose(); srcC.dispose(); srcS.dispose();
     process.exit(0);
   });
 }
 
 start();
+
+

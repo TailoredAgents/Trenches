@@ -2,6 +2,7 @@
 import DatabaseConstructor from 'better-sqlite3';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
+import { quantileFloor } from '@trenches/util';
 
 const argv = yargs(hideBin(process.argv))
   .option('db', { type: 'string', default: './data/trenches.db' })
@@ -40,7 +41,6 @@ function estimateIPS(rows: Array<{ ts:number; ctx_json:string }>): number {
   return den ? num / den : 0;
 }
 
-function quantile(arr: number[], p: number): number { if (arr.length===0) return 0; const s=[...arr].sort((a,b)=>a-b); const idx=Math.floor((s.length-1)*p); return s[idx]; }
 
 type OpeStats = { IPS:number; WIS:number; DR:number };
 
@@ -90,7 +90,7 @@ async function main() {
   // Segmentation: source (migration vs raydium) and regime (calm vs congested)
   const execRows = db.prepare(`SELECT ts, time_to_land_ms AS ttl, priority_fee_lamports AS pri FROM exec_outcomes`).all() as Array<{ ts:number; ttl:number|null; pri:number|null }>;
   const ttls = execRows.map(r=>r.ttl??0).filter(v=>Number.isFinite(v)); const priVals = execRows.map(r=>r.pri??0).filter(v=>Number.isFinite(v));
-  const ttlThresh = ttls.length? quantile(ttls,0.75) : 0; const priThresh = priVals.length? quantile(priVals,0.75) : 0;
+  const ttlThresh = ttls.length? quantileFloor(ttls,0.75) : 0; const priThresh = priVals.length? quantileFloor(priVals,0.75) : 0;
   const fills = db.prepare(`SELECT mint, CAST(strftime('%s', created_at) AS INTEGER) * 1000 AS tsMs FROM fills ORDER BY tsMs`).all() as Array<{ mint:string; tsMs:number }>;
   const migStmt = db.prepare(`SELECT 1 FROM migration_events WHERE mint = ? LIMIT 1`);
 
@@ -132,6 +132,9 @@ async function main() {
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });
+
+
+
 
 
 

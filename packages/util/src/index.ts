@@ -1,4 +1,5 @@
-export * from './deepMerge';
+﻿export * from './deepMerge';
+export * from './math';
 export * from './ttlCache';
 export * from './tokenBucket';
 export * from './rpc';

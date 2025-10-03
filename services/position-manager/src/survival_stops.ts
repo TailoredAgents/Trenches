@@ -2,6 +2,7 @@ import { HazardState } from '@trenches/shared';
 import { insertHazardState } from '@trenches/persistence';
 import { createLogger } from '@trenches/logger';
 import { loadConfig } from '@trenches/config';
+import { clamp01, sigmoid } from '@trenches/util';
 import { registerCounter, registerGauge } from '@trenches/metrics';
 
 export type PositionSnapshot = {
@@ -16,8 +17,6 @@ const logger = createLogger('position-manager:survival');
 const hazardAvg = registerGauge({ name: 'survival_hazard_avg', help: 'Average hazard over recent evaluations' });
 const trailAvg = registerGauge({ name: 'survival_trail_bps_avg', help: 'Average computed trailing width (bps)' });
 const forcedFlatten = registerCounter({ name: 'survival_forced_flatten_total', help: 'Total forced flatten events due to hazard panic' });
-
-function clamp01(x: number): number { return x < 0 ? 0 : x > 1 ? 1 : x; }
 
 export function computeStops(state: PositionSnapshot, extras: {
   pnlPct: number;
@@ -40,7 +39,7 @@ export function computeStops(state: PositionSnapshot, extras: {
   const green = clamp01(pnlPct / 0.12);
   const buyFlow = clamp01((extras.flowRatio - 1) / 0.6);
   let z = 1.2*red + 0.9*wide + 1.0*choppy + 0.8*sellFlow + 0.7*slipShock + 0.6*rug - 0.9*green - 0.6*buyFlow;
-  const hazard = clamp01(1 / (1 + Math.exp(-z)));
+  const hazard = clamp01(sigmoid(z));
   const base = (cfg as any).survival?.baseTrailBps ?? 120;
   const minB = (cfg as any).survival?.minTrailBps ?? 60;
   const maxB = (cfg as any).survival?.maxTrailBps ?? 250;
@@ -62,3 +61,7 @@ export function computeStops(state: PositionSnapshot, extras: {
   }
   return hs;
 }
+
+
+
+
