@@ -72,7 +72,6 @@ exports.configSchema = zod_1.z.object({
     }),
     gating: zod_1.z.object({
         sssMin: zod_1.z.number().min(0).max(1).default(0.6),
-        ocrsMin: zod_1.z.number().min(0).max(1).default(0.68),
         lpMinSol: zod_1.z.number().min(0).default(20),
         buysSellRatioMin: zod_1.z.number().min(0).default(2.2),
         uniquesMin: zod_1.z.number().min(0).default(12),
@@ -224,7 +223,6 @@ exports.configSchema = zod_1.z.object({
         safeFeedUrl: zod_1.z.string().optional().nullable(),
         blockedFeedUrl: zod_1.z.string().optional().nullable(),
         contextWindowSec: zod_1.z.number().int().positive().default(900),
-        minOcrs: zod_1.z.number().min(0).max(1).default(0.68),
         minConfidence: zod_1.z.number().min(0).max(1).default(0.4),
         dailyLossCapPct: zod_1.z.number().min(0).max(1).default(0.1),
         rewardSmoothing: zod_1.z.number().min(0).max(1).default(0.2)

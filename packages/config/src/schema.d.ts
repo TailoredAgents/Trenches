@@ -353,7 +353,6 @@ export declare const configSchema: z.ZodObject<{
     }>;
     gating: z.ZodObject<{
         sssMin: z.ZodDefault<z.ZodNumber>;
-        ocrsMin: z.ZodDefault<z.ZodNumber>;
         lpMinSol: z.ZodDefault<z.ZodNumber>;
         buysSellRatioMin: z.ZodDefault<z.ZodNumber>;
         uniquesMin: z.ZodDefault<z.ZodNumber>;
@@ -361,7 +360,6 @@ export declare const configSchema: z.ZodObject<{
         maxSpreadBps: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
         sssMin: number;
-        ocrsMin: number;
         lpMinSol: number;
         buysSellRatioMin: number;
         uniquesMin: number;
@@ -369,7 +367,6 @@ export declare const configSchema: z.ZodObject<{
         maxSpreadBps: number;
     }, {
         sssMin?: number | undefined;
-        ocrsMin?: number | undefined;
         lpMinSol?: number | undefined;
         buysSellRatioMin?: number | undefined;
         uniquesMin?: number | undefined;
@@ -849,13 +846,11 @@ export declare const configSchema: z.ZodObject<{
         safeFeedUrl: z.ZodNullable<z.ZodOptional<z.ZodString>>;
         blockedFeedUrl: z.ZodNullable<z.ZodOptional<z.ZodString>>;
         contextWindowSec: z.ZodDefault<z.ZodNumber>;
-        minOcrs: z.ZodDefault<z.ZodNumber>;
         minConfidence: z.ZodDefault<z.ZodNumber>;
         dailyLossCapPct: z.ZodDefault<z.ZodNumber>;
         rewardSmoothing: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
         contextWindowSec: number;
-        minOcrs: number;
         minConfidence: number;
         dailyLossCapPct: number;
         rewardSmoothing: number;
@@ -865,7 +860,6 @@ export declare const configSchema: z.ZodObject<{
         safeFeedUrl?: string | null | undefined;
         blockedFeedUrl?: string | null | undefined;
         contextWindowSec?: number | undefined;
-        minOcrs?: number | undefined;
         minConfidence?: number | undefined;
         dailyLossCapPct?: number | undefined;
         rewardSmoothing?: number | undefined;
@@ -1535,7 +1529,6 @@ export declare const configSchema: z.ZodObject<{
     };
     gating: {
         sssMin: number;
-        ocrsMin: number;
         lpMinSol: number;
         buysSellRatioMin: number;
         uniquesMin: number;
@@ -1663,7 +1656,6 @@ export declare const configSchema: z.ZodObject<{
     };
     policy: {
         contextWindowSec: number;
-        minOcrs: number;
         minConfidence: number;
         dailyLossCapPct: number;
         rewardSmoothing: number;
@@ -1884,7 +1876,6 @@ export declare const configSchema: z.ZodObject<{
     };
     gating: {
         sssMin?: number | undefined;
-        ocrsMin?: number | undefined;
         lpMinSol?: number | undefined;
         buysSellRatioMin?: number | undefined;
         uniquesMin?: number | undefined;
@@ -1998,7 +1989,6 @@ export declare const configSchema: z.ZodObject<{
         safeFeedUrl?: string | null | undefined;
         blockedFeedUrl?: string | null | undefined;
         contextWindowSec?: number | undefined;
-        minOcrs?: number | undefined;
         minConfidence?: number | undefined;
         dailyLossCapPct?: number | undefined;
         rewardSmoothing?: number | undefined;

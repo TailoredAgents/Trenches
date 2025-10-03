@@ -26,7 +26,7 @@ This document summarizes the purpose, structure, data flow, current heuristics, 
 
 - services/safety-engine
   - Inputs: /events/candidates SSE (or override); Solana RPC for token/LP/holders
-  - Outputs: Decorated TokenCandidate with safety and ocrs; /events/safe and /events/blocked SSE; persistence
+  - Outputs: Decorated TokenCandidate with safety and rugProb; /events/safe and /events/blocked SSE; persistence
   - SSE: /events/safe, /events/blocked
 
 - services/policy-engine
@@ -54,13 +54,13 @@ This document summarizes the purpose, structure, data flow, current heuristics, 
 
 ## Current Heuristics & Thresholds
 
-- Safety/OCRS
-  - Gating in config.gating: lpMinSol, buysSellRatioMin, uniquesMin, minPoolAgeSec, maxSpreadBps, ocrsMin.
-  - OCRS features/weights in services/safety-engine/src/ocrs.ts.
+- Safety/RugGuard
+  - Gating in config.gating: lpMinSol, buysSellRatioMin, uniquesMin, minPoolAgeSec, maxSpreadBps. RugGuard thresholds are handled in safety-engine.
+  - RugGuard features/weights in services/safety-engine/src/rugguard.ts.
 
 - Policy/Sizing
   - LinUCB bundles with gate, slippageBps, tipPercentile, sizeMultiplier.
-  - Wallet caps and tiers; daily loss cap; minOcrs.
+  - Wallet caps and tiers; daily loss cap; minConfidence.
 
 - Executor
   - Fixed slippage per bundle; Jito optional via config; Jupiter v6 for quotes/swaps.

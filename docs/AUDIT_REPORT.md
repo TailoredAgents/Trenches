@@ -44,7 +44,7 @@
   - Impact: Two sources of truth drift; fee-bandit updates (context features, arm filtering) are not respected by manual fallback path.
   - Next: expose an ExecutionPolicy helper returning chosen arm & predictions, and let executor call that single abstraction for both static and LinUCB paths.
 - **Medium** services/safety-engine/src/index.ts:257-269 repeats gating checks that policy-engine/src/index.ts:142-149 performs after RugGuard.
-  - Impact: Safety rules (flow ratio, uniques, ocrs) are enforced twice with different thresholds, confusing root-cause for blocks.
+  - Impact: Safety rules (flow ratio, uniques, rugProb) are enforced twice with different thresholds, confusing root-cause for blocks.
   - Next: make RugGuard verdict canonical (return reasons), drop duplicate gating from policy engine, and surface thresholds in one place.
 
 ## C. Config & Feature Flag Hygiene

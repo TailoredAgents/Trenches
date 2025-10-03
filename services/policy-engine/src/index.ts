@@ -170,7 +170,7 @@ async function bootstrap() {
       plansSuppressed.inc({ reason: 'safety_not_ok' });
       return;
     }
-    // Legacy OCRS gating removed; RugGuard is the sole gate
+    // Legacy score gating removed; RugGuard is the sole gate
 
     if (!walletReady) {
       plansSuppressed.inc({ reason: 'wallet_unavailable' });

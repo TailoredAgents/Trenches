@@ -49,7 +49,6 @@ const baseConfig: TrenchesConfig = configSchema.parse({
   },
   gating: {
     sssMin: 0.6,
-    ocrsMin: 0.68,
     lpMinSol: 20,
     buysSellRatioMin: 2.2,
     uniquesMin: 12,
@@ -170,7 +169,6 @@ const baseConfig: TrenchesConfig = configSchema.parse({
     safeFeedUrl: undefined,
     blockedFeedUrl: undefined,
     contextWindowSec: 900,
-    minOcrs: 0.68,
     minConfidence: 0.4,
     dailyLossCapPct: 0.1,
     rewardSmoothing: 0.2

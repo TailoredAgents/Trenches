@@ -17,8 +17,8 @@ Aux: rpc-monitor feeds metrics; backtest consumes SQLite logs to simulate realit
 - Executor Policy
   - Replace static slippage/Jito tip selection with `ExecutionPolicy` comprised of `FillNet` (P(fill), E(slip), E(ttl)) and `FeeBandit` (cu price/limit, slippage).
 
-- Safety/OCRS
-  - Replace hard-threshold OCRS gating with `RugGuard` verdict (rugProb + reasons) incorporating authorities/LP/holders/blacklist/tax flags.
+- Safety/RugGuard
+  - Replace hard-threshold legacy gating with `RugGuard` verdict (rugProb + reasons) incorporating authorities/LP/holders/blacklist/tax flags.
 
 - Sizing
   - Replace LinUCB sizing with Constrained Contextual Bandit (cVaR-tilted reward, cap-aware) to choose notional.

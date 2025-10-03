@@ -9,7 +9,7 @@
 
 - Integrate into safety-engine
   - During `evaluateCandidate`, call RugGuard and compute `rugProb`.
-  - Replace OCRS hard-threshold gating with rugProb threshold + reasons (keep OCRS as feature if helpful); emit on `/events/safe` only when `rugProb <= threshold`.
+  - Replace legacy hard-threshold gating with rugProb threshold + reasons; emit on `/events/safe` only when `rugProb <= threshold`.
   - Persist `rug_verdicts` with reasons and ts.
 
 ## Policy: Constrained Sizing & Execution Policy

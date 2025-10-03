@@ -29,7 +29,6 @@ services:
     port: 8090
 gating:
   sssMin: 0.6
-  ocrsMin: 0.68
   lpMinSol: 20
   buysSellRatioMin: 2.2
   uniquesMin: 12
@@ -196,7 +195,6 @@ policy:
   safeFeedUrl: null
   blockedFeedUrl: null
   contextWindowSec: 900
-  minOcrs: 0.68
   minConfidence: 0.4
   dailyLossCapPct: 0.1
   rewardSmoothing: 0.2
@@ -256,7 +254,6 @@ positionManager:
       - lp_insufficient
       - flow_ratio_low
       - uniques_low
-      - ocrs_below_threshold
 
 providers:
   solanatracker:

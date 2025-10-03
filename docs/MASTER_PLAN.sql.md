@@ -48,7 +48,7 @@ This master plan consolidates changes, flags, and acceptance criteria for the up
 ## Acceptance Criteria
 
 - Discovery emits `MigrationEvent` within ~1s of relevant program logs.
-- Safety exposes `RugGuardVerdict` and replaces OCRS threshold gating; `rugProb` is persisted and visible in backtest.
+- Safety exposes `RugGuardVerdict` and replaces legacy threshold gating; `rugProb` is persisted and visible in backtest.
 - Executor logs fee/landing/slippage metrics; implements quote -> exec fallback; optional Jito bundles behind flag.
 - Sizing respects risk caps with cVaR tilt; decisions persisted.
 - Backtest produces net PnL after all costs and landed-rate KPI.

@@ -224,7 +224,6 @@ export const configSchema = z.object({
     safeFeedUrl: z.string().optional().nullable(),
     blockedFeedUrl: z.string().optional().nullable(),
     contextWindowSec: z.number().int().positive().default(900),
-    minOcrs: z.number().min(0).max(1).default(0.68),
     minConfidence: z.number().min(0).max(1).default(0.4),
     dailyLossCapPct: z.number().min(0).max(1).default(0.1),
     rewardSmoothing: z.number().min(0).max(1).default(0.2)

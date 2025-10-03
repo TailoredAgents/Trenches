@@ -17,7 +17,7 @@ import { safetyEvaluations, safetyPasses, safetyBlocks,  evaluationDuration, aut
 import { checkTokenSafety } from './tokenSafety';
 import { checkLpSafety } from './lpSafety';
 import { checkHolderSkew } from './holderSafety';
-// OCRS deprecated: RugGuard is the sole gate
+// Legacy score gate deprecated: RugGuard is the sole gate
 import { classify, candidateToFeatures } from './rugguard';
 import { scoreText } from './pumpClassifier';
 import { SafetyEvaluation } from './types';
