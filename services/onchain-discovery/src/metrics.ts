@@ -11,30 +11,6 @@ export const candidatesEmitted: Counter<string> = registerCounter({
   help: 'Number of token candidates emitted'
 });
 
-export const dexscreenerCacheHits: Counter<string> = registerCounter({
-  name: 'dexscreener_cache_hits_total',
-  help: 'DexScreener cache hits',
-  labelNames: ['type']
-});
-
-export const dexscreenerCacheMisses: Counter<string> = registerCounter({
-  name: 'dexscreener_cache_misses_total',
-  help: 'DexScreener cache misses',
-  labelNames: ['type']
-});
-
-export const birdeyeCacheHits: Counter<string> = registerCounter({
-  name: 'birdeye_cache_hits_total',
-  help: 'Birdeye price cache hits',
-  labelNames: ['type']
-});
-
-export const birdeyeCacheMisses: Counter<string> = registerCounter({
-  name: 'birdeye_cache_misses_total',
-  help: 'Birdeye price cache misses',
-  labelNames: ['type']
-});
-
 export const lastPoolSlot: Gauge<string> = registerGauge({
   name: 'raydium_last_pool_slot',
   help: 'Slot number of last pool discovery'
