@@ -4,7 +4,7 @@ import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
-import { startMetricsServer, registerGauge } from '@trenches/metrics';
+import { startMetricsServer, registerGauge, getRegistry } from '@trenches/metrics';
   import {
     closeDb,
     getDb,
@@ -20,6 +20,187 @@ import { startMetricsServer, registerGauge } from '@trenches/metrics';
 import { Snapshot } from '@trenches/shared';
 
 const logger = createLogger('agent-core');
+
+type ProviderEntry = {
+  state?: string;
+  status?: string;
+  detail?: string;
+  message?: string;
+  lastSuccessTs?: number | null;
+  lastSuccessAt?: string | null;
+  lastEventTs?: number | null;
+  lastPollTs?: number | null;
+  apiKey?: boolean;
+};
+
+type MetricsSummary = {
+  execution: { landedRate: number; avgSlipBps: number; p50Ttl: number; p95Ttl: number };
+  providers: Record<string, ProviderEntry>;
+  discovery: {
+    providerCache: {
+      hits: number;
+      misses: number;
+      byProvider?: Record<string, { hits: number; misses: number }>;
+    };
+  };
+  price: { solUsdAgeSec: number; ok: boolean };
+};
+
+const SUMMARY_FETCH_TIMEOUT_MS = 800;
+
+function coerceTimestamp(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    return value > 1_000_000_000_000 ? value : Math.floor(value * 1000);
+  }
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  return null;
+}
+
+async function fetchJsonWithTimeout<T = any>(url: string, timeoutMs = SUMMARY_FETCH_TIMEOUT_MS): Promise<T | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) {
+      return null;
+    }
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function computePriceStatus(db: any, config: any): { solUsdAgeSec: number; ok: boolean } {
+  let result = { solUsdAgeSec: 0, ok: false };
+  try {
+    const row = db
+      .prepare('SELECT ts FROM prices WHERE symbol = ? ORDER BY ts DESC LIMIT 1')
+      .get('SOL') as { ts?: number } | undefined;
+    if (row?.ts) {
+      const ageSec = Math.max(0, Math.floor((Date.now() - row.ts) / 1000));
+      const warn = (config?.priceUpdater?.staleWarnSec ?? 300) as number;
+      result = { solUsdAgeSec: ageSec, ok: ageSec <= warn };
+    }
+  } catch {}
+  return result;
+}
+
+async function collectProviderStatuses(config: any): Promise<Record<string, ProviderEntry>> {
+  const out: Record<string, ProviderEntry> = {};
+  const socialHealth = await fetchJsonWithTimeout<{
+    sources?: Array<{ name: string; status?: { state?: string; detail?: string; lastSuccessAt?: string; lastEventTs?: number } }>;
+  }>(`http://127.0.0.1:${config.services.socialIngestor.port}/healthz`);
+  if (socialHealth?.sources) {
+    for (const entry of socialHealth.sources) {
+      const status = entry.status ?? {};
+      const lastSuccessTs = coerceTimestamp(status.lastSuccessAt);
+      const lastEventTs = coerceTimestamp(status.lastEventTs);
+      out[entry.name] = {
+        state: status.state,
+        detail: status.detail,
+        lastSuccessTs,
+        lastSuccessAt: status.lastSuccessAt ?? null,
+        lastEventTs
+      };
+    }
+  }
+
+  const discoveryHealth = await fetchJsonWithTimeout<{
+    providers?: { solanatracker?: { status?: string; lastPollTs?: number; message?: string } };
+    birdeyeApiKey?: boolean;
+  }>(`http://127.0.0.1:${config.services.onchainDiscovery.port}/healthz`);
+
+  const sol = discoveryHealth?.providers?.solanatracker;
+  if (sol) {
+    const lastPollTs = coerceTimestamp(sol.lastPollTs);
+    out.solanatracker = {
+      state: sol.status,
+      status: sol.status,
+      detail: sol.message,
+      message: sol.message,
+      lastSuccessTs: lastPollTs,
+      lastPollTs
+    };
+  }
+  if (typeof discoveryHealth?.birdeyeApiKey === 'boolean') {
+    out.birdeye = {
+      state: discoveryHealth.birdeyeApiKey ? 'configured' : 'missing_key',
+      apiKey: discoveryHealth.birdeyeApiKey
+    };
+  }
+
+  return out;
+}
+
+function collectMetricTotals(registry: ReturnType<typeof getRegistry>, metricName: string): { total: number; byProvider: Record<string, number> } {
+  const metric = registry.getSingleMetric(metricName) as { get: () => { values?: Array<{ value: number; labels?: Record<string, string> }> } } | undefined;
+  const totals: { total: number; byProvider: Record<string, number> } = { total: 0, byProvider: {} };
+  if (!metric) {
+    return totals;
+  }
+  try {
+    const data = metric.get();
+    for (const sample of data.values ?? []) {
+      const value = Number(sample.value ?? 0);
+      if (!Number.isFinite(value)) continue;
+      totals.total += value;
+      const provider = sample.labels?.provider;
+      if (provider) {
+        totals.byProvider[provider] = (totals.byProvider[provider] ?? 0) + value;
+      }
+    }
+  } catch {}
+  return totals;
+}
+
+function summarizeProviderCache(): {
+  providerCache: { hits: number; misses: number; byProvider?: Record<string, { hits: number; misses: number }> };
+} {
+  const registry = getRegistry();
+  const hits = collectMetricTotals(registry, 'provider_cache_hits_total');
+  const misses = collectMetricTotals(registry, 'provider_cache_misses_total');
+  const providers = new Set([...Object.keys(hits.byProvider), ...Object.keys(misses.byProvider)]);
+  const byProvider: Record<string, { hits: number; misses: number }> = {};
+  for (const provider of providers) {
+    byProvider[provider] = {
+      hits: hits.byProvider[provider] ?? 0,
+      misses: misses.byProvider[provider] ?? 0
+    };
+  }
+  return {
+    providerCache: {
+      hits: hits.total,
+      misses: misses.total,
+      byProvider: Object.keys(byProvider).length > 0 ? byProvider : undefined
+    }
+  };
+}
+
+async function buildMetricsSummary(config: any, db: any): Promise<MetricsSummary> {
+  let execution: MetricsSummary['execution'] = { landedRate: 0, avgSlipBps: 0, p50Ttl: 0, p95Ttl: 0 };
+  try {
+    const { getExecSummary } = await import('@trenches/persistence');
+    execution = getExecSummary();
+  } catch {}
+
+  const providers = await collectProviderStatuses(config);
+  const discovery = summarizeProviderCache();
+  const price = computePriceStatus(db, config);
+
+  return {
+    execution,
+    providers,
+    discovery,
+    price
+  };
+}
 
 async function bootstrap() {
   const config = loadConfig();
@@ -90,17 +271,8 @@ async function bootstrap() {
     const pnlMonth = getDailyRealizedPnlSince(monthAgo);
 
     // Prices: SOL/USD freshness from SQLite
-    let prices = { solUsdAgeSec: 0, ok: false } as { solUsdAgeSec: number; ok: boolean };
-    try {
-      const row = db
-        .prepare('SELECT ts FROM prices WHERE symbol = ? ORDER BY ts DESC LIMIT 1')
-        .get('SOL') as { ts?: number } | undefined;
-      if (row?.ts) {
-        const ageSec = Math.max(0, Math.floor((Date.now() - row.ts) / 1000));
-        const warn = (config as any).priceUpdater?.staleWarnSec ?? 300;
-        prices = { solUsdAgeSec: ageSec, ok: ageSec <= warn };
-      }
-    } catch {}
+    const prices = computePriceStatus(db, config);
+
 
     const activeWindows = fetchActiveTopicWindows(now.toISOString());
     const topics = activeWindows.map((w) => ({
@@ -163,18 +335,8 @@ async function bootstrap() {
       sizingDist = getSizingDistribution();
     } catch {}
     // Provider health (social-ingestor + onchain birdeye key)
-    try {
-      const si = await fetch(`http://127.0.0.1:${config.services.socialIngestor.port}/healthz`);
-      const siJson = (await si.json()) as { sources?: Array<{ name: string; status: any }> };
-      const od = await fetch(`http://127.0.0.1:${config.services.onchainDiscovery.port}/healthz`);
-      const odJson = (await od.json()) as { birdeyeApiKey?: boolean };
-      const mapped: Record<string, any> = {};
-      for (const entry of siJson.sources ?? []) {
-        mapped[entry.name] = entry.status ?? {};
-      }
-      mapped.birdeye = { apiKey: Boolean((odJson as any).birdeyeApiKey) };
-      providersBlock = mapped;
-    } catch {}
+    const providerSummary = await collectProviderStatuses(config);
+    providersBlock = Object.keys(providerSummary).length > 0 ? providerSummary : undefined;
     try {
       // Avg hazard from last 100 hazard states
       const db = getDb();
@@ -229,6 +391,10 @@ async function bootstrap() {
       leaders
     };
     return snapshot;
+  });
+
+  app.get('/metrics/summary', async () => {
+    return buildMetricsSummary(config, db);
   });
 
   if (controlsEnabled) {

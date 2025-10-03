@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { AgentSnapshot, AgentEvent, AgentMode } from './types';
+import type { AgentSnapshot, AgentEvent, AgentMode, AgentMetricsSummary } from './types';
 
 import { createInMemoryLastEventIdStore, createSSEClient } from '@trenches/util';
 
@@ -111,6 +111,21 @@ function formatPercent(value: number | undefined) {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+function formatAgo(ts?: number | null) {
+  if (typeof ts !== 'number' || Number.isNaN(ts)) {
+    return '—';
+  }
+  const ageSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (ageSec < 60) {
+    return `${ageSec}s ago`;
+  }
+  if (ageSec < 3600) {
+    return `${Math.floor(ageSec / 60)}m ago`;
+  }
+  const hours = Math.floor(ageSec / 3600);
+  return `${hours}h ago`;
+}
+
 type RouteQualityRow = {
   route: string;
   attempts: number;
@@ -146,6 +161,7 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
     };
     execution?: { presetActive?: boolean; presetUsesTotal?: number };
   } | null>(null);
+  const [summary, setSummary] = useState<AgentMetricsSummary | null>(null);
   const [routeQuality, setRouteQuality] = useState<RouteQualityRow[]>([]);
   const [routeQualityWindow, setRouteQualityWindow] = useState<number | null>(null);
   const [policy, setPolicy] = useState<{ congestion?: string } | null>(null);
@@ -153,6 +169,33 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
   const [dexHist, setDexHist] = useState<number[]>([]);
   const [beHist, setBeHist] = useState<number[]>([]);
   const [socHist, setSocHist] = useState<number[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const intervalMs = 10000;
+    async function load() {
+      try {
+        const resp = await fetch(`${agentBaseUrl}/metrics/summary`, { cache: 'no-store' });
+        if (!resp.ok) {
+          throw new Error(`${resp.status} ${resp.statusText}`);
+        }
+        const json = (await resp.json()) as AgentMetricsSummary;
+        if (!cancelled) {
+          setSummary(json);
+        }
+      } catch {
+        if (!cancelled) {
+          // retain last good summary when endpoint is unavailable
+        }
+      }
+    }
+    load();
+    const timer = setInterval(load, intervalMs);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [agentBaseUrl]);
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -227,7 +270,10 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
   const migrations = snapshot?.latestMigrations ?? [];
   const lag = snapshot?.migrationLag;
   const rug = snapshot?.rugGuard;
-  const exec = snapshot?.execution as any;
+  const exec = (summary?.execution ?? snapshot?.execution) as any;
+  const priceInfo = (summary?.price ?? snapshot?.pnl?.prices) as { solUsdAgeSec?: number | null; ok?: boolean } | undefined;
+  const providersData = (summary?.providers ?? ((snapshot as any)?.providers as Record<string, any> | undefined));
+  const providerCacheSummary = summary?.discovery?.providerCache;
   const risk = (snapshot as any)?.riskBudget as any;
   const sizingTop = (snapshot as any)?.sizing?.topArms as Array<{ arm: string; share: number }> | undefined;
   const surv = (snapshot as any)?.survival as any;
@@ -653,12 +699,12 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
           {metrics?.execution?.presetActive ? (
             <span className="badge" style={{ fontSize: 11 }}>Preset Active</span>
           ) : null}
-          {typeof snapshot?.pnl?.prices?.solUsdAgeSec === 'number' ? (
-            snapshot?.pnl?.prices?.ok ? (
+          {typeof priceInfo?.solUsdAgeSec === 'number' ? (
+            priceInfo?.ok ? (
               <span className="badge" style={{ fontSize: 11 }}>Price: OK</span>
             ) : (
               <span className="badge" style={{ fontSize: 11 }}>
-                Price: Stale ({Math.floor((snapshot?.pnl?.prices?.solUsdAgeSec ?? 0) / 60)}m)
+                Price: Stale ({Math.floor(((priceInfo?.solUsdAgeSec ?? 0) / 60))}m)
               </span>
             )
           ) : null}
@@ -705,18 +751,64 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
         <h2>Providers</h2>
         <div className="list">
           {(() => {
-            const prov = (snapshot as any)?.providers as Record<string, any> | undefined;
-            if (!prov || Object.keys(prov).length === 0) return <div className="empty-state">No provider data.</div>;
+            const prov = providersData;
+            if (!prov || Object.keys(prov).length === 0) {
+              return <div className="empty-state">No provider data.</div>;
+            }
             const entries = Object.entries(prov);
-            return entries.map(([name, st]) => {
-              const ok = name === 'birdeye' ? Boolean((st as any)?.apiKey) : ((st as any)?.state === 'running');
-              return (
-                <div key={name} className="list-item" style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <div>{name}</div>
-                  <span className="badge" style={{ background: ok ? '#1d4ed8' : '#b45309' }}>{ok ? 'OK' : 'WARN'}</span>
-                </div>
-              );
-            });
+            return (
+              <>
+                {entries.map(([name, st]) => {
+                  const details = (st as Record<string, any>) ?? {};
+                  const state = (details.state ?? details.status) as string | undefined;
+                  const ok = name === 'birdeye'
+                    ? Boolean(details.apiKey ?? (state === 'configured'))
+                    : state ? ['running', 'ok', 'configured'].includes(state) : false;
+                  const candidates: Array<number | undefined> = [];
+                  if (typeof details.lastSuccessTs === 'number') candidates.push(details.lastSuccessTs);
+                  if (typeof details.lastPollTs === 'number') candidates.push(details.lastPollTs);
+                  if (typeof details.lastEventTs === 'number') candidates.push(details.lastEventTs);
+                  if (typeof details.lastSuccessAt === 'string') {
+                    const parsed = Date.parse(details.lastSuccessAt);
+                    if (!Number.isNaN(parsed)) candidates.push(parsed);
+                  }
+                  let lastTs = candidates.find((ts) => typeof ts === 'number');
+                  if (typeof lastTs === 'number' && lastTs < 1_000_000_000_000) {
+                    lastTs *= 1000;
+                  }
+                  const subline = details.detail ?? details.message ?? (typeof lastTs === 'number' ? `Last success ${formatAgo(lastTs)}` : undefined);
+                  return (
+                    <div key={name} className="list-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div>{name}</div>
+                        {subline ? <div style={{ fontSize: 12, color: '#9aa5c4' }}>{subline}</div> : null}
+                      </div>
+                      <span className="badge" style={{ background: ok ? '#1d4ed8' : '#b45309' }}>{ok ? 'OK' : 'WARN'}</span>
+                    </div>
+                  );
+                })}
+                {providerCacheSummary ? (
+                  <div className="list-item" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>Cache Totals</div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <span className="chip">Hits {formatNumber(providerCacheSummary.hits ?? 0, 0)}</span>
+                        <span className="chip">Misses {formatNumber(providerCacheSummary.misses ?? 0, 0)}</span>
+                      </div>
+                    </div>
+                    {providerCacheSummary.byProvider ? (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {Object.entries(providerCacheSummary.byProvider).map(([provName, stats]) => (
+                          <span key={provName} className="chip">
+                            {provName}: {formatNumber(stats.hits ?? 0, 0)} / {formatNumber(stats.misses ?? 0, 0)}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </>
+            );
           })()}
         </div>
       </section>

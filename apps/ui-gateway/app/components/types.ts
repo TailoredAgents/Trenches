@@ -48,3 +48,17 @@ export interface AgentEvent {
 }
 
 export type LeaderWalletHitSummary = { pool: string; hits: number; lastSeenTs: number };
+
+
+export type AgentMetricsSummary = {
+  execution?: { landedRate: number; avgSlipBps: number; p50Ttl: number; p95Ttl: number };
+  providers?: Record<string, { state?: string; status?: string; detail?: string; message?: string; lastSuccessTs?: number | null; lastSuccessAt?: string | null; lastEventTs?: number | null; lastPollTs?: number | null; apiKey?: boolean }>;
+  discovery?: {
+    providerCache?: {
+      hits?: number;
+      misses?: number;
+      byProvider?: Record<string, { hits?: number; misses?: number }>;
+    };
+  };
+  price?: { solUsdAgeSec: number | null; ok: boolean };
+};
