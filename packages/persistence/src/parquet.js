@@ -28,7 +28,7 @@ const candidateSchema = new parquetjs_lite_1.ParquetSchema({
     uniques60: { type: 'INT64' },
     spreadBps: { type: 'DOUBLE' },
     safetyOk: { type: 'BOOLEAN' },
-    ocrs: { type: 'DOUBLE' },
+    : { type: 'DOUBLE' },
     topicId: { type: 'UTF8', optional: true },
     matchScore: { type: 'DOUBLE', optional: true },
     poolAddress: { type: 'UTF8', optional: true },

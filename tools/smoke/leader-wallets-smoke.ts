@@ -55,7 +55,6 @@ async function main() {
     uniques60: 40,
     spreadBps: 45,
     safety: { ok: true, reasons: [] },
-    ocrs: 0.6,
     poolAddress: pool
   };
 
@@ -69,8 +68,7 @@ async function main() {
   };
 
   const leaderInfo = computeLeaderBoostInfo(candidate, leaderCfg, now);
-  const baseScore = candidate.ocrs;
-  const boostedScore = leaderInfo.applied ? baseScore + leaderCfg.rankBoost : baseScore;
+  const baseScore = candidate.;
   const baseSize = 2;
   const boostedSize = applyLeaderSizeBoost(baseSize, candidate, walletSnapshot, leaderCfg, leaderInfo, {
     perNameCapFraction: config.wallet.perNameCapFraction,
@@ -79,7 +77,7 @@ async function main() {
     flowCapFraction: config.wallet.flowCapFraction
   });
 
-  const boostApplied = leaderInfo.applied && boostedScore > baseScore && boostedSize > baseSize;
+  const boostApplied = leaderInfo.applied && boostedSize > baseSize;
 
   console.log(`leader-smoke: hits=${hits.length}, scoreUpdated=${scoreRecorded}, boostApplied=${boostApplied}`);
   if (!scoreRecorded || !boostApplied) {

@@ -105,7 +105,7 @@ export declare function getCandidateByMint(mint: string): TokenCandidate | undef
 export declare function listRecentCandidates(limit?: number): Array<{
     mint: string;
     name: string;
-    ocrs: number;
+    : number;
     lp: number;
     buys: number;
     sells: number;

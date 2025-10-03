@@ -7,7 +7,6 @@ export interface AgentSnapshot {
   candidates?: Array<{
     mint: string;
     name: string;
-    ocrs: number;
     lp: number;
     buys: number;
     sells: number;

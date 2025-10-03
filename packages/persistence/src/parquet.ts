@@ -17,9 +17,7 @@ const candidateSchema = new ParquetSchema({
   sells60: { type: 'INT64' },
   uniques60: { type: 'INT64' },
   spreadBps: { type: 'DOUBLE' },
-  safetyOk: { type: 'BOOLEAN' },
-  ocrs: { type: 'DOUBLE' },
-  topicId: { type: 'UTF8', optional: true },
+  safetyOk: { type: 'BOOLEAN' },  topicId: { type: 'UTF8', optional: true },
   matchScore: { type: 'DOUBLE', optional: true },
   poolAddress: { type: 'UTF8', optional: true },
   lpMint: { type: 'UTF8', optional: true },
@@ -187,7 +185,6 @@ export async function appendCandidateParquet(record: {
   uniques60: number;
   spreadBps: number;
   safetyOk: boolean;
-  ocrs: number;
   topicId?: string;
   matchScore?: number;
   poolAddress?: string;

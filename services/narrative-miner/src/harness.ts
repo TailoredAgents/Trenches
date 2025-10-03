@@ -69,7 +69,6 @@ async function run(): Promise<void> {
     uniques60: 48,
     spreadBps: 55,
     safety: { ok: true, reasons: [] },
-    ocrs: 0.82,
     poolAddress: 'PoolAddress',
     lpMint: 'LpMint',
     poolCoinAccount: 'CoinAcct',

@@ -10,7 +10,7 @@ export declare function appendCandidateParquet(record: {
     uniques60: number;
     spreadBps: number;
     safetyOk: boolean;
-    ocrs: number;
+    : number;
     topicId?: string;
     matchScore?: number;
     poolAddress?: string;

@@ -55,7 +55,7 @@ export type TokenCandidate = {
   uniques60: number;
   spreadBps: number;
   safety: { ok: boolean; reasons: string[] };
-  ocrs: number;
+
   rugProb?: number;
   topicId?: string;
   matchScore?: number;

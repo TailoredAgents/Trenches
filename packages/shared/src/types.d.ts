@@ -54,7 +54,6 @@ export type TokenCandidate = {
         ok: boolean;
         reasons: string[];
     };
-    ocrs: number;
     topicId?: string;
     matchScore?: number;
     poolAddress?: string;
@@ -133,7 +132,6 @@ export interface Snapshot {
     candidates: Array<{
         mint: string;
         name: string;
-        ocrs: number;
         lp: number;
         buys: number;
         sells: number;

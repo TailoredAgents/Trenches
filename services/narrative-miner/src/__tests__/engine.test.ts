@@ -164,7 +164,7 @@ describe('Matcher', () => {
       uniques60: 18,
       spreadBps: 50,
       safety: { ok: true, reasons: [] },
-      ocrs: 0.75
+      
     };
 
     const now = Date.now();
@@ -235,7 +235,7 @@ describe('InMemoryNarrativePersistence', () => {
       uniques60: 18,
       spreadBps: 45,
       safety: { ok: true, reasons: [] },
-      ocrs: 0.72
+      
     };
     await persistence.storeCandidate(candidate);
 

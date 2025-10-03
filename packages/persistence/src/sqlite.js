@@ -117,7 +117,7 @@ const MIGRATIONS = [
 
         safety_reasons TEXT NOT NULL,
 
-        ocrs REAL NOT NULL,
+         REAL NOT NULL,
 
         topic_id TEXT,
 
@@ -785,8 +785,8 @@ function storeTokenCandidate(candidate) {
     candidateWriteQueue.push(() => {
         const database = getDb();
         database
-            .prepare(`INSERT INTO candidates (mint, name, symbol, source, age_sec, lp_sol, buys60, sells60, uniques60, spread_bps, safety_ok, safety_reasons, ocrs, topic_id, match_score, pool_address, lp_mint, pool_coin_account, pool_pc_account)
-              VALUES (@mint, @name, @symbol, @source, @ageSec, @lpSol, @buys60, @sells60, @uniques60, @spreadBps, @safetyOk, @safetyReasons, @ocrs, @topicId, @matchScore, @poolAddress, @lpMint, @poolCoinAccount, @poolPcAccount)
+            .prepare(`INSERT INTO candidates (mint, name, symbol, source, age_sec, lp_sol, buys60, sells60, uniques60, spread_bps, safety_ok, safety_reasons, , topic_id, match_score, pool_address, lp_mint, pool_coin_account, pool_pc_account)
+              VALUES (@mint, @name, @symbol, @source, @ageSec, @lpSol, @buys60, @sells60, @uniques60, @spreadBps, @safetyOk, @safetyReasons, @, @topicId, @matchScore, @poolAddress, @lpMint, @poolCoinAccount, @poolPcAccount)
               ON CONFLICT(mint) DO UPDATE SET
                 name = excluded.name,
                 symbol = excluded.symbol,
@@ -799,7 +799,7 @@ function storeTokenCandidate(candidate) {
                 spread_bps = excluded.spread_bps,
                 safety_ok = excluded.safety_ok,
                 safety_reasons = excluded.safety_reasons,
-                ocrs = excluded.ocrs,
+                 = excluded.,
                 topic_id = excluded.topic_id,
                 match_score = excluded.match_score,
                 pool_address = excluded.pool_address,
@@ -1030,7 +1030,7 @@ function listOpenPositions() {
 function getCandidateByMint(mint) {
     const database = getDb();
     const row = database
-        .prepare(`SELECT mint, name, symbol, source, age_sec, lp_sol, buys60, sells60, uniques60, spread_bps, safety_ok, safety_reasons, ocrs, topic_id, match_score, pool_address, lp_mint, pool_coin_account, pool_pc_account FROM candidates WHERE mint = ?`)
+        .prepare(`SELECT mint, name, symbol, source, age_sec, lp_sol, buys60, sells60, uniques60, spread_bps, safety_ok, safety_reasons, , topic_id, match_score, pool_address, lp_mint, pool_coin_account, pool_pc_account FROM candidates WHERE mint = ?`)
         .get(mint);
     if (!row)
         return undefined;
@@ -1047,7 +1047,7 @@ function getCandidateByMint(mint) {
         uniques60: row.uniques60 ?? 0,
         spreadBps: row.spread_bps ?? 0,
         safety: { ok: Boolean(row.safety_ok), reasons: safeParseArray(row.safety_reasons) },
-        ocrs: row.ocrs ?? 0,
+        : row. ?? 0,
         topicId: row.topic_id ?? undefined,
         matchScore: row.match_score ?? undefined,
         poolAddress: row.pool_address ?? undefined,
@@ -1060,7 +1060,7 @@ function getCandidateByMint(mint) {
 function listRecentCandidates(limit = 30) {
     const database = getDb();
     const rows = database
-        .prepare(`SELECT mint, name, ocrs, lp_sol AS lp, buys60 AS buys, sells60 AS sells, uniques60 AS uniques, safety_ok AS safety_ok
+        .prepare(`SELECT mint, name, , lp_sol AS lp, buys60 AS buys, sells60 AS sells, uniques60 AS uniques, safety_ok AS safety_ok
        FROM candidates
        ORDER BY updated_at DESC
        LIMIT @limit`)
@@ -1068,7 +1068,7 @@ function listRecentCandidates(limit = 30) {
     return rows.map((r) => ({
         mint: r.mint,
         name: r.name,
-        ocrs: r.ocrs ?? 0,
+        : r. ?? 0,
         lp: r.lp ?? 0,
         buys: r.buys ?? 0,
         sells: r.sells ?? 0,

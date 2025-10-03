@@ -86,9 +86,7 @@ const MIGRATIONS: Migration[] = [
 
         safety_ok INTEGER NOT NULL,
 
-        safety_reasons TEXT NOT NULL,
-
-        ocrs REAL NOT NULL,
+        safety_reasons TEXT NOT NULL
 
         topic_id TEXT,
 
@@ -828,11 +826,7 @@ export function storeTopicEvent(event: TopicEvent) {
 
 
 
-    .run({
-
-
-
-      topicId: event.topicId,
+    .run({    topicId: event.topicId,
 
 
 
@@ -1074,8 +1068,8 @@ export function storeTokenCandidate(candidate: TokenCandidate) {
   candidateWriteQueue.push(() => {
     const database = getDb();
     database
-      .prepare(`INSERT INTO candidates (mint, name, symbol, source, age_sec, lp_sol, buys60, sells60, uniques60, spread_bps, safety_ok, safety_reasons, ocrs, topic_id, match_score, pool_address, lp_mint, pool_coin_account, pool_pc_account)
-              VALUES (@mint, @name, @symbol, @source, @ageSec, @lpSol, @buys60, @sells60, @uniques60, @spreadBps, @safetyOk, @safetyReasons, @ocrs, @topicId, @matchScore, @poolAddress, @lpMint, @poolCoinAccount, @poolPcAccount)
+      .prepare(`INSERT INTO candidates (mint, name, symbol, source, age_sec, lp_sol, buys60, sells60, uniques60, spread_bps, safety_ok, safety_reasons, topic_id, match_score, pool_address, lp_mint, pool_coin_account, pool_pc_account)
+              VALUES (@mint, @name, @symbol, @source, @ageSec, @lpSol, @buys60, @sells60, @uniques60, @spreadBps, @safetyOk, @safetyReasons, @topicId, @matchScore, @poolAddress, @lpMint, @poolCoinAccount, @poolPcAccount)
               ON CONFLICT(mint) DO UPDATE SET
                 name = excluded.name,
                 symbol = excluded.symbol,
@@ -1087,9 +1081,7 @@ export function storeTokenCandidate(candidate: TokenCandidate) {
                 uniques60 = excluded.uniques60,
                 spread_bps = excluded.spread_bps,
                 safety_ok = excluded.safety_ok,
-                safety_reasons = excluded.safety_reasons,
-                ocrs = excluded.ocrs,
-                topic_id = excluded.topic_id,
+                safety_reasons = excluded.safety_reasons, topic_id = excluded.topic_id,
                 match_score = excluded.match_score,
                 pool_address = excluded.pool_address,
                 lp_mint = excluded.lp_mint,
@@ -1414,7 +1406,7 @@ export function listOpenPositions(): Array<{ mint: string; quantity: number; ave
 export function getCandidateByMint(mint: string): TokenCandidate | undefined {
   const database = getDb();
   const row = database
-    .prepare(`SELECT mint, name, symbol, source, age_sec, lp_sol, buys60, sells60, uniques60, spread_bps, safety_ok, safety_reasons, ocrs, topic_id, match_score, pool_address, lp_mint, pool_coin_account, pool_pc_account FROM candidates WHERE mint = ?`)
+    .prepare(`SELECT mint, name, symbol, source, age_sec, lp_sol, buys60, sells60, uniques60, spread_bps, safety_ok, safety_reasons, topic_id, match_score, pool_address, lp_mint, pool_coin_account, pool_pc_account FROM candidates WHERE mint = ?`)
     .get(mint) as
     | {
         mint: string;
@@ -1428,8 +1420,7 @@ export function getCandidateByMint(mint: string): TokenCandidate | undefined {
         uniques60: number;
         spread_bps: number;
         safety_ok: number;
-        safety_reasons: string;
-        ocrs: number;
+        safety_reasons: string;
         topic_id: string | null;
         match_score: number | null;
         pool_address?: string | null;
@@ -1451,9 +1442,7 @@ export function getCandidateByMint(mint: string): TokenCandidate | undefined {
     sells60: row.sells60 ?? 0,
     uniques60: row.uniques60 ?? 0,
     spreadBps: row.spread_bps ?? 0,
-    safety: { ok: Boolean(row.safety_ok), reasons: safeParseArray(row.safety_reasons) },
-    ocrs: row.ocrs ?? 0,
-    topicId: row.topic_id ?? undefined,
+    safety: { ok: Boolean(row.safety_ok), reasons: safeParseArray(row.safety_reasons) },    topicId: row.topic_id ?? undefined,
     matchScore: row.match_score ?? undefined,
     poolAddress: row.pool_address ?? undefined,
     lpMint: row.lp_mint ?? undefined,
@@ -1465,8 +1454,7 @@ export function getCandidateByMint(mint: string): TokenCandidate | undefined {
 
 export function listRecentCandidates(limit = 30): Array<{
   mint: string;
-  name: string;
-  ocrs: number;
+  name: string;
   lp: number;
   buys: number;
   sells: number;
@@ -1478,15 +1466,14 @@ export function listRecentCandidates(limit = 30): Array<{
   const database = getDb();
   const rows = database
     .prepare(
-      `SELECT mint, name, ocrs, lp_sol AS lp, buys60 AS buys, sells60 AS sells, uniques60 AS uniques, safety_ok AS safety_ok, pool_address AS pool, lp_mint AS lpMint
+      `SELECT mint, name, lp_sol AS lp, buys60 AS buys, sells60 AS sells, uniques60 AS uniques, safety_ok AS safety_ok, pool_address AS pool, lp_mint AS lpMint
        FROM candidates
        ORDER BY updated_at DESC
        LIMIT @limit`
     )
     .all({ limit }) as Array<{
       mint: string;
-      name: string;
-      ocrs: number;
+      name: string;
       lp: number;
       buys: number;
       sells: number;
@@ -1498,7 +1485,7 @@ export function listRecentCandidates(limit = 30): Array<{
   return rows.map((r) => ({
     mint: r.mint,
     name: r.name,
-    ocrs: r.ocrs ?? 0,
+    
     lp: r.lp ?? 0,
     buys: r.buys ?? 0,
     sells: r.sells ?? 0,

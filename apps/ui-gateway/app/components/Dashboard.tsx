@@ -458,7 +458,7 @@ export default function Dashboard({ agentBaseUrl }: { agentBaseUrl: string }) {
                   ) : null}
                 </div>
                 <div style={{ textAlign: 'right', minWidth: 180 }}>
-                  <div className="chip" style={{ marginBottom: 6 }}>OCRS {formatNumber(cand.ocrs, 2)}</div>
+                  
                   <div style={{ fontSize: 12, color: '#9aa5c4' }}>{cand.buys} buys / {cand.sells} sells / uniques {cand.uniques}</div>
                   {cand.leaderHits && cand.leaderHits > 0 ? (
                     <div style={{ fontSize: 12, color: '#10b981', marginTop: 4 }}>Leader hits: {cand.leaderHits}</div>

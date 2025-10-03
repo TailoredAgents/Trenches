@@ -51,7 +51,6 @@ export async function buildCandidate(ctx: CandidateContext): Promise<TokenCandid
     uniques60,
     spreadBps,
     safety: { ok: false, reasons: ['pending_safety_review'] },
-    ocrs: 0,
     topicId: undefined,
     matchScore: undefined
   };
