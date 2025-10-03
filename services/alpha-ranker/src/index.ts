@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import EventSource from 'eventsource';
-import { createSSEClient, createInMemoryLastEventIdStore } from '@trenches/util';
+import { createInMemoryLastEventIdStore, subscribeJsonStream, sseQueue, sseRoute } from '@trenches/util';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -22,34 +22,25 @@ async function bootstrap() {
   await app.register(fastifySse as any);
 
   const url = `http://127.0.0.1:${cfg.services.safetyEngine.port}/events/safe`;
-  const subscribers = new Set<(s: CandidateScore) => void>();
   const last: CandidateScore[] = [];
   const eventStore = createInMemoryLastEventIdStore();
-  const sse = createSSEClient(url, {
+  const sse = subscribeJsonStream<Candidate>(url, {
     lastEventIdStore: eventStore,
     eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }) as any,
     onOpen: () => logger.info({ url }, 'connected to safety stream'),
     onError: (err, attempt) => logger.error({ err, attempt }, 'safety stream error'),
-    onEvent: async (evt) => {
-      if (!evt?.data || evt.data === 'ping') {
-        return;
-      }
-      try {
-        const c = JSON.parse(evt.data) as Candidate;
-        const s = scoreCandidate(c);
-        const ts = Date.now();
-        for (const h of (cfg.alpha?.horizons ?? ['10m'])) {
-          const row: CandidateScore = { ts, mint: c.mint, horizon: h as any, score: s, features: {} };
-          last.push(row);
-          try {
-            insertScore(row);
-          } catch (err) {
-            logger.warn({ err, mint: c.mint }, 'failed to persist score');
-          }
-          for (const sub of subscribers) sub(row);
+    onParseError: (err) => logger.error({ err }, 'failed to parse candidate'),
+    onMessage: async (c) => {
+      const s = scoreCandidate(c);
+      const ts = Date.now();
+      for (const h of (cfg.alpha?.horizons ?? ['10m'])) {
+        const row: CandidateScore = { ts, mint: c.mint, horizon: h as any, score: s, features: {} };
+        last.push(row);
+        try {
+          insertScore(row);
+        } catch (err) {
+          logger.warn({ err, mint: c.mint }, 'failed to persist score');
         }
-      } catch (err) {
-        logger.error({ err }, 'failed to parse candidate');
       }
     }
   });
@@ -77,18 +68,21 @@ async function bootstrap() {
   process.on('SIGINT', () => sse.dispose());
   process.on('SIGTERM', () => sse.dispose());
 
-  app.get('/events/scores', async (req, reply) => {
-    const iterator = (async function* () {
-      while (true) {
-        const row = last.shift();
-        if (row) {
-          yield { data: JSON.stringify(row) };
-        } else {
-          await new Promise((r) => setTimeout(r, 100));
-        }
+  app.get('/events/scores', async (_req, reply) => {
+    const stream = sseQueue<CandidateScore>();
+    let stopped = false;
+    const interval = setInterval(() => {
+      if (stopped) return;
+      const row = last.shift();
+      if (row) {
+        stream.push(row);
       }
-    })();
-    reply.sse(iterator);
+    }, 100);
+    sseRoute(reply, stream.iterator, () => {
+      stopped = true;
+      clearInterval(interval);
+      stream.close();
+    });
   });
 
   app.get('/healthz', async () => ({ status: 'ok', alpha: cfg.alpha }));

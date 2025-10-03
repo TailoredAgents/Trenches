@@ -7,7 +7,7 @@ import fastifySse from 'fastify-sse-v2';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
 import { getRegistry, registerCounter, registerHistogram } from '@trenches/metrics';
-import { createRpcConnection, TtlCache } from '@trenches/util';
+import { createRpcConnection, TtlCache, sseQueue, sseRoute } from '@trenches/util';
 import { insertMigrationEvent, createWriteQueue } from '@trenches/persistence';
 
 type MigrationEvent = { ts: number; mint: string; pool: string; source: 'pumpfun' | 'pumpswap' | 'raydium'; initSig: string };
@@ -28,37 +28,25 @@ async function bootstrap() {
   const dedupTotal = registerCounter({ name: 'migration_watcher_dedup_total', help: 'Total deduplicated events' });
   const emitLatency = registerHistogram({ name: 'migration_emit_latency_ms', help: 'RPC log to SSE emit latency', buckets: [10, 50, 100, 200, 400, 900, 2000] });
 
-  // SSE subscribers
-  const subscribers = new Set<(e: MigrationEvent) => void>();
+  // SSE queue (shared buffer drained by routes to preserve behavior)
   const queue: MigrationEvent[] = [];
   function emit(e: MigrationEvent) {
     queue.push(e);
-    for (const sub of subscribers) {
-      try { sub(e); } catch {}
-    }
   }
 
-  app.get('/events/migrations', async (request, reply) => {
-    const iterator = (async function* () {
-      const on = (e: MigrationEvent) => {
-        // push immediately
-      };
-      const sendQueue = async function* () {
-        while (true) {
-          const e = queue.shift();
-          if (e) {
-            yield { data: JSON.stringify(e) };
-          } else {
-            await new Promise((r) => setTimeout(r, 50));
-          }
-        }
-      };
-      for await (const chunk of sendQueue()) {
-        yield chunk as any;
-      }
-      return undefined as never;
-    })();
-    reply.sse(iterator);
+  app.get('/events/migrations', async (_request, reply) => {
+    const stream = sseQueue<MigrationEvent>();
+    let stopped = false;
+    const interval = setInterval(() => {
+      if (stopped) return;
+      const e = queue.shift();
+      if (e) stream.push(e);
+    }, 50);
+    sseRoute(reply, stream.iterator, () => {
+      stopped = true;
+      clearInterval(interval);
+      stream.close();
+    });
   });
 
   app.get('/metrics', async (_, reply) => {
