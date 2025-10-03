@@ -826,7 +826,8 @@ export function storeTopicEvent(event: TopicEvent) {
 
 
 
-    .run({    topicId: event.topicId,
+    .run({
+    topicId: event.topicId,
 
 
 
@@ -1420,7 +1421,8 @@ export function getCandidateByMint(mint: string): TokenCandidate | undefined {
         uniques60: number;
         spread_bps: number;
         safety_ok: number;
-        safety_reasons: string;
+        safety_reasons: string;
+
         topic_id: string | null;
         match_score: number | null;
         pool_address?: string | null;
@@ -1442,7 +1444,8 @@ export function getCandidateByMint(mint: string): TokenCandidate | undefined {
     sells60: row.sells60 ?? 0,
     uniques60: row.uniques60 ?? 0,
     spreadBps: row.spread_bps ?? 0,
-    safety: { ok: Boolean(row.safety_ok), reasons: safeParseArray(row.safety_reasons) },    topicId: row.topic_id ?? undefined,
+    safety: { ok: Boolean(row.safety_ok), reasons: safeParseArray(row.safety_reasons) },
+    topicId: row.topic_id ?? undefined,
     matchScore: row.match_score ?? undefined,
     poolAddress: row.pool_address ?? undefined,
     lpMint: row.lp_mint ?? undefined,
@@ -1454,7 +1457,8 @@ export function getCandidateByMint(mint: string): TokenCandidate | undefined {
 
 export function listRecentCandidates(limit = 30): Array<{
   mint: string;
-  name: string;
+  name: string;
+
   lp: number;
   buys: number;
   sells: number;
@@ -1473,7 +1477,8 @@ export function listRecentCandidates(limit = 30): Array<{
     )
     .all({ limit }) as Array<{
       mint: string;
-      name: string;
+      name: string;
+
       lp: number;
       buys: number;
       sells: number;
@@ -1830,6 +1835,59 @@ export function listRecentSocialPosts(sinceTs: number): Array<{ author: string; 
     .prepare(`SELECT author_id AS author, text, CAST(strftime('%s', captured_at) AS INTEGER) * 1000 AS ts, platform FROM social_posts WHERE CAST(strftime('%s', captured_at) AS INTEGER) * 1000 >= ? ORDER BY captured_at DESC LIMIT 5000`)
     .all(sinceTs) as Array<{ author: string; text: string; ts: number; platform: string }>;
   return rows.map((r) => ({ author: String(r.author ?? ''), text: String(r.text ?? ''), ts: Number(r.ts ?? 0), platform: String(r.platform ?? '') }));
+}
+
+
+export function getAuthorFeatures(authors: string[]): Record<string, { quality: number; posts24h: number; lastCalcTs: number }> {
+  if (!authors || authors.length === 0) {
+    return {};
+  }
+  const unique = Array.from(new Set(authors.filter((a) => typeof a === 'string' && a.length > 0)));
+  if (unique.length === 0) {
+    return {};
+  }
+  const database = getDb();
+  const placeholders = unique.map((_, idx) => `@a${idx}`).join(', ');
+  const stmt = database.prepare(`SELECT author, quality, posts24h, lastCalcTs FROM author_features WHERE author IN (${placeholders})`);
+  const params: Record<string, string> = {};
+  unique.forEach((author, idx) => {
+    params[`a${idx}`] = author;
+  });
+  const rows = stmt.all(params) as Array<{ author: string; quality: number; posts24h: number; lastCalcTs: number }>;
+  const out: Record<string, { quality: number; posts24h: number; lastCalcTs: number }> = {};
+  for (const row of rows) {
+    if (!row || typeof row.author !== 'string') continue;
+    out[row.author] = {
+      quality: Number(row.quality ?? 0),
+      posts24h: Number(row.posts24h ?? 0),
+      lastCalcTs: Number(row.lastCalcTs ?? 0)
+    };
+  }
+  return out;
+}
+
+export function listAuthorsByKeywords(keywords: string[], sinceTs: number, limit = 200): string[] {
+  const terms = Array.from(new Set((keywords ?? []).map((k) => (k ?? '').toLowerCase()).filter((k) => k.length > 1)));
+  if (terms.length === 0) {
+    return [];
+  }
+  const database = getDb();
+  const clauses = terms.map((_, idx) => `LOWER(text) LIKE @k${idx}`);
+  const sql = `SELECT DISTINCT author_id AS author
+    FROM social_posts
+    WHERE CAST(strftime('%s', captured_at) AS INTEGER) * 1000 >= @since
+      AND (${clauses.join(' OR ')})
+    ORDER BY captured_at DESC
+    LIMIT @limit`;
+  const stmt = database.prepare(sql);
+  const params: Record<string, unknown> = { since: sinceTs, limit };
+  terms.forEach((term, idx) => {
+    params[`k${idx}`] = `%${term}%`;
+  });
+  const rows = stmt.all(params) as Array<{ author: string | null | undefined }>;
+  return rows
+    .map((row) => (row.author ?? '').toString())
+    .filter((author) => author.length > 0);
 }
 
 export function upsertAuthorFeature(row: { author: string; quality: number; posts24h: number; lastCalcTs: number }): void {

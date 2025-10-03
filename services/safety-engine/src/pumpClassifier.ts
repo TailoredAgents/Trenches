@@ -1,28 +1,20 @@
-import fs from 'fs';
+﻿import fs from 'fs';
 
-type PumpModel = { dim: number; weights: number[]; bias: number };
+type PumpModel = {
+  dim: number;
+  weights: number[];
+  bias: number;
+  embedder?: { type?: string; name?: string; dim?: number };
+};
+
 let model: PumpModel | null = null;
-
-function ensureModel(): void {
-  if (model !== null) return;
-  try {
-    const path = 'models/pump_classifier_v1.json';
-    if (fs.existsSync(path)) {
-      const raw = JSON.parse(fs.readFileSync(path, 'utf-8')) as PumpModel;
-      if (Array.isArray(raw.weights) && typeof raw.bias === 'number' && typeof raw.dim === 'number') {
-        model = raw;
-        return;
-      }
-    }
-  } catch {}
-  model = null;
-}
+let embedDim = 512;
 
 function tokenize(text: string): string[] {
   return text.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2).slice(0, 200);
 }
 
-function featurize(text: string, dim = 512): number[] {
+function hashEmbed(text: string, dim = 512): number[] {
   const vec = new Array(dim).fill(0);
   const toks = tokenize(text);
   for (const t of toks) {
@@ -39,19 +31,50 @@ function featurize(text: string, dim = 512): number[] {
   return vec;
 }
 
+function ensureModel(): void {
+  if (model !== null) return;
+  try {
+    const path = 'models/pump_classifier_v1.json';
+    if (fs.existsSync(path)) {
+      const raw = JSON.parse(fs.readFileSync(path, 'utf-8')) as PumpModel;
+      if (Array.isArray(raw.weights) && typeof raw.bias === 'number') {
+        model = raw;
+        embedDim = raw.dim ?? raw.weights.length;
+        return;
+      }
+    }
+  } catch {}
+  model = null;
+  embedDim = 512;
+}
+
+function sigmoid(z: number): number {
+  return 1 / (1 + Math.exp(-z));
+}
+
 export function scoreText(text: string): number {
   ensureModel();
   const fallback = 0.5;
   if (!model) {
-    // Heuristic fallback: keywords boost
-    const s = text.toLowerCase();
-    const hype = /(pump|100x|moon|rocket|lambo|airdrop|instant)/.test(s) ? 0.7 : 0.4;
-    return hype;
+    const lower = text.toLowerCase();
+    if (/(pump|100x|lambo|moon|rocket)/.test(lower)) {
+      return 0.7;
+    }
+    if (/(roadmap|dev update|audit|open source)/.test(lower)) {
+      return 0.35;
+    }
+    return fallback;
   }
-  const x = featurize(text, model.dim);
+  const dim = model.dim ?? embedDim;
+  const vec = hashEmbed(text, dim);
   let z = model.bias;
-  for (let i = 0; i < model.dim && i < model.weights.length; i += 1) z += model.weights[i] * x[i];
-  const p = 1 / (1 + Math.exp(-z));
-  return Number.isFinite(p) ? p : fallback;
+  const limit = Math.min(dim, model.weights.length);
+  for (let i = 0; i < limit; i += 1) {
+    z += model.weights[i] * vec[i];
+  }
+  const p = sigmoid(z);
+  if (!Number.isFinite(p)) {
+    return fallback;
+  }
+  return Math.min(0.999, Math.max(0.001, p));
 }
-

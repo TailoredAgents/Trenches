@@ -1,38 +1,53 @@
-import { listRecentSocialPosts, upsertAuthorFeature } from '../../packages/persistence/src/sqlite';
+﻿import { getDb, storeSocialPost, getAuthorFeatures } from '../../packages/persistence/src/sqlite';
+import { runFeaturesJobOnce } from '../../services/features-job/src/index';
+import type { SocialPost } from '../../packages/shared/src/types';
 
-function computeQuality(posts: Array<{ author: string; text: string; ts: number; platform: string }>, minPosts: number): Map<string, { quality: number; count: number }> {
-  const byAuthor = new Map<string, Array<{ text: string; ts: number }>>();
-  for (const p of posts) {
-    const arr = byAuthor.get(p.author) ?? [];
-    arr.push({ text: p.text, ts: p.ts });
-    byAuthor.set(p.author, arr);
-  }
-  const out = new Map<string, { quality: number; count: number }>();
-  for (const [author, arr] of byAuthor.entries()) {
-    const count = arr.length;
-    if (count < minPosts) continue;
-    const lengths = arr.map((x) => Math.min(280, x.text.length));
-    const meanLen = lengths.reduce((a, b) => a + b, 0) / count;
-    const quality = Math.min(1, (meanLen / 140) * Math.log1p(count) / Math.log1p(minPosts * 2));
-    out.set(author, { quality, count });
-  }
-  return out;
+const AUTHORS = ['smoke_author_alpha', 'smoke_author_beta'];
+
+function createPost(author: string, text: string, timestamp: number): SocialPost {
+  return {
+    id: `${author}-${timestamp}`,
+    platform: 'farcaster',
+    authorId: author,
+    authorHandle: author,
+    text,
+    lang: 'en',
+    link: '',
+    topics: [],
+    tags: [],
+    publishedAt: new Date(timestamp).toISOString(),
+    capturedAt: new Date(timestamp).toISOString(),
+    engagement: {},
+    raw: {},
+    source: 'features-smoke'
+  };
 }
 
 async function main(): Promise<void> {
+  const db = getDb();
+  // Clear prior smoke artifacts
+  db.prepare("DELETE FROM social_posts WHERE author_id LIKE 'smoke_author_%'").run();
+  db.prepare("DELETE FROM author_features WHERE author LIKE 'smoke_author_%'").run();
+
   const now = Date.now();
-  // Insert fake posts via direct SQL if needed is non-trivial here; assume data exists or skip
-  const since = now - 24 * 60 * 60 * 1000;
-  const posts = listRecentSocialPosts(since);
-  const agg = computeQuality(posts, 5);
-  let sum = 0; let n = 0;
-  for (const [author, row] of agg.entries()) {
-    upsertAuthorFeature({ author, quality: row.quality, posts24h: row.count, lastCalcTs: now });
-    sum += row.quality; n += 1;
+  const offsets = [15, 45, 90, 160, 240, 360];
+  for (const author of AUTHORS) {
+    offsets.forEach((mins, idx) => {
+      const ts = now - mins * 60 * 1000 - idx * 250;
+      const text = `${author} signal ${idx} pump or dev update ${idx % 2 === 0 ? 'launch' : 'build'}`;
+      storeSocialPost(createPost(author, text, ts));
+    });
   }
-  const avg = n ? (sum / n) : 0;
-  console.log(`features-smoke: authors=${n} avgQuality=${avg.toFixed(3)}`);
+
+  const stats = await runFeaturesJobOnce();
+  const features = getAuthorFeatures(AUTHORS);
+  const authorsSeen = Object.keys(features);
+  const avgQuality = authorsSeen.length
+    ? authorsSeen.reduce((sum, a) => sum + (features[a]?.quality ?? 0), 0) / authorsSeen.length
+    : 0;
+  console.log(
+    `features-smoke: authors=${authorsSeen.length} avgQuality=${avgQuality.toFixed(3)} fallback=${stats.fallback}`
+  );
 }
 
 void main();
-

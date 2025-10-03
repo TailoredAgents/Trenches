@@ -45,6 +45,7 @@ const baseConfig: TrenchesConfig = configSchema.parse({
     narrativeMiner: { port: 4017 },
     migrationWatcher: { port: 4018 },
     leaderWallets: { port: 4019 },
+    featuresJob: { port: 4020 },
     metrics: { port: 8090 }
   },
   gating: {
@@ -198,7 +199,8 @@ const baseConfig: TrenchesConfig = configSchema.parse({
     gdelt: { enabled: true, pollIntervalSec: 900 }
   },
   leaderWallets: { enabled: true, watchMinutes: 5, minHitsForBoost: 1, scoreHalfLifeDays: 14, rankBoost: 0.03, sizeTierBoost: 1 },
-  priceUpdater: { enabled: true, intervalMs: 60_000, staleWarnSec: 300, pythSolUsdPriceAccount: '' }
+  priceUpdater: { enabled: true, intervalMs: 60_000, staleWarnSec: 300, pythSolUsdPriceAccount: '' },
+  featuresJob: { enabled: true, intervalMs: 86_400_000, embedder: 'bge-small-en', lookbackHours: 24, minPostsPerAuthor: 5 }
 });
 
 function parseJsonRecord(value: string): Record<string, string> {

@@ -25,6 +25,8 @@ services:
     port: 4018
   leaderWallets:
     port: 4019
+  featuresJob:
+    port: 4020
   metrics:
     port: 8090
 gating:
@@ -281,6 +283,13 @@ lunarcrush:
     influencerBoost: 0.02
     maxBoost: 0.06
 
+
+featuresJob:
+  enabled: true
+  intervalMs: 86400000
+  embedder: bge-small-en
+  lookbackHours: 24
+  minPostsPerAuthor: 5
 
 features:
   migrationWatcher: true

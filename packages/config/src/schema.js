@@ -68,6 +68,7 @@ exports.configSchema = zod_1.z.object({
         narrativeMiner: zod_1.z.object({ port: zod_1.z.number().int().min(1).max(65535) }).default({ port: 4017 }),
         migrationWatcher: zod_1.z.object({ port: zod_1.z.number().int().min(1).max(65535) }).default({ port: 4018 }),
         leaderWallets: zod_1.z.object({ port: zod_1.z.number().int().min(1).max(65535) }).default({ port: 4019 }),
+        featuresJob: zod_1.z.object({ port: zod_1.z.number().int().min(1).max(65535) }).default({ port: 4020 }),
         metrics: zod_1.z.object({ port: zod_1.z.number().int().min(1).max(65535) }).default({ port: 8090 })
     }),
     gating: zod_1.z.object({

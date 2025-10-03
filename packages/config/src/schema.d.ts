@@ -310,6 +310,9 @@ export declare const configSchema: z.ZodObject<{
         leaderWallets: {
             port: number;
         };
+        featuresJob: {
+            port: number;
+        };
         metrics: {
             port: number;
         };
@@ -345,6 +348,9 @@ export declare const configSchema: z.ZodObject<{
             port: number;
         } | undefined;
         leaderWallets?: {
+            port: number;
+        } | undefined;
+        featuresJob?: {
             port: number;
         } | undefined;
         metrics?: {
@@ -1515,6 +1521,9 @@ export declare const configSchema: z.ZodObject<{
         leaderWallets: {
             port: number;
         };
+        featuresJob: {
+            port: number;
+        };
         metrics: {
             port: number;
         };
@@ -1868,6 +1877,9 @@ export declare const configSchema: z.ZodObject<{
             port: number;
         } | undefined;
         leaderWallets?: {
+            port: number;
+        } | undefined;
+        featuresJob?: {
             port: number;
         } | undefined;
         metrics?: {

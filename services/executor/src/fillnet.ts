@@ -77,10 +77,14 @@ export async function predictFill(ctx: PredictContext, persistCtx?: Record<strin
   try {
     pfillAvg.set(pFill); slipExpGauge.set(expSlipBps); timeExpGauge.set(expTimeMs);
     const p = pFill;
-    const bucket = p < 0.5 ? '[0.0,0.5)' : p < 0.7 ? '[0.5,0.7)' : p < 0.85 ? '[0.7,0.85)' : p < 0.95 ? '[0.85,0.95)' : '[0.95,1.0]';
+    const bucket = p < 0.5 ? '0-0.5' : p < 0.7 ? '0.5-0.7' : p < 0.85 ? '0.7-0.85' : p < 0.95 ? '0.85-0.95' : '0.95-1.0';
     calibBucket.inc({ bucket });
-    const expBrier = p * (1 - p); // expectation without label
-    brierGauge.set(expBrier);
+    const expectedBrier = p * (1 - p);
+    const prevBrier = (brierGauge as any)._ema ?? expectedBrier;
+    const alpha = 0.2;
+    const nextBrier = prevBrier + alpha * (expectedBrier - prevBrier);
+    (brierGauge as any)._ema = nextBrier;
+    brierGauge.set(nextBrier);
   } catch {}
   return pred;
 }

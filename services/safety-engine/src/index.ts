@@ -8,8 +8,7 @@ import { Connection } from '@solana/web3.js';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
 import { getRegistry } from '@trenches/metrics';
-import { insertRugVerdict } from '@trenches/persistence';
-import { storeTokenCandidate } from '@trenches/persistence';
+import { insertRugVerdict, storeTokenCandidate, listRecentSocialPosts } from '@trenches/persistence';
 import { TokenCandidate } from '@trenches/shared';
 import { TtlCache, createRpcConnection, createInMemoryLastEventIdStore, subscribeJsonStream, sseQueue, sseRoute } from '@trenches/util';
 import { SafetyEventBus } from './eventBus';
@@ -23,6 +22,34 @@ import { scoreText } from './pumpClassifier';
 import { SafetyEvaluation } from './types';
 const logger = createLogger('safety-engine');
 const EVALUATION_CACHE_MS = 30_000;
+const PUMP_KEYWORD_WINDOW_MS = 15 * 60 * 1000;
+
+function extractPumpKeywords(candidate: TokenCandidate): string[] {
+  const keywords = new Set<string>();
+  const symbol = (candidate.symbol ?? '').toLowerCase();
+  if (symbol.length > 1) {
+    keywords.add(symbol);
+    if (!symbol.startsWith('$') && symbol.length > 2) {
+      keywords.add(`$${symbol}`);
+    }
+  }
+  const name = (candidate.name ?? '').toLowerCase();
+  if (name) {
+    for (const part of name.split(/[^a-z0-9]+/)) {
+      if (part.length > 2) {
+        keywords.add(part);
+      }
+    }
+  }
+  return Array.from(keywords);
+}
+
+function textMatchesKeywords(text: string, keywords: string[]): boolean {
+  if (!keywords.length) return false;
+  const lower = text.toLowerCase();
+  return keywords.some((kw) => kw.length > 2 && lower.includes(kw));
+}
+
 
 async function bootstrap() {
   const config = loadConfig();
@@ -201,18 +228,35 @@ async function evaluateCandidate(
   if (rugGuardEnabled) {
     try {
       let pumpProb = 0.5;
+      let pumpSamples = 0;
       try {
-        pumpProb = scoreText(`${candidate.name ?? ''} ${candidate.symbol ?? ''}`);
-        pumpInferencesTotal.inc();
+        const keywords = extractPumpKeywords(candidate);
+        let matched: Array<{ text: string }> = [];
+        if (keywords.length > 0) {
+          const posts = listRecentSocialPosts(Date.now() - PUMP_KEYWORD_WINDOW_MS);
+          matched = posts.filter((post) => textMatchesKeywords(post.text, keywords)).slice(0, 60);
+        }
+        if (matched.length > 0) {
+          const scores = matched.map((post) => scoreText(post.text));
+          pumpSamples = scores.length;
+          pumpProb = scores.reduce((a, b) => a + b, 0) / pumpSamples;
+          pumpInferencesTotal.inc(pumpSamples);
+        } else {
+          const combined = `${candidate.name ?? ''} ${candidate.symbol ?? ''}`.trim();
+          pumpProb = combined ? scoreText(combined) : 0.5;
+          pumpInferencesTotal.inc();
+        }
         const prev = (rugguardAvgPumpProb as any)._last || { sum: 0, n: 0 };
         const sum = (prev.sum ?? 0) + pumpProb;
         const n = (prev.n ?? 0) + 1;
         (rugguardAvgPumpProb as any)._last = { sum, n };
         rugguardAvgPumpProb.set(sum / Math.max(1, n));
-      } catch {}
+      } catch (err) {
+        logger.warn({ err }, 'pump probability calculation failed');
+      }
       const verdict = await classify(candidate.mint, { ...candidateToFeatures(candidate), pumpProb }, { connection });
       rugProb = verdict.rugProb;
-      insertRugVerdict({ ts: verdict.ts, mint: verdict.mint, rugProb: verdict.rugProb, reasons: [...(verdict.reasons ?? []), `pump_prob:${pumpProb.toFixed(3)}`] });
+      insertRugVerdict({ ts: verdict.ts, mint: verdict.mint, rugProb: verdict.rugProb, reasons: [...(verdict.reasons ?? []), `pump_prob:${pumpProb.toFixed(3)}|samples:${pumpSamples}`] });
       if (verdict.reasons.includes('mint_or_freeze_active')) {
         reasons.push('mint_or_freeze_active');
       }

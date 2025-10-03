@@ -144,6 +144,9 @@ importers:
       '@solana/web3.js':
         specifier: ^1.91.5
         version: 1.98.4(bufferutil@4.0.9)(typescript@5.9.2)(utf-8-validate@5.0.10)
+      '@trenches/metrics':
+        specifier: workspace:*
+        version: link:../metrics
 
   services/agent-core:
     dependencies:
@@ -219,6 +222,36 @@ importers:
       node-fetch:
         specifier: ^3.3.2
         version: 3.3.2
+
+  services/features-job:
+    dependencies:
+      '@fastify/helmet':
+        specifier: ^11.1.1
+        version: 11.1.1
+      '@fastify/rate-limit':
+        specifier: ^8.1.1
+        version: 8.1.1
+      '@trenches/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@trenches/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
+      '@trenches/metrics':
+        specifier: workspace:*
+        version: link:../../packages/metrics
+      '@trenches/persistence':
+        specifier: workspace:*
+        version: link:../../packages/persistence
+      '@trenches/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@trenches/util':
+        specifier: workspace:*
+        version: link:../../packages/util
+      fastify:
+        specifier: ^4.28.0
+        version: 4.28.0
 
   services/leader-wallets:
     dependencies:

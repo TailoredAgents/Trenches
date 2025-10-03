@@ -70,6 +70,7 @@ export const configSchema = z.object({
     narrativeMiner: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4017 }),
     migrationWatcher: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4018 }),
     leaderWallets: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4019 }),
+    featuresJob: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4020 }),
     metrics: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 8090 })
   }),
   gating: z.object({lpMinSol: z.number().min(0).default(20),
