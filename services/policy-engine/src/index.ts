@@ -23,6 +23,7 @@ import { WalletManager } from './wallet';
 import { computeSizing } from './sizing';
 import { chooseSize } from './sizing_constrained';
 import { PlanEnvelope } from './types';
+import { createAlphaClient } from './clients/alphaClient';
 import { createRpcConnection } from '@trenches/util';
 
 const logger = createLogger('policy-engine');
@@ -57,6 +58,15 @@ async function bootstrap() {
   const walletManager = new WalletManager(connection);
   const walletReady = walletManager.isReady;
   const bandit = new LinUCBBandit(PLAN_FEATURE_DIM);
+
+  const alphaHorizons = (config.alpha?.horizons ?? ['10m', '60m', '24h']) as Array<'10m' | '60m' | '24h'>;
+  const alphaServices = (config as any).services ?? {};
+  const alphaPort = alphaServices.alphaRanker?.port as number | undefined;
+  const alphaClient = createAlphaClient({
+    baseUrl: alphaPort ? `http://127.0.0.1:${alphaPort}/events/scores` : null,
+    horizons: alphaHorizons,
+    maxEntries: 512
+  });
 
   await app.register(helmet as any, { global: true });
   await app.register(rateLimit as any, {
@@ -136,11 +146,8 @@ async function bootstrap() {
     const leaderInfo = computeLeaderBoostInfo(candidate, leaderConfig, now);
     try {
       if ((config as any).features?.alphaRanker) {
-        const db = getDb();
-        const row = db
-          .prepare('SELECT score FROM scores WHERE mint = ? AND horizon = ? ORDER BY ts DESC LIMIT 1')
-          .get(candidate.mint, '10m') as { score?: number } | undefined;
-        let sc = row?.score ?? 0;
+        const baseScore = alphaClient.getLatestScore(candidate.mint, '10m') ?? 0;
+        let sc = baseScore;
         if (leaderInfo.applied) {
           sc += leaderConfig.rankBoost;
         }
@@ -296,6 +303,11 @@ async function bootstrap() {
       disposeStream();
     } catch (err) {
       logger.error({ err }, 'failed to close candidate stream');
+    }
+    try {
+      alphaClient.dispose();
+    } catch (err) {
+      logger.error({ err }, 'failed to dispose alpha client');
     }
     process.exit(0);
   }
