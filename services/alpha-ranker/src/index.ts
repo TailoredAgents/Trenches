@@ -13,6 +13,7 @@ type Candidate = { mint: string; name?: string; symbol?: string; buys60?: number
 type CandidateScore = { ts: number; mint: string; horizon: '10m' | '60m' | '24h'; score: number; features: Record<string, number> };
 
 const logger = createLogger('alpha-ranker');
+const offline = process.env.NO_RPC === '1';
 
 function extractAlphaKeywords(candidate: Candidate): string[] {
   const keywords = new Set<string>();
@@ -43,46 +44,50 @@ async function bootstrap() {
 
   const url = `http://127.0.0.1:${cfg.services.safetyEngine.port}/events/safe`;
   const last: CandidateScore[] = [];
-  const eventStore = createInMemoryLastEventIdStore();
-  const sse = subscribeJsonStream<Candidate>(url, {
-    lastEventIdStore: eventStore,
-    eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }) as any,
-    onOpen: () => logger.info({ url }, 'connected to safety stream'),
-    onError: (err, attempt) => logger.error({ err, attempt }, 'safety stream error'),
-    onParseError: (err) => logger.error({ err }, 'failed to parse candidate'),
-    onMessage: async (candidate) => {
-      const ts = Date.now();
-      const horizons = cfg.alpha?.horizons ?? ['10m', '60m', '24h'];
-      const keywords = extractAlphaKeywords(candidate);
-      const authors = keywords.length > 0 ? listAuthorsByKeywords(keywords, ts - 60 * 60 * 1000, 200) : [];
-      const authorMentions = authors.length;
-      const featureRows = authorMentions > 0 ? getAuthorFeatures(authors) : {};
-      const values = authorMentions > 0 ? authors
-        .map((author) => featureRows[author]?.quality)
-        .filter((value): value is number => typeof value === 'number') : [];
-      let authorQualityMean = 0;
-      let authorQualityTop = 0;
-      if (values.length > 0) {
-        const sum = values.reduce((a, b) => a + b, 0);
-        authorQualityMean = sum / values.length;
-        const sorted = values.slice().sort((a, b) => b - a);
-        const topSlice = sorted.slice(0, Math.min(5, sorted.length));
-        authorQualityTop = topSlice.reduce((a, b) => a + b, 0) / topSlice.length;
-      } else if (authorMentions > 0) {
-        authorQualityMean = Math.min(1, Math.log1p(authorMentions) / Math.log1p(50)) * 0.4;
-      }
-      const result = scoreCandidate(candidate, { authorQualityMean, authorQualityTop, authorMentions });
-      for (const h of horizons) {
-        const row: CandidateScore = { ts, mint: candidate.mint, horizon: h as any, score: result.score, features: result.features };
-        last.push(row);
-        try {
-          insertScore(row);
-        } catch (err) {
-          logger.warn({ err, mint: candidate.mint }, 'failed to persist score');
+  let safetyClient: ReturnType<typeof subscribeJsonStream<Candidate>> | null = null;
+
+  const startSafetyStream = () => {
+    const eventStore = createInMemoryLastEventIdStore();
+    safetyClient = subscribeJsonStream<Candidate>(url, {
+      lastEventIdStore: eventStore,
+      eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }) as any,
+      onOpen: () => logger.info({ url }, 'connected to safety stream'),
+      onError: (err, attempt) => logger.error({ err, attempt }, 'safety stream error'),
+      onParseError: (err) => logger.error({ err }, 'failed to parse candidate'),
+      onMessage: async (candidate) => {
+        const ts = Date.now();
+        const horizons = cfg.alpha?.horizons ?? ['10m', '60m', '24h'];
+        const keywords = extractAlphaKeywords(candidate);
+        const authors = keywords.length > 0 ? listAuthorsByKeywords(keywords, ts - 60 * 60 * 1000, 200) : [];
+        const authorMentions = authors.length;
+        const featureRows = authorMentions > 0 ? getAuthorFeatures(authors) : {};
+        const values = authorMentions > 0 ? authors
+          .map((author) => featureRows[author]?.quality)
+          .filter((value): value is number => typeof value === 'number') : [];
+        let authorQualityMean = 0;
+        let authorQualityTop = 0;
+        if (values.length > 0) {
+          const sum = values.reduce((a, b) => a + b, 0);
+          authorQualityMean = sum / values.length;
+          const sorted = values.slice().sort((a, b) => b - a);
+          const topSlice = sorted.slice(0, Math.min(5, sorted.length));
+          authorQualityTop = topSlice.reduce((a, b) => a + b, 0) / topSlice.length;
+        } else if (authorMentions > 0) {
+          authorQualityMean = Math.min(1, Math.log1p(authorMentions) / Math.log1p(50)) * 0.4;
+        }
+        const result = scoreCandidate(candidate, { authorQualityMean, authorQualityTop, authorMentions });
+        for (const h of horizons) {
+          const row: CandidateScore = { ts, mint: candidate.mint, horizon: h as any, score: result.score, features: result.features };
+          last.push(row);
+          try {
+            insertScore(row);
+          } catch (err) {
+            logger.warn({ err, mint: candidate.mint }, 'failed to persist score');
+          }
         }
       }
-    }
-  });
+    });
+  };
 
   function scoreCandidate(c: Candidate, extras: { authorQualityMean: number; authorQualityTop: number; authorMentions: number }): { score: number; features: Record<string, number> } {
     const buys = c.buys60 ?? 0;
@@ -119,8 +124,8 @@ async function bootstrap() {
     };
   }
 
-  process.on('SIGINT', () => sse.dispose());
-  process.on('SIGTERM', () => sse.dispose());
+  process.on('SIGINT', () => safetyClient?.dispose());
+  process.on('SIGTERM', () => safetyClient?.dispose());
 
   app.get('/events/scores', async (_req, reply) => {
     const stream = sseQueue<CandidateScore>();
@@ -139,9 +144,15 @@ async function bootstrap() {
     });
   });
 
-  app.get('/healthz', async () => ({ status: 'ok', alpha: cfg.alpha }));
+  app.get('/healthz', async () => ({ status: offline ? 'degraded' : 'ok', offline, alpha: cfg.alpha }));
   const address = await app.listen({ host: '0.0.0.0', port: 0 });
   logger.info({ address }, 'alpha-ranker listening');
+
+  if (!offline) {
+    startSafetyStream();
+  } else {
+    logger.warn('NO_RPC=1; alpha-ranker running without safety stream subscription');
+  }
 }
 
 bootstrap().catch((err) => { logger.error({ err }, 'alpha-ranker failed to start'); process.exit(1); });

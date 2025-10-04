@@ -73,6 +73,10 @@ class BlueskySource implements SocialSource {
       this.updateStatus({ state: 'idle', detail: 'disabled via config' });
       return;
     }
+    if (!this.options.token || this.options.token.trim().length === 0) {
+      this.updateStatus({ state: 'idle', detail: 'token_missing' });
+      return;
+    }
     this.stopped = false;
     await this.restoreCursor();
     this.connect();

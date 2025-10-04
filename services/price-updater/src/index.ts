@@ -10,6 +10,8 @@ import { upsertPrice } from '@trenches/persistence';
 import { createRpcConnection } from '@trenches/util';
 
 const logger = createLogger('price-updater');
+const offline = process.env.NO_RPC === '1';
+const FALLBACK_STALE_SECONDS = 86_400;
 
 function readI32LE(buf: Buffer, offset: number): number {
   return buf.readInt32LE(offset);
@@ -47,12 +49,53 @@ async function bootstrap() {
   const lastSuccessTs = registerGauge({ name: 'price_updater_last_success_ts', help: 'Last successful SOL price ts (unix seconds)' });
   const staleSeconds = registerGauge({ name: 'price_updater_stale_seconds', help: 'Now - last success (seconds)' });
 
-  const connection = createRpcConnection(config.rpc, { commitment: 'confirmed' });
   const account = String((config as any).priceUpdater?.pythSolUsdPriceAccount || '');
   const enabled = Boolean((config as any).priceUpdater?.enabled !== false);
   const intervalMs = Math.max(10_000, Number((config as any).priceUpdater?.intervalMs ?? 60_000));
+  const hasAccount = account.length > 0;
+  const shouldStart = enabled && !offline && hasAccount;
 
-  app.get('/healthz', async () => ({ status: enabled ? 'ok' : 'disabled', configured: Boolean(account), intervalMs }));
+  let connection: ReturnType<typeof createRpcConnection> | null = shouldStart
+    ? createRpcConnection(config.rpc, { commitment: 'confirmed' })
+    : null;
+  let loopActive = false;
+  let lastSuccessSec: number | null = null;
+
+  const computeStaleSeconds = () => {
+    if (lastSuccessSec === null) {
+      return FALLBACK_STALE_SECONDS;
+    }
+    return Math.max(0, Math.floor(Date.now() / 1000) - lastSuccessSec);
+  };
+
+  app.get('/healthz', async () => {
+    let status: 'ok' | 'degraded' | 'disabled' = 'ok';
+    let detail = 'running';
+    if (!enabled) {
+      status = 'disabled';
+      detail = 'config_disabled';
+    } else if (offline) {
+      status = 'degraded';
+      detail = 'offline';
+    } else if (!hasAccount) {
+      status = 'degraded';
+      detail = 'missing_account';
+    } else if (!loopActive) {
+      status = 'degraded';
+      detail = 'loop_inactive';
+    }
+    return {
+      status,
+      detail,
+      offline,
+      enabled,
+      configured: hasAccount,
+      loopActive,
+      intervalMs,
+      lastSuccessTs: lastSuccessSec,
+      staleSeconds: computeStaleSeconds()
+    };
+  });
   app.get('/metrics', async (_req, reply) => {
     const registry = getRegistry();
     reply.header('Content-Type', registry.contentType);
@@ -64,27 +107,27 @@ async function bootstrap() {
 
   if (!enabled) {
     logger.warn('price-updater disabled via config');
+    staleSeconds.set(FALLBACK_STALE_SECONDS);
     return;
   }
-  if (!account) {
+  if (offline) {
+    logger.warn('NO_RPC=1; skipping price updater loop');
+    staleSeconds.set(FALLBACK_STALE_SECONDS);
+    return;
+  }
+  if (!hasAccount) {
     logger.warn('price-updater: no pyth account configured, skipping updates');
-    // still tick metrics to keep staleSeconds advancing from 0
-    setInterval(() => {
-      try {
-        const nowSec = Math.floor(Date.now() / 1000);
-        // do not set lastSuccessTs; only update staleSeconds if previously set
-        const lastVal = (lastSuccessTs as any)._last as number | undefined;
-        if (typeof lastVal === 'number' && Number.isFinite(lastVal)) {
-          staleSeconds.set(nowSec - lastVal);
-        }
-      } catch (err) {
-        logger.error({ err }, 'failed to update stale seconds without account');
-      }
-    }, intervalMs).unref();
+    staleSeconds.set(FALLBACK_STALE_SECONDS);
+    return;
+  }
+  if (!connection) {
+    logger.error('price-updater connection unavailable');
+    staleSeconds.set(FALLBACK_STALE_SECONDS);
     return;
   }
 
   const pubkey = new PublicKey(account);
+  loopActive = true;
   setInterval(async () => {
     runsTotal.inc();
     try {
@@ -96,24 +139,21 @@ async function bootstrap() {
       if (Number.isFinite(decoded.price) && decoded.price > 0) {
         const tsMs = Date.now();
         upsertPrice(tsMs, 'SOL', decoded.price);
-        const nowSec = Math.floor(tsMs / 1000);
-        lastSuccessTs.set(nowSec);
+        lastSuccessSec = Math.floor(tsMs / 1000);
+        lastSuccessTs.set(lastSuccessSec);
         staleSeconds.set(0);
       }
     } catch (err) {
       logger.error({ err }, 'price-updater tick failed');
     }
     try {
-      const last = (lastSuccessTs as any)._last as number | undefined;
-      const nowSec = Math.floor(Date.now() / 1000);
-      if (typeof last === 'number' && Number.isFinite(last)) {
-        staleSeconds.set(nowSec - last);
-      }
+      staleSeconds.set(computeStaleSeconds());
     } catch (err) {
       logger.error({ err }, 'failed to update stale seconds gauge');
     }
   }, intervalMs).unref();
 }
+
 
 bootstrap().catch((err) => {
   logger.error({ err }, 'price-updater failed to start');
