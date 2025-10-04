@@ -21,6 +21,8 @@ import { classify, candidateToFeatures } from './rugguard';
 import { scoreText } from './pumpClassifier';
 import { SafetyEvaluation } from './types';
 const logger = createLogger('safety-engine');
+const offline = process.env.NO_RPC === '1';
+const providersOff = process.env.DISABLE_PROVIDERS === '1';
 const EVALUATION_CACHE_MS = 30_000;
 const PUMP_KEYWORD_WINDOW_MS = 15 * 60 * 1000;
 
@@ -57,7 +59,12 @@ async function bootstrap() {
   const bus = new SafetyEventBus();
   const candidateCache = new TtlCache<string, SafetyEvaluation>(EVALUATION_CACHE_MS);
 
-  const connection = createRpcConnection(config.rpc, { commitment: 'confirmed' });
+  let connection: Connection | null = null;
+  if (!offline) {
+    connection = createRpcConnection(config.rpc, { commitment: 'confirmed' });
+  } else {
+    logger.warn('NO_RPC=1; safety-engine running without RPC connection');
+  }
 
   await app.register(helmet as any, { global: true });
   await app.register(rateLimit as any, {
@@ -67,7 +74,9 @@ async function bootstrap() {
   await app.register(fastifySse as any);
 
   app.get('/healthz', async () => ({
-    status: 'ok',
+    status: offline ? 'degraded' : 'ok',
+    offline,
+    providersOff,
     rpc: config.rpc.primaryUrl,
     feed: config.safety.candidateFeedUrl ?? `http://127.0.0.1:${config.services.onchainDiscovery.port}/events/candidates`
   }));
@@ -104,37 +113,47 @@ async function bootstrap() {
   logger.info({ address }, 'safety engine listening');
 
   const feedUrl = config.safety.candidateFeedUrl ?? `http://127.0.0.1:${config.services.onchainDiscovery.port}/events/candidates`;
-  startCandidateStream(feedUrl, async (candidate) => {
-    try {
-      const result = await evaluateCandidate(candidate, connection, config, candidateCache);
-      const decorated: TokenCandidate = {
-        ...candidate,
-        safety: { ok: result.ok, reasons: result.reasons },        rugProb: (result as any).rugProb ?? undefined
-      };
+  let disposeStream: (() => void) | null = null;
+  if (!offline && connection) {
+    disposeStream = startCandidateStream(feedUrl, async (candidate) => {
       try {
-        storeTokenCandidate(decorated);
-      } catch (err) {
-        logger.error({ err }, 'failed to persist candidate after evaluation');
-      }
-      if (decorated.safety.ok) {
-        bus.emitSafe(decorated);
-        safetyPasses.inc();
-      } else {
-        for (const reason of result.reasons) {
-          safetyBlocks.inc({ reason });
+        const result = await evaluateCandidate(candidate, connection, config, candidateCache);
+        const decorated: TokenCandidate = {
+          ...candidate,
+          safety: { ok: result.ok, reasons: result.reasons },        rugProb: (result as any).rugProb ?? undefined
+        };
+        try {
+          storeTokenCandidate(decorated);
+        } catch (err) {
+          logger.error({ err }, 'failed to persist candidate after evaluation');
         }
-        bus.emitBlocked({ candidate: decorated, reasons: result.reasons });
+        if (decorated.safety.ok) {
+          bus.emitSafe(decorated);
+          safetyPasses.inc();
+        } else {
+          for (const reason of result.reasons) {
+            safetyBlocks.inc({ reason });
+          }
+          bus.emitBlocked({ candidate: decorated, reasons: result.reasons });
+        }
+      } catch (err) {
+        logger.error({ err }, 'safety evaluation failed');
       }
-    } catch (err) {
-      logger.error({ err }, 'safety evaluation failed');
-    }
-  });
+    });
+  } else {
+    logger.warn('candidate stream disabled due to offline mode');
+  }
 
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
   process.on('SIGINT', () => void shutdown('SIGINT'));
 
   async function shutdown(reason: string) {
     logger.warn({ reason }, 'shutting down safety engine');
+    try {
+      disposeStream?.();
+    } catch (err) {
+      logger.error({ err }, 'failed to dispose candidate stream');
+    }
     try {
       await app.close();
     } catch (err) {

@@ -19,6 +19,8 @@ import { positionsOpened, positionsClosed, exitsTriggered, trailingActivations, 
 import { TtlCache, createRpcConnection } from '@trenches/util';
 
 const logger = createLogger('position-manager');
+const offline = process.env.NO_RPC === '1';
+const providersOff = process.env.DISABLE_PROVIDERS === '1';
 const PRICE_REFRESH_MS = 7_000;
 const POSITION_GAUGE_REFRESH = registerGauge({
   name: 'position_manager_positions',
@@ -34,13 +36,22 @@ async function bootstrap() {
   await app.register(rateLimit as any, { max: 180, timeWindow: '1 minute' });
   await app.register(fastifySse as any);
 
-  const connection = createRpcConnection(config.rpc, { commitment: 'confirmed' });
+  let connection: Connection | null = null;
+  if (!offline) {
+    connection = createRpcConnection(config.rpc, { commitment: 'confirmed' });
+  } else {
+    logger.warn('NO_RPC=1; position-manager running without RPC connection');
+  }
   const oracle = new BirdeyePriceOracle();
 
   const positions = new Map<string, { state: PositionState; candidate?: TokenCandidate }>();
-  await hydratePositions(connection, positions);
+  if (!offline && connection) {
+    await hydratePositions(connection, positions);
+  } else {
+    logger.warn('hydratePositions skipped in offline mode');
+  }
 
-  app.get('/healthz', async () => ({ status: 'ok', rpc: config.rpc.primaryUrl, positions: positions.size }));
+  app.get('/healthz', async () => ({ status: offline ? 'degraded' : 'ok', offline, providersOff, rpc: config.rpc.primaryUrl, positions: positions.size }));
 
   app.get('/metrics', async (_, reply) => {
     const registry = getRegistry();
@@ -55,6 +66,10 @@ async function bootstrap() {
         : undefined;
       if (token !== killSwitchToken) {
         reply.code(403).send({ status: 'forbidden' });
+        return;
+      }
+      if (offline || !connection) {
+        reply.code(503).send({ status: 'offline' });
         return;
       }
       let count = 0;
@@ -88,23 +103,37 @@ async function bootstrap() {
 
 
   const executorFeed = `http://127.0.0.1:${config.services.executor.port}/events/trades`;
-  const disposeStream = startTradeStream(executorFeed, async (event) => {
-    if (event.t === 'fill') {
-      await handleFillEvent(event, connection, positions, oracle);
-    }
-  });
+  let disposeStream: () => void = () => {};
+  if (!offline && connection) {
+    disposeStream = startTradeStream(executorFeed, async (event) => {
+      if (event.t === 'fill') {
+        await handleFillEvent(event, connection, positions, oracle);
+      }
+    });
+  } else {
+    logger.warn('trade stream disabled due to offline mode');
+  }
 
-  const priceTimer = setInterval(async () => {
-    await refreshPrices(connection, oracle, positions, config);
-  }, PRICE_REFRESH_MS);
+  let priceTimer: NodeJS.Timeout | null = null;
+  if (!offline && connection) {
+    priceTimer = setInterval(async () => {
+      await refreshPrices(connection, oracle, positions, config);
+    }, PRICE_REFRESH_MS);
+  }
 
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
   process.on('SIGINT', () => void shutdown('SIGINT'));
 
   async function shutdown(reason: string) {
     logger.warn({ reason }, 'position manager shutting down');
-    clearInterval(priceTimer);
-    disposeStream();
+    if (priceTimer) {
+      clearInterval(priceTimer);
+    }
+    try {
+      disposeStream();
+    } catch (err) {
+      logger.error({ err }, 'failed to close trade stream');
+    }
     try {
       await app.close();
     } catch (err) {

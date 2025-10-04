@@ -22,6 +22,8 @@ import { applyMigrationPresetAdjustment, MigrationPresetConfig } from './migrati
 import { createRpcConnection, createInMemoryLastEventIdStore, sseQueue, sseRoute, subscribeJsonStream } from '@trenches/util';
 
 const logger = createLogger('executor');
+const offline = process.env.NO_RPC === '1';
+const providersOff = process.env.DISABLE_PROVIDERS === '1';
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const MAX_RETRIES = 3;
 const ROUTE_QUARANTINE_DEFAULT: RouteQuarantineConfig = {
@@ -44,15 +46,25 @@ async function bootstrap() {
   });
   await app.register(fastifySse as any);
 
-  const connection = createRpcConnection(config.rpc, { commitment: 'confirmed' });
-  const wallet = new WalletProvider(connection);
-  const jupiter = new JupiterClient(connection);
-  const sender = new TransactionSender(connection);
+  let connection: Connection | null = null;
+  let wallet: WalletProvider | null = null;
+  let jupiter: JupiterClient | null = null;
+  let sender: TransactionSender | null = null;
+  if (!offline) {
+    connection = createRpcConnection(config.rpc, { commitment: 'confirmed' });
+    wallet = new WalletProvider(connection);
+    jupiter = new JupiterClient(connection);
+    sender = new TransactionSender(connection);
+  } else {
+    logger.warn('NO_RPC=1; executor running in offline mode; skipping RPC initialization');
+  }
 
   app.get('/healthz', async () => ({
-    status: 'ok',
+    status: offline ? 'degraded' : 'ok',
+    offline,
+    providersOff,
     rpc: config.rpc.primaryUrl,
-    connected: true,
+    connected: !offline,
     mode: config.execution?.simpleMode ? 'simple' : 'advanced',
     flags: {
       simpleMode: config.execution?.simpleMode ?? true,
@@ -103,6 +115,10 @@ async function bootstrap() {
       reply.code(400).send({ error: 'missing plan' });
       return;
     }
+    if (offline || !connection || !wallet || !jupiter || !sender) {
+      reply.code(503).send({ error: 'offline_mode' });
+      return;
+    }
     if (!wallet.isReady) {
       reply.code(503).send({ error: 'wallet_unavailable' });
       return;
@@ -112,10 +128,10 @@ async function bootstrap() {
     try {
       await executePlan({
         payload: body,
-        connection,
-        wallet,
-        jupiter,
-        sender,
+        connection: connection!,
+        wallet: wallet!,
+        jupiter: jupiter!,
+        sender: sender!,
         bus
       });
       reply.code(202).send({ status: 'accepted' });
@@ -139,28 +155,33 @@ async function bootstrap() {
   }
 
   const planFeed = `http://127.0.0.1:${config.services.policyEngine.port}/events/plans`;
-  const disposer = startPlanStream(planFeed, bus, async (payload) => {
-    ordersReceived.inc();
-    bus.emitTrade({ t: 'order_plan', plan: payload.plan });
-    if (!wallet.isReady) {
-      logger.warn('wallet unavailable, skipping plan');
-      ordersFailed.inc({ stage: 'wallet_unavailable' });
-      return;
-    }
-    try {
-      await executePlan({
-        payload,
-        connection,
-        wallet,
-        jupiter,
-        sender,
-        bus
-      });
-    } catch (err) {
-      ordersFailed.inc({ stage: 'execute' });
-      logger.error({ err }, 'failed to execute order plan');
-    }
-  });
+  let disposer: () => void = () => {};
+  if (!offline && connection && wallet && jupiter && sender) {
+    disposer = startPlanStream(planFeed, bus, async (payload) => {
+      ordersReceived.inc();
+      bus.emitTrade({ t: 'order_plan', plan: payload.plan });
+      if (!wallet.isReady) {
+        logger.warn('wallet unavailable, skipping plan');
+        ordersFailed.inc({ stage: 'wallet_unavailable' });
+        return;
+      }
+      try {
+        await executePlan({
+          payload,
+          connection: connection!,
+          wallet: wallet!,
+          jupiter: jupiter!,
+          sender: sender!,
+          bus
+        });
+      } catch (err) {
+        ordersFailed.inc({ stage: 'execute' });
+        logger.error({ err }, 'failed to execute order plan');
+      }
+    });
+  } else {
+    logger.warn('plan stream disabled due to offline mode or missing dependencies');
+  }
 
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
   process.on('SIGINT', () => void shutdown('SIGINT'));

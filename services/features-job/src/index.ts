@@ -26,6 +26,8 @@ const postsEmbeddedTotal = registerCounter({ name: 'features_job_posts_embedded_
 const authorQualityAvg = registerGauge({ name: 'author_quality_avg', help: 'Average author quality from last run' });
 
 const logger = createLogger('features-job');
+const offline = process.env.NO_RPC === '1';
+const providersOff = process.env.DISABLE_PROVIDERS === '1';
 
 let embedderPromise: Promise<Embedder> | null = null;
 let lastStats: { ts: number; authors: number; avgQuality: number; fallback: boolean } = { ts: 0, authors: 0, avgQuality: 0, fallback: true };
@@ -186,15 +188,20 @@ async function bootstrap(): Promise<void> {
     }
   };
 
-  if (featuresEnabled) {
+  if (featuresEnabled && !offline) {
     void runJob();
     timer = setInterval(() => { void runJob(); }, Math.max(60_000, jobCfg.intervalMs ?? 86_400_000));
-  } else {
+  } else if (!featuresEnabled) {
     logger.warn('features job disabled via config');
+  } else {
+    logger.warn('NO_RPC=1; features job paused');
   }
 
   app.get('/healthz', async () => ({
-    status: featuresEnabled ? 'ok' : 'disabled',
+    status: !featuresEnabled ? 'disabled' : offline ? 'degraded' : 'ok',
+    detail: !featuresEnabled ? 'config_disabled' : offline ? 'offline' : 'running',
+    offline,
+    providersOff,
     lastRunTs: lastStats.ts || null,
     authorsUpdated: lastStats.authors,
     avgQuality: lastStats.avgQuality,

@@ -27,6 +27,8 @@ const FORWARD_RETURN_MAX_OFFSET_MS = 60 * 60 * 1000;
 
 const metricsServer = startMetricsServer();
 const logger = createLogger('leader-wallets');
+const offline = process.env.NO_RPC === '1';
+const providersOff = process.env.DISABLE_PROVIDERS === '1';
 const leaderHitsTotal = registerCounter({ name: 'leader_hits_total', help: 'Total leader wallet swap hits captured' });
 const leaderTopGauge = registerGauge({ name: 'leader_wallets_top', help: 'Top leader wallet scores', labelNames: ['rank', 'wallet'] });
 
@@ -97,6 +99,9 @@ async function bootstrap(): Promise<void> {
   let lastHitTs = 0;
   let lastMigrationTs = 0;
   let shuttingDown = false;
+  let migrationTimer: NodeJS.Timeout | null = null;
+  let expiryTimer: NodeJS.Timeout | null = null;
+  let scoreTimer: NodeJS.Timeout | null = null;
 
   function rememberSignature(signature: string): boolean {
     if (signatureSet.has(signature)) {
@@ -197,9 +202,18 @@ async function bootstrap(): Promise<void> {
   async function handleShutdown(reason: string): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
-    clearInterval(migrationTimer);
-    clearInterval(expiryTimer);
-    clearInterval(scoreTimer);
+    if (migrationTimer) {
+      clearInterval(migrationTimer);
+      migrationTimer = null;
+    }
+    if (expiryTimer) {
+      clearInterval(expiryTimer);
+      expiryTimer = null;
+    }
+    if (scoreTimer) {
+      clearInterval(scoreTimer);
+      scoreTimer = null;
+    }
     for (const res of sseClients) {
       try {
         res.end();
@@ -347,7 +361,10 @@ async function bootstrap(): Promise<void> {
   }
 
   app.get('/healthz', async () => ({
-    status: leaderCfg.enabled ? 'ok' : 'disabled',
+    status: leaderCfg.enabled ? (offline ? 'degraded' : 'ok') : 'disabled',
+    detail: offline ? 'offline' : leaderCfg.enabled ? 'running' : 'config_disabled',
+    offline,
+    providersOff,
     enabled: leaderCfg.enabled,
     poolsWatching: activePools.size,
     queueDepth: writeQueue.size(),
@@ -387,15 +404,16 @@ async function bootstrap(): Promise<void> {
   await app.listen({ host: '0.0.0.0', port });
   logger.info({ port }, 'leader-wallets listening');
 
-  if (leaderCfg.enabled) {
+  if (leaderCfg.enabled && !offline) {
     connection = createRpcConnection(cfg.rpc, { commitment: 'confirmed' });
     await pollMigrations();
+    migrationTimer = setInterval(pollMigrations, MIGRATION_POLL_INTERVAL_MS);
+    expiryTimer = setInterval(() => void sweepExpired(), EXPIRY_SWEEP_INTERVAL_MS);
+    scoreTimer = setInterval(() => void refreshScoresIfDirty(), SCORE_INTERVAL_MS);
+    refreshScoresIfDirty();
+  } else {
+    logger.warn('leader-wallets watchers disabled due to offline mode or configuration');
   }
-
-  const migrationTimer = setInterval(pollMigrations, MIGRATION_POLL_INTERVAL_MS);
-  const expiryTimer = setInterval(() => void sweepExpired(), EXPIRY_SWEEP_INTERVAL_MS);
-  const scoreTimer = setInterval(() => void refreshScoresIfDirty(), SCORE_INTERVAL_MS);
-  refreshScoresIfDirty();
 
   const handleExit = async (reason: string) => {
     await handleShutdown(reason);
