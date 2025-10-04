@@ -87,17 +87,8 @@ async function bootstrap() {
     }
   });
 
-  // Start external provider (SolanaTracker REST only)
-  if (!offline && !providersOff) {
-    try {
-      stProvider.start();
-      solanaTrackerStarted = true;
-    } catch (err) {
-      logger.error({ err }, 'failed to start solanatracker provider');
-    }
-  } else {
-    logger.warn('solanatracker provider disabled by offline/providers flag');
-  }
+  const trendingIntervalMs = Math.max(10_000, config.caching.dexscreenerTrendingTtlSec * 1000);
+  const birdTrendingIntervalMs = Math.max(30_000, config.caching.birdeyeTrendingTtlSec * 1000);
 
   async function handlePoolInit(event: PoolInitEvent) {
     const poolAddress = event.pool;
@@ -271,8 +262,43 @@ async function bootstrap() {
     } catch (err) {
       logger.error({ err }, 'failed to start raydium watcher');
     }
+    if (!providersOff) {
+      try {
+        stProvider.start();
+        solanaTrackerStarted = true;
+      } catch (err) {
+        logger.error({ err }, 'failed to start solanatracker provider');
+      }
+      trendingInterval = setInterval(() => {
+        void (async () => {
+          try {
+            const pairs = await dexClient.fetchTrending();
+            for (const pair of pairs) {
+              await emitCandidateFromPair(pair, null);
+            }
+          } catch (err) {
+            logger.error({ err }, 'trending loop failed');
+          }
+        })();
+      }, trendingIntervalMs);
+      birdTrendingInterval = setInterval(() => {
+        void (async () => {
+          try {
+            const tokens = await birdeyeClient.fetchTrending('1h');
+            const addresses = tokens.map((token) => token.address).filter(Boolean) as string[];
+            if (addresses.length > 0) {
+              await birdeyeClient.ensurePrices([...addresses, SOL_MINT]);
+            }
+          } catch (err) {
+            logger.error({ err }, 'birdeye trending loop failed');
+          }
+        })();
+      }, birdTrendingIntervalMs);
+    } else {
+      logger.warn('DISABLE_PROVIDERS=1; skipping solanatracker provider and trending loops');
+    }
   } else {
-    logger.warn('NO_RPC=1; skipping raydium watcher start');
+    logger.warn('NO_RPC=1; skipping RPC-dependent watchers');
   }
 
   // Optionally consume migrations as high-priority seeds
@@ -318,40 +344,6 @@ async function bootstrap() {
     });
   } else if ((config as any).features?.migrationWatcher !== false) {
     logger.warn('migration watcher stream disabled due to offline mode');
-  }
-
-  const trendingIntervalMs = Math.max(10_000, config.caching.dexscreenerTrendingTtlSec * 1000);
-  const birdTrendingIntervalMs = Math.max(30_000, config.caching.birdeyeTrendingTtlSec * 1000);
-
-  if (!offline && !providersOff) {
-    trendingInterval = setInterval(() => {
-      void (async () => {
-        try {
-          const pairs = await dexClient.fetchTrending();
-          for (const pair of pairs) {
-            await emitCandidateFromPair(pair, null);
-          }
-        } catch (err) {
-          logger.error({ err }, 'trending loop failed');
-        }
-      })();
-    }, trendingIntervalMs);
-
-    birdTrendingInterval = setInterval(() => {
-      void (async () => {
-        try {
-          const tokens = await birdeyeClient.fetchTrending('1h');
-          const addresses = tokens.map((token) => token.address).filter(Boolean) as string[];
-          if (addresses.length > 0) {
-            await birdeyeClient.ensurePrices([...addresses, SOL_MINT]);
-          }
-        } catch (err) {
-          logger.error({ err }, 'birdeye trending loop failed');
-        }
-      })();
-    }, birdTrendingIntervalMs);
-  } else {
-    logger.warn('trending loops disabled due to offline/providers flags');
   }
 
   process.on('SIGTERM', () => void shutdown('SIGTERM'));

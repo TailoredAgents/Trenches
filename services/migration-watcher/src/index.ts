@@ -74,23 +74,25 @@ async function bootstrap() {
   logger.info({ address, programs: config.addresses }, 'migration-watcher listening');
 
   // Warn if programs look inactive (best-effort via getSignaturesForAddress)
-  for (const [name, id] of Object.entries(config.addresses)) {
-    if (!id) {
-      logger.warn({ program: name }, 'program id not set');
-      continue;
-    }
-    try {
-      const sigs = await connection.getSignaturesForAddress(new PublicKey(id), { limit: 1 });
-      if (!sigs || sigs.length === 0) {
-        logger.warn({ program: name, id }, 'no recent signatures observed for program (may be fine)');
+  if (!offline && !providersOff && connection) {
+    for (const [name, id] of Object.entries(config.addresses)) {
+      if (!id) {
+        logger.warn({ program: name }, 'program id not set');
+        continue;
       }
-    } catch (err) {
-      logger.warn({ program: name, id, err }, 'failed to probe program activity');
+      try {
+        const sigs = await connection.getSignaturesForAddress(new PublicKey(id), { limit: 1 });
+        if (!sigs || sigs.length === 0) {
+          logger.warn({ program: name, id }, 'no recent signatures observed for program (may be fine)');
+        }
+      } catch (err) {
+        logger.warn({ program: name, id, err }, 'failed to probe program activity');
+      }
     }
   }
 
   const probePrograms = async () => {
-    if (!connection) {
+    if (!connection || providersOff) {
       return;
     }
     const conn = connection;
@@ -181,12 +183,14 @@ async function bootstrap() {
     }
   };
 
-  if (!offline && connection) {
+  if (!offline && !providersOff && connection) {
     await subscribeProgram(config.addresses.raydiumAmmV4, 'raydium');
     await subscribeProgram(config.addresses.raydiumCpmm, 'raydium');
     await subscribeProgram(config.addresses.pumpswapProgram, 'pumpswap');
     await subscribeProgram(config.addresses.pumpfunProgram, 'pumpfun');
     await probePrograms();
+  } else if (providersOff) {
+    logger.warn('migration-watcher providers disabled; subscriptions skipped');
   } else {
     logger.warn('migration-watcher running in offline mode; subscriptions disabled');
   }

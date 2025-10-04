@@ -64,7 +64,8 @@ async function bootstrap() {
     logger.warn('NO_RPC=1; policy engine running without RPC connection');
   }
   const walletManager = connection ? new WalletManager(connection) : null;
-  const walletReady = walletManager?.isReady ?? false;
+  const walletStatus = walletManager?.status ?? { ready: false, reason: 'missing_keystore' };
+  const walletReady = walletStatus.ready;
   const bandit = new LinUCBBandit(PLAN_FEATURE_DIM);
 
   const alphaHorizons = (config.alpha?.horizons ?? ['10m', '60m', '24h']) as Array<'10m' | '60m' | '24h'>;
@@ -126,12 +127,12 @@ async function bootstrap() {
   };
 
   app.get('/healthz', async () => ({
-    status: offline ? 'degraded' : 'ok',
-    detail: offline ? 'rpc_missing' : walletReady ? 'ready' : 'wallet_unavailable',
+    status: offline || !walletReady ? 'degraded' : 'ok',
+    detail: offline ? 'rpc_missing' : walletReady ? 'ready' : 'awaiting_credentials',
     offline,
     providersOff,
     rpc: config.rpc.primaryUrl,
-    wallet: walletReady ? 'ready' : 'missing_keystore',
+    wallet: walletStatus,
     safeFeed: config.policy.safeFeedUrl ?? `http://127.0.0.1:${config.services.safetyEngine.port}/events/safe`
   }));
 
@@ -396,4 +397,3 @@ bootstrap().catch((err) => {
   logger.error({ err }, 'policy engine failed to start');
   process.exit(1);
 });
-

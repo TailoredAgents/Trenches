@@ -8,27 +8,36 @@ import { WalletSnapshot } from './types';
 
 const logger = createLogger('policy-wallet');
 
+type KeypairLoadResult = { keypair: Keypair | null; reason?: "missing_keystore" | "invalid_format" };
+
 export class WalletManager {
   private readonly connection: Connection;
   private readonly keypair: Keypair;
   private readonly disabled: boolean;
+  private readonly disabledReason: string | null;
   private lastSnapshot: WalletSnapshot | null = null;
 
   constructor(connection: Connection) {
     this.connection = connection;
-    const keypair = tryLoadKeypair();
+    const { keypair, reason } = tryLoadKeypair();
     if (keypair) {
       this.keypair = keypair;
       this.disabled = false;
+      this.disabledReason = null;
     } else {
       this.keypair = Keypair.generate();
       this.disabled = true;
-      logger.warn('WALLET_KEYSTORE_PATH not set; policy engine running in shadow mode');
+      this.disabledReason = reason ?? 'missing_keystore';
+      logger.warn({ reason: this.disabledReason }, 'policy engine wallet unavailable; running in shadow mode');
     }
   }
 
   get isReady(): boolean {
     return !this.disabled;
+  }
+
+  get status(): { ready: boolean; reason?: string } {
+    return this.disabled ? { ready: false, reason: this.disabledReason ?? 'unavailable' } : { ready: true };
   }
 
   get publicKey(): PublicKey {
@@ -81,29 +90,34 @@ export class WalletManager {
   }
 }
 
-function tryLoadKeypair(): Keypair | null {
+function tryLoadKeypair(): KeypairLoadResult {
   const keyPath = process.env.WALLET_KEYSTORE_PATH;
   if (!keyPath) {
-    return null;
+    return { keypair: null, reason: 'missing_keystore' };
   }
   const absolutePath = path.resolve(keyPath);
-  if (!fs.existsSync(absolutePath)) {
-    logger.warn({ absolutePath }, 'wallet keystore path missing');
-    return null;
-  }
-  const raw = fs.readFileSync(absolutePath, 'utf-8').trim();
   try {
+    if (!fs.existsSync(absolutePath)) {
+      logger.warn({ absolutePath }, 'wallet keystore path missing');
+      return { keypair: null, reason: 'missing_keystore' };
+    }
+    const raw = fs.readFileSync(absolutePath, 'utf-8').trim();
+    if (!raw) {
+      logger.warn({ absolutePath }, 'wallet keystore empty');
+      return { keypair: null, reason: 'missing_keystore' };
+    }
     if (raw.startsWith('[')) {
       const secret = new Uint8Array(JSON.parse(raw));
-      return Keypair.fromSecretKey(secret);
+      return { keypair: Keypair.fromSecretKey(secret) };
     }
     const bytes = raw.split(',').map((part) => Number(part.trim()));
     if (bytes.every((value) => Number.isFinite(value))) {
-      return Keypair.fromSecretKey(new Uint8Array(bytes));
+      return { keypair: Keypair.fromSecretKey(new Uint8Array(bytes)) };
     }
+    logger.warn('Unsupported keypair format in WALLET_KEYSTORE_PATH');
+    return { keypair: null, reason: 'invalid_format' };
   } catch (err) {
-    logger.error({ err }, 'failed to parse wallet keystore');
+    logger.error({ err, absolutePath }, 'failed to load wallet keystore');
+    return { keypair: null, reason: 'missing_keystore' };
   }
-  logger.warn('Unsupported keypair format in WALLET_KEYSTORE_PATH');
-  return null;
 }

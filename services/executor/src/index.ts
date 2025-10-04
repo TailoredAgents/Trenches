@@ -59,20 +59,26 @@ async function bootstrap() {
     logger.warn('NO_RPC=1; executor running in offline mode; skipping RPC initialization');
   }
 
-  app.get('/healthz', async () => ({
-    status: offline ? 'degraded' : 'ok',
-    offline,
-    providersOff,
-    rpc: config.rpc.primaryUrl,
-    connected: !offline,
-    mode: config.execution?.simpleMode ? 'simple' : 'advanced',
-    flags: {
-      simpleMode: config.execution?.simpleMode ?? true,
-      jitoEnabled: config.execution?.jitoEnabled ?? false,
-      secondaryRpcEnabled: config.execution?.secondaryRpcEnabled ?? false,
-      wsEnabled: config.execution?.wsEnabled ?? false
-    }
-  }));
+  app.get('/healthz', async () => {
+    const walletStatus = wallet?.status ?? { ready: false, reason: offline ? 'offline' : 'missing_keystore' };
+    const detail = offline ? 'rpc_missing' : walletStatus.ready ? 'ready' : 'awaiting_credentials';
+    return {
+      status: !offline && walletStatus.ready ? 'ok' : 'degraded',
+      detail,
+      offline,
+      providersOff,
+      rpc: config.rpc.primaryUrl,
+      connected: !offline,
+      wallet: walletStatus,
+      mode: config.execution?.simpleMode ? 'simple' : 'advanced',
+      flags: {
+        simpleMode: config.execution?.simpleMode ?? true,
+        jitoEnabled: config.execution?.jitoEnabled ?? false,
+        secondaryRpcEnabled: config.execution?.secondaryRpcEnabled ?? false,
+        wsEnabled: config.execution?.wsEnabled ?? false
+      }
+    };
+  });
 
   app.get('/metrics', async (_, reply) => {
     const registry = getRegistry();
@@ -217,6 +223,18 @@ function startPlanStream(
       logger.error({ err }, 'failed to parse plan payload');
     },
     onMessage: async (payload) => {
+      let parsedCtx: Record<string, unknown> | null = null;
+      const sourceContext = (payload as any)?.context;
+      if (sourceContext && typeof sourceContext.ctx_json === 'string') {
+        try {
+          parsedCtx = JSON.parse(sourceContext.ctx_json || '{}');
+        } catch (err) {
+          logger.warn({ err }, 'bad ctx_json from plan payload');
+        }
+      }
+      if (parsedCtx && payload.context && typeof payload.context === 'object') {
+        (payload.context as any).parsedCtx = parsedCtx;
+      }
       bus.emitTrade({ t: 'order_plan', plan: payload.plan });
       try {
         await handler(payload);
