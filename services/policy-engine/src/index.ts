@@ -22,7 +22,7 @@ import { LinUCBBandit } from './bandit';
 import { WalletManager } from './wallet';
 import { computeSizing } from './sizing';
 import { chooseSize } from './sizing_constrained';
-import { PlanEnvelope } from './types';
+import { PlanEnvelope, WalletSnapshot } from './types';
 import { createAlphaClient } from './clients/alphaClient';
 import { createRpcConnection } from '@trenches/util';
 
@@ -42,6 +42,9 @@ const leaderBoostCounter = registerCounter({
   labelNames: ['mint']
 });
 
+const offline = process.env.NO_RPC === '1';
+const providersOff = process.env.DISABLE_PROVIDERS === '1';
+
 async function bootstrap() {
   const config = loadConfig();
   const leaderConfig: LeaderWalletConfig = config.leaderWallets ?? { enabled: false, watchMinutes: 5, minHitsForBoost: 1, rankBoost: 0.03, sizeTierBoost: 1 };
@@ -54,16 +57,21 @@ async function bootstrap() {
   const app = Fastify({ logger: false });
   const bus = new PolicyEventBus();
 
-  const connection = createRpcConnection(config.rpc, { commitment: 'confirmed' });
-  const walletManager = new WalletManager(connection);
-  const walletReady = walletManager.isReady;
+  let connection: Connection | null = null;
+  if (!offline) {
+    connection = createRpcConnection(config.rpc, { commitment: 'confirmed' });
+  } else {
+    logger.warn('NO_RPC=1; policy engine running without RPC connection');
+  }
+  const walletManager = connection ? new WalletManager(connection) : null;
+  const walletReady = walletManager?.isReady ?? false;
   const bandit = new LinUCBBandit(PLAN_FEATURE_DIM);
 
   const alphaHorizons = (config.alpha?.horizons ?? ['10m', '60m', '24h']) as Array<'10m' | '60m' | '24h'>;
   const alphaServices = (config as any).services ?? {};
   const alphaPort = alphaServices.alphaRanker?.port as number | undefined;
   const alphaClient = createAlphaClient({
-    baseUrl: alphaPort ? `http://127.0.0.1:${alphaPort}/events/scores` : null,
+    baseUrl: !offline && alphaPort ? `http://127.0.0.1:${alphaPort}/events/scores` : null,
     horizons: alphaHorizons,
     maxEntries: 512
   });
@@ -80,7 +88,16 @@ async function bootstrap() {
   let cachedCongestionLevel: CongestionLevel = 'p50';
   let cachedCongestionScore = 0.5;
 
-  const refreshWallet = async () => {
+  const fallbackSnapshot: WalletSnapshot = { equity: 0, free: 0, reserves: 0, openPositions: 0, spendUsed: 0, spendRemaining: 0 };
+
+  const refreshWallet = async (): Promise<WalletSnapshot> => {
+    if (!walletManager) {
+      walletEquityGauge.set(0);
+      walletFreeGauge.set(0);
+      lastWalletGaugeRefresh.set(Date.now());
+      lastWalletRefresh = Date.now();
+      return { ...fallbackSnapshot };
+    }
     const now = Date.now();
     if (now - lastWalletRefresh < WALLET_REFRESH_MS && walletManager.snapshot) {
       return walletManager.snapshot;
@@ -94,6 +111,9 @@ async function bootstrap() {
   };
 
   const refreshCongestion = async (): Promise<{ level: CongestionLevel; score: number }> => {
+    if (!connection) {
+      return { level: cachedCongestionLevel, score: cachedCongestionScore };
+    }
     const now = Date.now();
     if (now - lastCongestionRefresh < CONGESTION_REFRESH_MS) {
       return { level: cachedCongestionLevel, score: cachedCongestionScore };
@@ -106,7 +126,10 @@ async function bootstrap() {
   };
 
   app.get('/healthz', async () => ({
-    status: 'ok',
+    status: offline ? 'degraded' : 'ok',
+    detail: offline ? 'rpc_missing' : walletReady ? 'ready' : 'wallet_unavailable',
+    offline,
+    providersOff,
     rpc: config.rpc.primaryUrl,
     wallet: walletReady ? 'ready' : 'missing_keystore',
     safeFeed: config.policy.safeFeedUrl ?? `http://127.0.0.1:${config.services.safetyEngine.port}/events/safe`
@@ -119,7 +142,7 @@ async function bootstrap() {
   });
 
   app.get('/snapshot', async () => ({
-    wallet: walletManager.snapshot,
+    wallet: walletManager?.snapshot ?? null,
     congestion: cachedCongestionLevel
   }));
 
@@ -141,7 +164,9 @@ async function bootstrap() {
   const alphaTopK = (config as any).alpha?.topK ?? 12;
   const alphaMin = (config as any).alpha?.minScore ?? 0.52;
   const alphaMap = new Map<string, number>();
-  const disposeStream = startCandidateStream(safeFeedUrl, async (candidate) => {
+  let disposeStream: StreamDisposer | null = null;
+  if (!offline) {
+    disposeStream = startCandidateStream(safeFeedUrl, async (candidate) => {
     const now = Date.now();
     const leaderInfo = computeLeaderBoostInfo(candidate, leaderConfig, now);
     try {
@@ -292,6 +317,9 @@ async function bootstrap() {
     const tradeEvent: TradeEvent = { t: 'order_plan', plan };
     logTradeEvent(tradeEvent);
   });
+  } else {
+    logger.warn('NO_RPC=1; skipping candidate stream subscription');
+  }
 
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
   process.on('SIGINT', () => void shutdown('SIGINT'));
@@ -303,10 +331,12 @@ async function bootstrap() {
     } catch (err) {
       logger.error({ err }, 'failed closing fastify');
     }
-    try {
-      disposeStream();
-    } catch (err) {
-      logger.error({ err }, 'failed to close candidate stream');
+    if (disposeStream) {
+      try {
+        disposeStream();
+      } catch (err) {
+        logger.error({ err }, 'failed to close candidate stream');
+      }
     }
     try {
       alphaClient.dispose();

@@ -21,6 +21,8 @@ import { RpcRaydiumWatcher } from './rpcRaydium';
 
 const logger = createLogger('onchain-discovery');
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
+const offline = process.env.NO_RPC === '1';
+const providersOff = process.env.DISABLE_PROVIDERS === '1';
 
 async function bootstrap() {
   const config = loadConfig();
@@ -44,6 +46,14 @@ async function bootstrap() {
       ts: ev.ts ?? Date.now()
     });
   });
+
+  let raydiumWatcherRunning = false;
+  let migrationStreamActive = false;
+  let providersDisabledWarned = false;
+  let offlinePoolWarned = false;
+  let solanaTrackerStarted = false;
+  let trendingInterval: NodeJS.Timeout | null = null;
+  let birdTrendingInterval: NodeJS.Timeout | null = null;
 
   await app.register(helmet as any, { global: true });
   await app.register(rateLimit as any, {
@@ -78,12 +88,37 @@ async function bootstrap() {
   });
 
   // Start external provider (SolanaTracker REST only)
-  try { stProvider.start(); } catch (err) { logger.error({ err }, 'failed to start solanatracker provider'); }
+  if (!offline && !providersOff) {
+    try {
+      stProvider.start();
+      solanaTrackerStarted = true;
+    } catch (err) {
+      logger.error({ err }, 'failed to start solanatracker provider');
+    }
+  } else {
+    logger.warn('solanatracker provider disabled by offline/providers flag');
+  }
 
   async function handlePoolInit(event: PoolInitEvent) {
     const poolAddress = event.pool;
     const attempt = (pendingPoolAttempts.get(poolAddress) ?? 0) + 1;
     pendingPoolAttempts.set(poolAddress, attempt);
+    if (offline) {
+      if (!offlinePoolWarned) {
+        logger.warn('NO_RPC=1; skipping pool init handling');
+        offlinePoolWarned = true;
+      }
+      pendingPoolAttempts.delete(poolAddress);
+      return;
+    }
+    if (providersOff) {
+      if (!providersDisabledWarned) {
+        logger.warn('DISABLE_PROVIDERS=1; providers disabled; skipping pool init handling');
+        providersDisabledWarned = true;
+      }
+      pendingPoolAttempts.delete(poolAddress);
+      return;
+    }
     try {
       await dexClient.ensurePairs([poolAddress]);
       const pair = dexClient.getPair(poolAddress);
@@ -190,11 +225,20 @@ async function bootstrap() {
 
   // DexScreener API is public and does not require an API key.
   app.get('/healthz', async () => ({
-    status: 'ok',
-    dexscreener: true,
+    status: offline ? 'degraded' : 'ok',
+    detail: offline ? 'rpc_missing' : 'ready',
+    offline,
+    providersOff,
+    watchers: {
+      raydium: raydiumWatcherRunning ? 'running' : (offline ? 'offline' : 'idle'),
+      migration: migrationStreamActive ? 'running' : (offline ? 'offline' : 'idle')
+    },
+    dexscreener: !providersOff,
     birdeyeApiKey: Boolean(process.env.BIRDEYE_API_KEY),
     providers: {
-      solanatracker: stProvider.getHealth()
+      dexscreener: providersOff ? { state: 'disabled', detail: 'providers_disabled' } : { state: 'enabled' },
+      birdeye: providersOff ? { state: 'disabled', detail: 'providers_disabled' } : { state: 'enabled', apiKey: Boolean(process.env.BIRDEYE_API_KEY) },
+      solanatracker: providersOff ? { state: 'disabled', detail: 'providers_disabled' } : stProvider.getHealth()
     }
   }));
 
@@ -220,10 +264,19 @@ async function bootstrap() {
   const address = await app.listen({ port: config.services.onchainDiscovery.port, host: '0.0.0.0' });
   logger.info({ address }, 'onchain discovery listening');
 
-  await raydiumWatcher.start();
+  if (!offline) {
+    try {
+      await raydiumWatcher.start();
+      raydiumWatcherRunning = true;
+    } catch (err) {
+      logger.error({ err }, 'failed to start raydium watcher');
+    }
+  } else {
+    logger.warn('NO_RPC=1; skipping raydium watcher start');
+  }
 
   // Optionally consume migrations as high-priority seeds
-  if ((config as any).features?.migrationWatcher !== false) {
+  if (!offline && (config as any).features?.migrationWatcher !== false) {
     const url = `http://127.0.0.1:${(config as any).services?.migrationWatcher?.port ?? 4018}/events/migrations`;
     const lastEventIdStore = createInMemoryLastEventIdStore();
     const migrationDedup = new TtlCache<string, boolean>(2 * 60 * 1000);
@@ -231,9 +284,11 @@ async function bootstrap() {
       lastEventIdStore,
       eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }) as any,
       onOpen: () => {
+        migrationStreamActive = true;
         logger.info({ url }, 'connected to migration watcher');
       },
       onError: (err, attempt) => {
+        migrationStreamActive = false;
         logger.error({ err, attempt, url }, 'migration watcher stream error');
       },
       onParseError: (err) => {
@@ -257,46 +312,61 @@ async function bootstrap() {
         void handleRawPairEvent({ source: payload.source, mint: payload.mint, poolAddress: payload.pool, ts: payload.ts });
       }
     });
-    streamDisposers.push(() => client.dispose());
+    streamDisposers.push(() => {
+      migrationStreamActive = false;
+      client.dispose();
+    });
+  } else if ((config as any).features?.migrationWatcher !== false) {
+    logger.warn('migration watcher stream disabled due to offline mode');
   }
 
   const trendingIntervalMs = Math.max(10_000, config.caching.dexscreenerTrendingTtlSec * 1000);
   const birdTrendingIntervalMs = Math.max(30_000, config.caching.birdeyeTrendingTtlSec * 1000);
 
-  const trendingInterval = setInterval(() => {
-    void (async () => {
-      try {
-        const pairs = await dexClient.fetchTrending();
-        for (const pair of pairs) {
-          await emitCandidateFromPair(pair, null);
+  if (!offline && !providersOff) {
+    trendingInterval = setInterval(() => {
+      void (async () => {
+        try {
+          const pairs = await dexClient.fetchTrending();
+          for (const pair of pairs) {
+            await emitCandidateFromPair(pair, null);
+          }
+        } catch (err) {
+          logger.error({ err }, 'trending loop failed');
         }
-      } catch (err) {
-        logger.error({ err }, 'trending loop failed');
-      }
-    })();
-  }, trendingIntervalMs);
+      })();
+    }, trendingIntervalMs);
 
-  const birdTrendingInterval = setInterval(() => {
-    void (async () => {
-      try {
-        const tokens = await birdeyeClient.fetchTrending('1h');
-        const addresses = tokens.map((token) => token.address).filter(Boolean) as string[];
-        if (addresses.length > 0) {
-          await birdeyeClient.ensurePrices([...addresses, SOL_MINT]);
+    birdTrendingInterval = setInterval(() => {
+      void (async () => {
+        try {
+          const tokens = await birdeyeClient.fetchTrending('1h');
+          const addresses = tokens.map((token) => token.address).filter(Boolean) as string[];
+          if (addresses.length > 0) {
+            await birdeyeClient.ensurePrices([...addresses, SOL_MINT]);
+          }
+        } catch (err) {
+          logger.error({ err }, 'birdeye trending loop failed');
         }
-      } catch (err) {
-        logger.error({ err }, 'birdeye trending loop failed');
-      }
-    })();
-  }, birdTrendingIntervalMs);
+      })();
+    }, birdTrendingIntervalMs);
+  } else {
+    logger.warn('trending loops disabled due to offline/providers flags');
+  }
 
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
   process.on('SIGINT', () => void shutdown('SIGINT'));
 
   async function shutdown(reason: string) {
     logger.warn({ reason }, 'shutting down onchain discovery');
-    clearInterval(trendingInterval);
-    clearInterval(birdTrendingInterval);
+    if (trendingInterval) {
+      clearInterval(trendingInterval);
+      trendingInterval = null;
+    }
+    if (birdTrendingInterval) {
+      clearInterval(birdTrendingInterval);
+      birdTrendingInterval = null;
+    }
     for (const dispose of streamDisposers.splice(0)) {
       try {
         dispose();
@@ -304,10 +374,19 @@ async function bootstrap() {
         logger.error({ err }, 'failed to dispose stream');
       }
     }
-    try {
-      await raydiumWatcher.stop();
-    } catch (err) {
-      logger.error({ err }, 'failed to stop raydium watcher');
+    if (raydiumWatcherRunning) {
+      try {
+        await raydiumWatcher.stop();
+      } catch (err) {
+        logger.error({ err }, 'failed to stop raydium watcher');
+      }
+    }
+    if (solanaTrackerStarted) {
+      try {
+        stProvider.stop();
+      } catch (err) {
+        logger.error({ err }, 'failed to stop solanatracker provider');
+      }
     }
     try {
       await app.close();

@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { PublicKey, LogsCallback } from '@solana/web3.js';
+import { Connection, PublicKey, LogsCallback } from '@solana/web3.js';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -13,6 +13,8 @@ import { insertMigrationEvent, createWriteQueue } from '@trenches/persistence';
 type MigrationEvent = { ts: number; mint: string; pool: string; source: 'pumpfun' | 'pumpswap' | 'raydium'; initSig: string };
 
 const logger = createLogger('migration-watcher');
+const offline = process.env.NO_RPC === '1';
+const providersOff = process.env.DISABLE_PROVIDERS === '1';
 
 async function bootstrap() {
   const config = loadConfig();
@@ -21,7 +23,12 @@ async function bootstrap() {
   await app.register(rateLimit as any, { max: 240, timeWindow: '1 minute' });
   await app.register(fastifySse as any);
 
-  const connection = createRpcConnection(config.rpc, { commitment: 'confirmed' });
+  let connection: Connection | null = null;
+  if (!offline) {
+    connection = createRpcConnection(config.rpc, { commitment: 'confirmed' });
+  } else {
+    logger.warn('NO_RPC=1; skipping RPC connection and subscriptions');
+  }
 
   // Metrics
   const eventsTotal = registerCounter({ name: 'migration_watcher_events_total', help: 'Total migration events emitted', labelNames: ['source'] });
@@ -55,7 +62,13 @@ async function bootstrap() {
     reply.send(await registry.metrics());
   });
 
-  app.get('/healthz', async () => ({ status: 'ok', programs: config.addresses }));
+  app.get('/healthz', async () => ({
+    status: offline ? 'degraded' : 'ok',
+    detail: offline ? 'rpc_missing' : 'ready',
+    offline,
+    providersOff,
+    programs: config.addresses
+  }));
 
   const address = await app.listen({ host: '0.0.0.0', port: config.services.migrationWatcher.port });
   logger.info({ address, programs: config.addresses }, 'migration-watcher listening');
@@ -75,6 +88,27 @@ async function bootstrap() {
       logger.warn({ program: name, id, err }, 'failed to probe program activity');
     }
   }
+
+  const probePrograms = async () => {
+    if (!connection) {
+      return;
+    }
+    const conn = connection;
+    for (const [name, id] of Object.entries(config.addresses)) {
+      if (!id) {
+        logger.warn({ program: name }, 'program id not set');
+        continue;
+      }
+      try {
+        const sigs = await conn.getSignaturesForAddress(new PublicKey(id), { limit: 1 });
+        if (!sigs || sigs.length === 0) {
+          logger.warn({ program: name, id }, 'no recent signatures observed for program (may be fine)');
+        }
+      } catch (err) {
+        logger.warn({ program: name, id, err }, 'failed to probe program activity');
+      }
+    }
+  };
 
   const ttl = new TtlCache<string, boolean>(10 * 60 * 1000);
   const writer = createWriteQueue('migration');
@@ -112,6 +146,11 @@ async function bootstrap() {
 
   const subscribeProgram = async (id: string, source: MigrationEvent['source']) => {
     if (!id) return;
+    if (!connection) {
+      logger.warn({ program: id, source }, 'skipping subscription; rpc offline');
+      return;
+    }
+    const conn = connection;
     const pk = new PublicKey(id);
     const cb: LogsCallback = async (logInfo) => {
       const start = Date.now();
@@ -121,7 +160,7 @@ async function bootstrap() {
           dedupTotal.inc();
           return;
         }
-        const tx = await connection.getTransaction(sig, { maxSupportedTransactionVersion: 0 });
+        const tx = await conn.getTransaction(sig, { maxSupportedTransactionVersion: 0 });
         if (!tx) return;
         const ev = normalizeMigrationEvent(tx, sig, source);
         if (!ev) return;
@@ -135,17 +174,22 @@ async function bootstrap() {
       }
     };
     try {
-      await connection.onLogs(pk, cb, 'confirmed');
+      await conn.onLogs(pk, cb, 'confirmed');
       logger.info({ program: id, source }, 'subscribed to program logs');
     } catch (err) {
       logger.error({ program: id, err }, 'failed to subscribe to program logs');
     }
   };
 
-  await subscribeProgram(config.addresses.raydiumAmmV4, 'raydium');
-  await subscribeProgram(config.addresses.raydiumCpmm, 'raydium');
-  await subscribeProgram(config.addresses.pumpswapProgram, 'pumpswap');
-  await subscribeProgram(config.addresses.pumpfunProgram, 'pumpfun');
+  if (!offline && connection) {
+    await subscribeProgram(config.addresses.raydiumAmmV4, 'raydium');
+    await subscribeProgram(config.addresses.raydiumCpmm, 'raydium');
+    await subscribeProgram(config.addresses.pumpswapProgram, 'pumpswap');
+    await subscribeProgram(config.addresses.pumpfunProgram, 'pumpfun');
+    await probePrograms();
+  } else {
+    logger.warn('migration-watcher running in offline mode; subscriptions disabled');
+  }
 }
 
 bootstrap().catch((err) => {
