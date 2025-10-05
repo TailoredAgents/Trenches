@@ -395,5 +395,4 @@ function congestionToScore(level: string): number {
 
 bootstrap().catch((err) => {
   logger.error({ err }, 'policy engine failed to start');
-  process.exit(1);
 });

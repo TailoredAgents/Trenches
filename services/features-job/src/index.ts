@@ -234,5 +234,4 @@ async function bootstrap(): Promise<void> {
 
 bootstrap().catch((err) => {
   logger.error({ err }, 'features job failed to start');
-  process.exit(1);
 });

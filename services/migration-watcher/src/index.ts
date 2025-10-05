@@ -198,5 +198,4 @@ async function bootstrap() {
 
 bootstrap().catch((err) => {
   logger.error({ err }, 'migration-watcher failed to start');
-  process.exit(1);
 });

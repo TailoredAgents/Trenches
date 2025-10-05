@@ -204,6 +204,5 @@ async function bootstrap() {
 
 bootstrap().catch((err) => {
   logger.error({ err }, 'social ingestor failed to start');
-  process.exit(1);
 });
 

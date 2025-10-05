@@ -611,5 +611,4 @@ async function refreshExposureMetrics(positions: Map<string, { state: PositionSt
 
 bootstrap().catch((err) => {
   logger.error({ err }, 'position manager failed to start');
-  process.exit(1);
 });

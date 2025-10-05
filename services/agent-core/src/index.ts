@@ -668,7 +668,6 @@ async function bootstrap() {
 
 bootstrap().catch((err) => {
   logger.error({ err }, 'agent core failed to start');
-  process.exit(1);
 });
 
 

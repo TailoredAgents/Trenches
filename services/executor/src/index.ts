@@ -624,5 +624,4 @@ function computeExecutionPrice(params: { isBuy: boolean; sizeSol: number; quoteO
 
 bootstrap().catch((err) => {
   logger.error({ err }, 'executor failed to start');
-  process.exit(1);
 });

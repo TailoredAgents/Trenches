@@ -86,7 +86,7 @@ const MIGRATIONS: Migration[] = [
 
         safety_ok INTEGER NOT NULL,
 
-        safety_reasons TEXT NOT NULL
+        safety_reasons TEXT NOT NULL,
 
         topic_id TEXT,
 
@@ -645,48 +645,235 @@ MIGRATIONS.push({
 });
 
 function columnExists(db: DatabaseConstructor.Database, table: string, col: string): boolean {
-
-  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
-
-  return rows.some((r) => (r?.name || '').toLowerCase() === col.toLowerCase());
-
+  try {
+    const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: string }>;
+    return Array.isArray(rows) && rows.some((row) => String(row?.name ?? '').toLowerCase() === col.toLowerCase());
+  } catch {
+    return false;
+  }
 }
 
 function indexExists(db: DatabaseConstructor.Database, idx: string): boolean {
-
-  const row = db
-
-    .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND lower(name) = ?")
-
-    .get(idx.toLowerCase()) as { name?: string } | undefined;
-
-  return Boolean(row?.name);
-
+  try {
+    db.prepare(`PRAGMA index_info(${idx})`).all();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-export function ensureColumn(db: DatabaseConstructor.Database, table: string, col: string, ddl: string): void {
+export function ensureTable(db: DatabaseConstructor.Database, ddl: string): void {
+  db.prepare(ddl).run();
+}
 
+export function ensureColumn(db: DatabaseConstructor.Database, table: string, col: string, ddlType: string): void {
   if (!columnExists(db, table, col)) {
-
-    const trimmed = ddl.trim().replace(/;$/, '');
-
-    db.prepare(`ALTER TABLE ${table} ADD COLUMN ${col} ${trimmed}`).run();
-
+    db.prepare(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddlType}`).run();
   }
-
 }
 
 export function ensureIndex(db: DatabaseConstructor.Database, idx: string, ddl: string): void {
-
   if (!indexExists(db, idx)) {
+    db.prepare(ddl).run();
+  }
+}
 
-    const statement = ddl.trim().replace(/;$/, '');
 
-    db.prepare(statement).run();
+const BOOTSTRAP_TABLE_DDLS = [
+  `CREATE TABLE IF NOT EXISTS migrations ( id TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')) );`,
+  `CREATE TABLE IF NOT EXISTS topics ( topic_id TEXT PRIMARY KEY, label TEXT NOT NULL, sss REAL NOT NULL, novelty REAL NOT NULL, window_sec INTEGER NOT NULL, sources TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')) );`,
+  `CREATE TABLE IF NOT EXISTS candidates ( mint TEXT PRIMARY KEY, name TEXT, symbol TEXT, source TEXT NOT NULL, age_sec INTEGER NOT NULL, lp_sol REAL NOT NULL, buys60 INTEGER NOT NULL, sells60 INTEGER NOT NULL, uniques60 INTEGER NOT NULL, spread_bps REAL NOT NULL, safety_ok INTEGER NOT NULL, safety_reasons TEXT NOT NULL, topic_id TEXT, match_score REAL, first_seen_slot INTEGER, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')) );`,
+  `CREATE TABLE IF NOT EXISTS orders ( id TEXT PRIMARY KEY, mint TEXT NOT NULL, gate TEXT NOT NULL, size_sol REAL NOT NULL, slippage_bps INTEGER NOT NULL, jito_tip_lamports INTEGER NOT NULL, compute_unit_price INTEGER, route TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')) );`,
+  `CREATE TABLE IF NOT EXISTS fills ( signature TEXT PRIMARY KEY, mint TEXT NOT NULL, price REAL NOT NULL, quantity REAL NOT NULL, route TEXT NOT NULL, tip_lamports INTEGER NOT NULL, slot INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')) );`,
+  `CREATE TABLE IF NOT EXISTS positions ( mint TEXT PRIMARY KEY, quantity REAL NOT NULL, average_price REAL NOT NULL, realized_pnl REAL NOT NULL DEFAULT 0, unrealized_pnl REAL NOT NULL DEFAULT 0, state TEXT NOT NULL, ladder_hits TEXT NOT NULL, trail_active INTEGER NOT NULL DEFAULT 0, mae_bps REAL NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')) );`,
+  `CREATE TABLE IF NOT EXISTS events ( id INTEGER PRIMARY KEY AUTOINCREMENT, event_type TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')) );`,
+  `CREATE TABLE IF NOT EXISTS sizing_decisions ( id INTEGER PRIMARY KEY AUTOINCREMENT, mint TEXT, equity REAL NOT NULL, free REAL NOT NULL, tier TEXT NOT NULL, caps TEXT NOT NULL, final_size REAL NOT NULL, reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')) );`,
+  `CREATE TABLE IF NOT EXISTS heartbeats ( id INTEGER PRIMARY KEY AUTOINCREMENT, component TEXT NOT NULL, status TEXT NOT NULL, message TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) );`,
+  `CREATE TABLE IF NOT EXISTS social_posts ( id TEXT PRIMARY KEY, platform TEXT NOT NULL, author_id TEXT NOT NULL, author_handle TEXT, text TEXT NOT NULL, lang TEXT, link TEXT, published_at TEXT NOT NULL, captured_at TEXT NOT NULL, topics TEXT, tags TEXT, engagement TEXT, source TEXT NOT NULL, raw TEXT NOT NULL );`,
+  `CREATE TABLE IF NOT EXISTS policy_actions ( id INTEGER PRIMARY KEY AUTOINCREMENT, action_id TEXT NOT NULL, mint TEXT NOT NULL, context TEXT NOT NULL, parameters TEXT NOT NULL, reward REAL, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')) );`,
+  `CREATE TABLE IF NOT EXISTS bandit_state ( action_id TEXT PRIMARY KEY, ainv TEXT NOT NULL, b TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime('now')) );`,
+  `CREATE TABLE IF NOT EXISTS topic_clusters ( topic_id TEXT PRIMARY KEY, label TEXT NOT NULL, centroid_json TEXT NOT NULL, phrases TEXT NOT NULL, sss REAL NOT NULL, novelty REAL NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')) );`,
+  `CREATE TABLE IF NOT EXISTS topic_windows ( window_id TEXT PRIMARY KEY, topic_id TEXT NOT NULL, opened_at TEXT NOT NULL, expires_at TEXT NOT NULL, last_refresh TEXT NOT NULL, sss REAL NOT NULL, novelty REAL NOT NULL, FOREIGN KEY (topic_id) REFERENCES topic_clusters(topic_id) );`,
+  `CREATE TABLE IF NOT EXISTS topic_matches ( id TEXT PRIMARY KEY, topic_id TEXT NOT NULL, mint TEXT NOT NULL, match_score REAL NOT NULL, matched_at TEXT NOT NULL, source TEXT NOT NULL, FOREIGN KEY (topic_id) REFERENCES topic_clusters(topic_id) );`,
+  `CREATE TABLE IF NOT EXISTS phrase_baseline ( phrase TEXT PRIMARY KEY, count REAL NOT NULL, engagement REAL NOT NULL, authors REAL NOT NULL, updated_at TEXT NOT NULL );`,
+  `CREATE TABLE IF NOT EXISTS migration_events ( ts INTEGER NOT NULL, mint TEXT NOT NULL, pool TEXT NOT NULL, source TEXT NOT NULL, init_sig TEXT NOT NULL );`,
+  `CREATE TABLE IF NOT EXISTS scores ( ts INTEGER NOT NULL, mint TEXT NOT NULL, horizon TEXT NOT NULL, score REAL NOT NULL, features_json TEXT NOT NULL );`,
+  `CREATE TABLE IF NOT EXISTS rug_verdicts ( ts INTEGER NOT NULL, mint TEXT NOT NULL, rug_prob REAL NOT NULL, reasons_json TEXT NOT NULL );`,
+  `CREATE TABLE IF NOT EXISTS fill_preds( ts INTEGER NOT NULL, route TEXT NOT NULL, p_fill REAL NOT NULL, exp_slip_bps REAL NOT NULL, exp_time_ms INTEGER NOT NULL, ctx_json TEXT NOT NULL );`,
+  `CREATE TABLE IF NOT EXISTS fee_decisions( ts INTEGER NOT NULL, cu_price INTEGER NOT NULL, cu_limit INTEGER NOT NULL, slippage_bps INTEGER NOT NULL, ctx_json TEXT NOT NULL );`,
+  `CREATE TABLE IF NOT EXISTS exec_outcomes( ts INTEGER NOT NULL, quote_price REAL NOT NULL, exec_price REAL, filled INTEGER NOT NULL, route TEXT, cu_price INTEGER, slippage_bps_req INTEGER, slippage_bps_real REAL, time_to_land_ms INTEGER, error_code TEXT, notes TEXT );`,
+  `CREATE TABLE IF NOT EXISTS hazard_states( ts INTEGER NOT NULL, mint TEXT NOT NULL, hazard REAL NOT NULL, trail_bps INTEGER NOT NULL, ladder_json TEXT NOT NULL );`,
+  `CREATE TABLE IF NOT EXISTS sizing_outcomes( ts INTEGER NOT NULL, mint TEXT NOT NULL, notional REAL NOT NULL, pnl_usd REAL NOT NULL, mae_bps REAL NOT NULL, closed INTEGER NOT NULL );`,
+  `CREATE TABLE IF NOT EXISTS backtest_runs( id INTEGER PRIMARY KEY AUTOINCREMENT, started_ts INTEGER NOT NULL, finished_ts INTEGER, params_json TEXT NOT NULL, notes TEXT );`,
+  `CREATE TABLE IF NOT EXISTS backtest_results( run_id INTEGER NOT NULL, metric TEXT NOT NULL, value REAL NOT NULL, segment TEXT, PRIMARY KEY(run_id, metric, segment) );`,
+  `CREATE TABLE IF NOT EXISTS shadow_decisions_fee( ts INTEGER NOT NULL, mint TEXT NOT NULL, chosen_arm INTEGER NOT NULL, baseline_arm INTEGER, delta_reward_est REAL, ctx_json TEXT NOT NULL );`,
+  `CREATE TABLE IF NOT EXISTS shadow_decisions_sizing( ts INTEGER NOT NULL, mint TEXT NOT NULL, chosen_arm TEXT NOT NULL, baseline_arm TEXT, delta_reward_est REAL, ctx_json TEXT NOT NULL );`,
+  `CREATE TABLE IF NOT EXISTS prices ( ts INTEGER NOT NULL, symbol TEXT NOT NULL, usd REAL NOT NULL );`,
+  `CREATE TABLE IF NOT EXISTS route_stats ( route TEXT NOT NULL, window_start_ts INTEGER NOT NULL, attempts INTEGER NOT NULL, fails INTEGER NOT NULL, avg_slip_real_bps REAL NOT NULL, avg_slip_exp_bps REAL NOT NULL, penalty REAL NOT NULL, PRIMARY KEY(route, window_start_ts) );`,
+  `CREATE TABLE IF NOT EXISTS leader_wallets ( wallet TEXT PRIMARY KEY, score REAL NOT NULL, lastSeenTs INTEGER NOT NULL );`,
+  `CREATE TABLE IF NOT EXISTS leader_hits ( pool TEXT NOT NULL, wallet TEXT NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY(pool, wallet, ts) );`,
+  `CREATE TABLE IF NOT EXISTS author_features( author TEXT PRIMARY KEY, quality REAL NOT NULL, posts24h INTEGER NOT NULL, lastCalcTs INTEGER NOT NULL );`,
+  `CREATE TABLE IF NOT EXISTS pump_signals( ts INTEGER NOT NULL, mint TEXT NOT NULL, pump_prob REAL NOT NULL, samples INTEGER NOT NULL );`
+] as const;
 
+const BOOTSTRAP_INDEX_DDLS = [
+  { name: 'idx_candidates_created_at', ddl: `CREATE INDEX IF NOT EXISTS idx_candidates_created_at ON candidates(created_at);` },
+  { name: 'idx_orders_mint', ddl: `CREATE INDEX IF NOT EXISTS idx_orders_mint ON orders(mint);` },
+  { name: 'idx_fills_mint', ddl: `CREATE INDEX IF NOT EXISTS idx_fills_mint ON fills(mint);` },
+  { name: 'idx_events_type', ddl: `CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);` },
+  { name: 'idx_sizing_created_at', ddl: `CREATE INDEX IF NOT EXISTS idx_sizing_created_at ON sizing_decisions(created_at);` },
+  { name: 'idx_heartbeats_component', ddl: `CREATE INDEX IF NOT EXISTS idx_heartbeats_component ON heartbeats(component);` },
+  { name: 'idx_social_posts_platform', ddl: `CREATE INDEX IF NOT EXISTS idx_social_posts_platform ON social_posts(platform);` },
+  { name: 'idx_social_posts_published_at', ddl: `CREATE INDEX IF NOT EXISTS idx_social_posts_published_at ON social_posts(published_at);` },
+  { name: 'idx_policy_actions_mint', ddl: `CREATE INDEX IF NOT EXISTS idx_policy_actions_mint ON policy_actions(mint);` },
+  { name: 'idx_topic_clusters_updated_at', ddl: `CREATE INDEX IF NOT EXISTS idx_topic_clusters_updated_at ON topic_clusters(updated_at);` },
+  { name: 'idx_topic_windows_topic', ddl: `CREATE INDEX IF NOT EXISTS idx_topic_windows_topic ON topic_windows(topic_id);` },
+  { name: 'idx_topic_windows_expires', ddl: `CREATE INDEX IF NOT EXISTS idx_topic_windows_expires ON topic_windows(expires_at);` },
+  { name: 'idx_topic_matches_topic', ddl: `CREATE INDEX IF NOT EXISTS idx_topic_matches_topic ON topic_matches(topic_id);` },
+  { name: 'idx_topic_matches_mint', ddl: `CREATE INDEX IF NOT EXISTS idx_topic_matches_mint ON topic_matches(mint);` },
+  { name: 'idx_migration_events_mint_ts', ddl: `CREATE INDEX IF NOT EXISTS idx_migration_events_mint_ts ON migration_events(mint, ts);` },
+  { name: 'idx_scores_mint_horizon_ts', ddl: `CREATE INDEX IF NOT EXISTS idx_scores_mint_horizon_ts ON scores(mint, horizon, ts);` },
+  { name: 'idx_rug_verdicts_mint_ts', ddl: `CREATE INDEX IF NOT EXISTS idx_rug_verdicts_mint_ts ON rug_verdicts(mint, ts);` },
+  { name: 'idx_fill_preds_route_ts', ddl: `CREATE INDEX IF NOT EXISTS idx_fill_preds_route_ts ON fill_preds(route, ts);` },
+  { name: 'idx_fee_decisions_ts', ddl: `CREATE INDEX IF NOT EXISTS idx_fee_decisions_ts ON fee_decisions(ts);` },
+  { name: 'idx_exec_outcomes_ts', ddl: `CREATE INDEX IF NOT EXISTS idx_exec_outcomes_ts ON exec_outcomes(ts);` },
+  { name: 'idx_hazard_states_mint_ts', ddl: `CREATE INDEX IF NOT EXISTS idx_hazard_states_mint_ts ON hazard_states(mint, ts);` },
+  { name: 'idx_sizing_decisions_mint_ts', ddl: `CREATE INDEX IF NOT EXISTS idx_sizing_decisions_mint_ts ON sizing_decisions(mint, ts);` },
+  { name: 'idx_sizing_outcomes_ts', ddl: `CREATE INDEX IF NOT EXISTS idx_sizing_outcomes_ts ON sizing_outcomes(ts);` },
+  { name: 'idx_shadow_fee_ts', ddl: `CREATE INDEX IF NOT EXISTS idx_shadow_fee_ts ON shadow_decisions_fee(ts);` },
+  { name: 'idx_shadow_sizing_ts', ddl: `CREATE INDEX IF NOT EXISTS idx_shadow_sizing_ts ON shadow_decisions_sizing(ts);` },
+  { name: 'idx_prices_symbol_ts', ddl: `CREATE INDEX IF NOT EXISTS idx_prices_symbol_ts ON prices(symbol, ts);` },
+  { name: 'idx_route_stats_ts', ddl: `CREATE INDEX IF NOT EXISTS idx_route_stats_ts ON route_stats(window_start_ts);` },
+  { name: 'idx_leader_hits_pool_ts', ddl: `CREATE INDEX IF NOT EXISTS idx_leader_hits_pool_ts ON leader_hits(pool, ts);` },
+  { name: 'idx_sizing_outcomes_mint_ts', ddl: `CREATE INDEX IF NOT EXISTS idx_sizing_outcomes_mint_ts ON sizing_outcomes(mint, ts);` },
+  { name: 'idx_exec_outcomes_route_ts', ddl: `CREATE INDEX IF NOT EXISTS idx_exec_outcomes_route_ts ON exec_outcomes(route, ts);` },
+  { name: 'idx_leader_hits_wallet_ts', ddl: `CREATE INDEX IF NOT EXISTS idx_leader_hits_wallet_ts ON leader_hits(wallet, ts);` },
+  { name: 'idx_pump_signals_mint_ts', ddl: `CREATE INDEX IF NOT EXISTS idx_pump_signals_mint_ts ON pump_signals(mint, ts);` }
+] as const;
+
+const BOOTSTRAP_COLUMN_ADDITIONS = [
+  { table: 'candidates', column: 'pool_address', type: 'TEXT' },
+  { table: 'candidates', column: 'lp_mint', type: 'TEXT' },
+  { table: 'candidates', column: 'pool_coin_account', type: 'TEXT' },
+  { table: 'candidates', column: 'pool_pc_account', type: 'TEXT' },
+  { table: 'orders', column: 'side', type: 'TEXT DEFAULT \'buy\'' },
+  { table: 'orders', column: 'token_amount', type: 'INTEGER' },
+  { table: 'orders', column: 'expected_sol', type: 'REAL' },
+  { table: 'topics', column: 'decayed_sss', type: 'REAL DEFAULT 0' },
+  { table: 'topics', column: 'cluster_phrases', type: 'TEXT' },
+  { table: 'topics', column: 'cluster_added', type: 'TEXT' },
+  { table: 'topics', column: 'cluster_centroid', type: 'TEXT' },
+  { table: 'sizing_decisions', column: 'ts', type: 'INTEGER' },
+  { table: 'sizing_decisions', column: 'arm', type: 'TEXT' },
+  { table: 'sizing_decisions', column: 'notional', type: 'REAL' },
+  { table: 'sizing_decisions', column: 'ctx_json', type: 'TEXT' },
+  { table: 'exec_outcomes', column: 'priority_fee_lamports', type: 'INTEGER' },
+  { table: 'exec_outcomes', column: 'amount_in', type: 'INTEGER' },
+  { table: 'exec_outcomes', column: 'amount_out', type: 'INTEGER' },
+  { table: 'exec_outcomes', column: 'fee_lamports_total', type: 'INTEGER' },
+  { table: 'positions', column: 'mae_bps', type: 'REAL NOT NULL DEFAULT 0' }
+] as const;
+
+const CANONICAL_COLUMN_ADDITIONS = [
+  { table: 'topics', column: 'id', type: 'INTEGER' },
+  { table: 'topics', column: 'phrase', type: 'TEXT' },
+  { table: 'topics', column: 'score', type: 'REAL' },
+  { table: 'topics', column: 'created_ts', type: 'INTEGER' },
+  { table: 'candidates', column: 'ts', type: 'INTEGER' },
+  { table: 'candidates', column: 'pool', type: 'TEXT' },
+  { table: 'candidates', column: 'age', type: 'INTEGER' },
+  { table: 'candidates', column: 'lpSol', type: 'REAL' },
+  { table: 'candidates', column: 'uniques', type: 'INTEGER' },
+  { table: 'candidates', column: 'buys', type: 'INTEGER' },
+  { table: 'candidates', column: 'sells', type: 'INTEGER' },
+  { table: 'orders', column: 'created_ts', type: 'INTEGER' },
+  { table: 'orders', column: 'size', type: 'REAL' },
+  { table: 'orders', column: 'cu_price', type: 'INTEGER' },
+  { table: 'orders', column: 'tokenAmount', type: 'INTEGER' },
+  { table: 'orders', column: 'expectedSol', type: 'REAL' },
+  { table: 'fills', column: 'order_id', type: 'TEXT' },
+  { table: 'fills', column: 'ts', type: 'INTEGER' },
+  { table: 'fills', column: 'amount_in', type: 'INTEGER' },
+  { table: 'fills', column: 'amount_out', type: 'INTEGER' },
+  { table: 'fills', column: 'exec_price', type: 'REAL' },
+  { table: 'positions', column: 'entry_price', type: 'REAL' },
+  { table: 'positions', column: 'entry_ts', type: 'INTEGER' },
+  { table: 'positions', column: 'size', type: 'REAL' },
+  { table: 'positions', column: 'quantity', type: 'INTEGER' },
+  { table: 'events', column: 'ts', type: 'INTEGER' },
+  { table: 'events', column: 'type', type: 'TEXT' },
+  { table: 'events', column: 'payload_json', type: 'TEXT' }
+] as const;
+
+export function bootstrapDb(
+  database: DatabaseConstructor.Database,
+  log: { warn: (...args: any[]) => void } = console
+): void {
+  const bootstrapLogger = log ?? console;
+
+  const safePragma = (pragma: string) => {
+    try {
+      database.pragma(pragma);
+    } catch (err) {
+      bootstrapLogger.warn({ err, pragma }, 'db bootstrap warning');
+    }
+  };
+
+  safePragma('journal_mode = WAL');
+  safePragma('synchronous = NORMAL');
+  safePragma('foreign_keys = ON');
+  safePragma('busy_timeout = 5000');
+
+  const safeRun = (fn: () => void, meta: Record<string, unknown>) => {
+    try {
+      fn();
+    } catch (err) {
+      bootstrapLogger.warn({ err, ...meta }, 'db bootstrap warning');
+    }
+  };
+
+  let startedTransaction = false;
+  try {
+    database.exec('BEGIN');
+    startedTransaction = true;
+  } catch (err) {
+    bootstrapLogger.warn({ err, ddl: 'BEGIN' }, 'db bootstrap warning');
   }
 
+  const columnSpecs = [...BOOTSTRAP_COLUMN_ADDITIONS, ...CANONICAL_COLUMN_ADDITIONS];
+
+  for (const ddl of BOOTSTRAP_TABLE_DDLS) {
+    safeRun(() => ensureTable(database, ddl), { ddl });
+  }
+
+  for (const spec of columnSpecs) {
+    safeRun(() => ensureColumn(database, spec.table, spec.column, spec.type), {
+      table: spec.table,
+      column: spec.column,
+      ddl: spec.type
+    });
+  }
+
+  for (const index of BOOTSTRAP_INDEX_DDLS) {
+    safeRun(() => ensureIndex(database, index.name, index.ddl), { idx: index.name, ddl: index.ddl });
+  }
+
+  if (startedTransaction) {
+    try {
+      database.exec('COMMIT');
+    } catch (err) {
+      bootstrapLogger.warn({ err, ddl: 'COMMIT' }, 'db bootstrap warning');
+      try {
+        database.exec('ROLLBACK');
+      } catch {
+        // ignore rollback failure
+      }
+    }
+  }
 }
+
+
+let bootstrapped = false;
 
 let db: DatabaseConstructor.Database | null = null;
 
@@ -715,15 +902,18 @@ function openDb(): DatabaseConstructor.Database {
 
   const instance = new DatabaseConstructor(cfg.persistence.sqlitePath, { timeout: 5000 });
 
-  instance.pragma('journal_mode = WAL');
-  instance.pragma('synchronous = NORMAL');
-  instance.pragma('temp_store = MEMORY');
+  try { instance.pragma('temp_store = MEMORY'); } catch { /* optional */ }
   try { instance.pragma('mmap_size = 268435456'); } catch { /* optional */ }
-  instance.pragma('foreign_keys = ON');
+
+  if (!bootstrapped) {
+    bootstrapDb(instance, logger);
+    bootstrapped = true;
+  }
 
   return instance;
 
 }
+
 
 
 

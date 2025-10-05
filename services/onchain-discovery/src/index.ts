@@ -391,5 +391,4 @@ async function bootstrap() {
 
 bootstrap().catch((err) => {
   logger.error({ err }, 'onchain discovery failed to start');
-  process.exit(1);
 });

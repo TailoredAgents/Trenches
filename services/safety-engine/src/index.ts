@@ -337,5 +337,4 @@ function evaluateGating(candidate: TokenCandidate, config: ReturnType<typeof loa
 
 bootstrap().catch((err) => {
   logger.error({ err }, 'safety engine failed to start');
-  process.exit(1);
 });
