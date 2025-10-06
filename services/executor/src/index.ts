@@ -73,6 +73,7 @@ async function bootstrap() {
       rpc: config.rpc.primaryUrl,
       connected: !offline,
       wallet: walletStatus,
+      walletPubkey: walletStatus.ready ? wallet?.publicKey.toBase58() : undefined,
       mode: config.execution?.simpleMode ? 'simple' : 'advanced',
       flags: {
         simpleMode: config.execution?.simpleMode ?? true,

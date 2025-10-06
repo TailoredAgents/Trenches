@@ -1,7 +1,6 @@
-import fs from 'fs';
-import path from 'path';
 import { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { createLogger } from '@trenches/logger';
+import { loadWalletKeystore } from '@trenches/util/wallet';
 
 const logger = createLogger('executor-wallet');
 
@@ -15,16 +14,17 @@ export class WalletProvider {
 
   constructor(connection: Connection) {
     this.connection = connection;
-    const { keypair, reason } = tryLoadKeypair();
-    if (keypair) {
-      this.keypair = keypair;
+    const loaded = loadWalletKeystore(process.env.WALLET_KEYSTORE_PATH || '.dev/wallet.json');
+    if (loaded.ready && loaded.secretKey) {
+      this.keypair = Keypair.fromSecretKey(loaded.secretKey);
       this.disabled = false;
       this.disabledReason = null;
+      logger.info({ pubkey: this.keypair.publicKey.toBase58(), format: loaded.format, file: loaded.file }, 'wallet ready');
     } else {
       this.keypair = Keypair.generate();
       this.disabled = true;
-      this.disabledReason = reason ?? 'missing_keystore';
-      logger.warn({ reason: this.disabledReason }, 'executor wallet unavailable; running in shadow mode');
+      this.disabledReason = loaded.reason ?? 'missing_keystore';
+      logger.warn({ reason: this.disabledReason, file: loaded.file }, 'executor wallet unavailable; running in shadow mode');
     }
   }
 
@@ -53,34 +53,4 @@ export class WalletProvider {
   }
 }
 
-function tryLoadKeypair(): KeypairLoadResult {
-  const keyPath = process.env.WALLET_KEYSTORE_PATH;
-  if (!keyPath) {
-    return { keypair: null, reason: 'missing_keystore' };
-  }
-  const resolved = path.resolve(keyPath);
-  try {
-    if (!fs.existsSync(resolved)) {
-      logger.warn({ resolved }, 'wallet keystore path missing');
-      return { keypair: null, reason: 'missing_keystore' };
-    }
-    const raw = fs.readFileSync(resolved, 'utf-8').trim();
-    if (!raw) {
-      logger.warn({ resolved }, 'wallet keystore empty');
-      return { keypair: null, reason: 'missing_keystore' };
-    }
-    if (raw.startsWith('[')) {
-      const bytes = new Uint8Array(JSON.parse(raw));
-      return { keypair: Keypair.fromSecretKey(bytes) };
-    }
-    const values = raw.split(',').map((value) => Number(value.trim()));
-    if (values.every((value) => Number.isFinite(value))) {
-      return { keypair: Keypair.fromSecretKey(new Uint8Array(values)) };
-    }
-    logger.warn('Unsupported keypair format in WALLET_KEYSTORE_PATH');
-    return { keypair: null, reason: 'invalid_format' };
-  } catch (err) {
-    logger.error({ err, resolved }, 'failed to load wallet keyfile');
-    return { keypair: null, reason: 'missing_keystore' };
-  }
-}
+// legacy loader removed in favor of shared util

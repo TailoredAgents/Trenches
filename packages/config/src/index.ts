@@ -335,6 +335,7 @@ try {
   (envMap as any).push(['sizing.dailyLossCapUsd', 'SIZING_DAILY_LOSS_CAP_USD', (v: string) => Number(v)]);
   (envMap as any).push(['sizing.perMintCapUsd', 'SIZING_PER_MINT_CAP_USD', (v: string) => Number(v)]);
   (envMap as any).push(['sizing.coolOffL', 'SIZING_COOL_OFFL', (v: string) => Number(v)]);
+  (envMap as any).push(['sizing.minFreeSol', 'SIZING_MIN_FREE_SOL', (v: string) => Number(v)]);
   (envMap as any).push(['survival.baseTrailBps', 'SURV_BASE_TRAIL_BPS', (v: string) => Number(v)]);
   (envMap as any).push(['survival.minTrailBps', 'SURV_MIN_TRAIL_BPS', (v: string) => Number(v)]);
   (envMap as any).push(['survival.maxTrailBps', 'SURV_MAX_TRAIL_BPS', (v: string) => Number(v)]);

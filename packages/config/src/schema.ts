@@ -402,9 +402,10 @@ export const configSchema = z.object({
         ]),
       dailyLossCapUsd: z.number().nonnegative().default(500),
       perMintCapUsd: z.number().nonnegative().default(400),
-      coolOffL: z.number().int().nonnegative().default(2)
+      coolOffL: z.number().int().nonnegative().default(2),
+      minFreeSol: z.number().nonnegative().optional()
     })
-    .default({ baseUnitUsd: 100, arms: [{ type: 'equity_frac', value: 0.005 }, { type: 'equity_frac', value: 0.01 }, { type: 'equity_frac', value: 0.02 }], dailyLossCapUsd: 500, perMintCapUsd: 400, coolOffL: 2 }),
+    .default({ baseUnitUsd: 100, arms: [{ type: 'equity_frac', value: 0.005 }, { type: 'equity_frac', value: 0.01 }, { type: 'equity_frac', value: 0.02 }], dailyLossCapUsd: 500, perMintCapUsd: 400, coolOffL: 2, minFreeSol: undefined }),
   survival: z
     .object({
       baseTrailBps: z.number().int().positive().default(120),

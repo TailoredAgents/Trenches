@@ -133,6 +133,7 @@ async function bootstrap() {
     providersOff,
     rpc: config.rpc.primaryUrl,
     wallet: walletStatus,
+    walletPubkey: walletReady && walletManager ? walletManager.publicKey.toBase58() : undefined,
     safeFeed: config.policy.safeFeedUrl ?? `http://127.0.0.1:${config.services.safetyEngine.port}/events/safe`
   }));
 
@@ -213,6 +214,13 @@ async function bootstrap() {
     }
 
     const walletSnapshot = await refreshWallet();
+    const minFreeSol = config.sizing?.minFreeSol;
+    if (typeof minFreeSol === 'number' && !Number.isNaN(minFreeSol) && walletSnapshot.free < minFreeSol) {
+      logger.debug({ freeSol: walletSnapshot.free, minFreeSol }, 'skipping plan: wallet free SOL below minimum');
+      plansSuppressed.inc({ reason: 'min_free_sol' });
+      return;
+    }
+
     if (walletSnapshot.spendRemaining <= 0) {
       plansSuppressed.inc({ reason: 'daily_cap_exhausted' });
       return;

@@ -12,5 +12,10 @@
   "dependencies": {
     "@solana/web3.js": "^1.91.5",
     "@trenches/metrics": "workspace:*"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./rpc": "./dist/rpc.js",
+    "./wallet": "./dist/wallet.js"
   }
 }

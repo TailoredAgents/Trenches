@@ -2,5 +2,6 @@
 export * from './math';
 export * from './ttlCache';
 export * from './tokenBucket';
-export * from './rpc';
+export { createRpcConnection } from './rpc';
+export type { RpcConnectionConfig, RpcConnectionOptions } from './rpc';
 export * from './sseClient';

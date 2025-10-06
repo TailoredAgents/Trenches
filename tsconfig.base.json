@@ -34,10 +34,10 @@
         "packages/persistence/src"
       ],
       "@trenches/util": [
-        "packages/util/src"
+        "packages/util/src/index.ts"
       ],
       "@trenches/util/*": [
-        "packages/util/src/*"
+        "packages/util/src/*.ts"
       ]
     }
   },
