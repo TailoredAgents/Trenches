@@ -266,6 +266,12 @@ export const configSchema = z.object({
         .default({ topicBoost: 0.03, influencerBoost: 0.02, maxBoost: 0.06 })
     })
     .default({ enabled: true, baseUrl: 'https://api.lunarcrush.com', pollSec: 180, mcpSseUrl: '', endpoints: { topics: '/v2', influencers: '/v2' }, sssBias: { topicBoost: 0.03, influencerBoost: 0.02, maxBoost: 0.06 } }),
+  pyth: z
+    .object({
+      solUsdAccount: z.string().default('')
+    })
+    .default({ solUsdAccount: '' }),
+
   priceUpdater: z
     .object({
       enabled: z.boolean().default(true),
@@ -320,6 +326,9 @@ export const configSchema = z.object({
     tipStrategy: z.enum(['auto', 'manual']).default('auto'),
     computeUnitPriceMode: z.enum(['auto_oracle', 'manual']).default('auto_oracle'),
     simpleMode: z.boolean().default(true),
+    jito: z
+      .object({ enabled: z.boolean().default(false), bundleUrl: z.string().default('') })
+      .default({ enabled: false, bundleUrl: '' }),
     jitoEnabled: z.boolean().default(false),
     secondaryRpcEnabled: z.boolean().default(false),
     wsEnabled: z.boolean().default(false),
@@ -356,6 +365,7 @@ export const configSchema = z.object({
     tipStrategy: 'auto',
     computeUnitPriceMode: 'auto_oracle',
     simpleMode: true,
+    jito: { enabled: false, bundleUrl: '' },
     jitoEnabled: false,
     secondaryRpcEnabled: false,
     wsEnabled: false,

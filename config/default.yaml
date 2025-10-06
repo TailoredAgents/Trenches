@@ -276,6 +276,7 @@ lunarcrush:
   baseUrl: https://api.lunarcrush.com
   pollSec: 180
   mcpSseUrl: ''
+  apiKey: ''
   endpoints:
     topics: /v2
     influencers: /v2
@@ -304,6 +305,9 @@ features:
   jitoEnabled: false
   parquetExport: false
   
+pyth:
+  solUsdAccount: ''
+
 priceUpdater:
   enabled: true
   intervalMs: 60000

@@ -199,6 +199,7 @@ const baseConfig: TrenchesConfig = configSchema.parse({
     gdelt: { enabled: true, pollIntervalSec: 900 }
   },
   leaderWallets: { enabled: true, watchMinutes: 5, minHitsForBoost: 1, scoreHalfLifeDays: 14, rankBoost: 0.03, sizeTierBoost: 1 },
+  pyth: { solUsdAccount: '' },
   priceUpdater: { enabled: true, intervalMs: 60_000, staleWarnSec: 300, pythSolUsdPriceAccount: '' },
   featuresJob: { enabled: true, intervalMs: 86_400_000, embedder: 'bge-small-en', lookbackHours: 24, minPostsPerAuthor: 5 }
 });
@@ -244,6 +245,7 @@ const envMap: EnvMapping[] = [
   ['rpc.jitoGrpcUrl', 'JITO_BLOCK_ENGINE_GRPC', (v) => v],
   ['rpc.jupiterBaseUrl', 'JUPITER_API_URL', (v) => v],
   ['rpc.httpHeaders', 'SOLANA_RPC_HTTP_HEADERS', parseJsonRecord],
+  ['pyth.solUsdAccount', 'PYTH_SOL_USD_PRICE_ACCOUNT', (v) => v],
   ['dataProviders.neynarBaseUrl', 'NEYNAR_BASE_URL', (v) => v],
   ['dataProviders.dexscreenerBaseUrl', 'DEXSCREENER_BASE_URL', (v) => v],
   ['dataProviders.birdeyeBaseUrl', 'BIRDEYE_BASE_URL', (v) => v],
@@ -264,6 +266,7 @@ const envMap: EnvMapping[] = [
   ['lunarcrush.enabled', 'LUNARCRUSH_ENABLED', (v) => v === 'true'],
   ['lunarcrush.baseUrl', 'LUNARCRUSH_BASE_URL', (v) => v],
   ['lunarcrush.mcpSseUrl', 'LUNARCRUSH_MCP_SSE_URL', (v) => v],
+  ['lunarcrush.apiKey', 'LUNARCRUSH_API_KEY', (v) => v],
   ['lunarcrush.pollSec', 'LUNARCRUSH_POLL_SEC', (v) => Number(v)],
   ['lunarcrush.endpoints.topics', 'LUNARCRUSH_TOPICS_ENDPOINT', (v) => v],
   ['lunarcrush.endpoints.influencers', 'LUNARCRUSH_INFLUENCERS_ENDPOINT', (v) => v],
@@ -296,7 +299,7 @@ const envMap: EnvMapping[] = [
   ['execution.routeQuarantine.failRateThreshold', 'EXEC_ROUTE_FAIL_RATE', (v) => Number(v)],
   ['execution.routeQuarantine.slipExcessWeight', 'EXEC_ROUTE_W_SLIP', (v) => Number(v)],
   ['execution.routeQuarantine.failRateWeight', 'EXEC_ROUTE_W_FAIL', (v) => Number(v)],
-  ['jito.bundleUrl', 'JITO_BUNDLE_URL', (v) => v],
+  ['execution.jito.bundleUrl', 'JITO_BUNDLE_URL', (v) => v],
   ['jito.tipLamportsMin', 'JITO_TIP_MIN', (v) => Number(v)],
   ['jito.tipLamportsMax', 'JITO_TIP_MAX', (v) => Number(v)]
 ];
@@ -399,12 +402,15 @@ export function loadConfig(options?: { forceReload?: boolean; configPath?: strin
   const withEnv = applyEnv(parsed);
   // Derive execution flags (read-only indicators)
   const featureJitoEnabled = (withEnv as any).features?.jitoEnabled !== false;
-  const jitoEnabled = Boolean(featureJitoEnabled && (withEnv.rpc.jitoHttpUrl || withEnv.rpc.jitoGrpcUrl));
+  const jitoConfig = ((withEnv as any).execution?.jito ?? { enabled: false, bundleUrl: '' });
+  const jitoConfigured = Boolean(jitoConfig.enabled && (withEnv.rpc.jitoHttpUrl || withEnv.rpc.jitoGrpcUrl || jitoConfig.bundleUrl));
+  const jitoEnabled = Boolean(featureJitoEnabled && jitoConfigured);
   const secondaryRpcEnabled = Boolean(withEnv.rpc.secondaryUrl);
   const wsEnabled = Boolean(withEnv.rpc.wsUrl);
   const simpleMode = !(jitoEnabled || secondaryRpcEnabled || wsEnabled);
   (withEnv as any).execution = {
     ...((withEnv as any).execution ?? {}),
+    jito: { enabled: Boolean(jitoConfig.enabled && featureJitoEnabled), bundleUrl: jitoConfig.bundleUrl ?? '' },
     jitoEnabled,
     secondaryRpcEnabled,
     wsEnabled,

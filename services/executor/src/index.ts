@@ -36,6 +36,9 @@ const ROUTE_QUARANTINE_DEFAULT: RouteQuarantineConfig = {
 
 async function bootstrap() {
   const config = loadConfig();
+  const jitoBundleUrl = (config.execution as any)?.jito?.bundleUrl ?? '';
+  const jitoConfigured = Boolean((config.execution as any)?.jito?.enabled);
+  logger.info({ bundleUrl: jitoBundleUrl, enabled: jitoConfigured }, 'executor jito bundle config');
   const app = Fastify({ logger: false });
   const bus = new ExecutorEventBus();
 

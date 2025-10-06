@@ -49,7 +49,7 @@ async function bootstrap() {
   const lastSuccessTs = registerGauge({ name: 'price_updater_last_success_ts', help: 'Last successful SOL price ts (unix seconds)' });
   const staleSeconds = registerGauge({ name: 'price_updater_stale_seconds', help: 'Now - last success (seconds)' });
 
-  const account = String((config as any).priceUpdater?.pythSolUsdPriceAccount || '');
+  const account = String(((config as any).pyth?.solUsdAccount ?? (config as any).priceUpdater?.pythSolUsdPriceAccount) || '');
   const enabled = Boolean((config as any).priceUpdater?.enabled !== false);
   const intervalMs = Math.max(10_000, Number((config as any).priceUpdater?.intervalMs ?? 60_000));
   const hasAccount = account.length > 0;
