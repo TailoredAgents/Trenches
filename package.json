@@ -1,44 +1,49 @@
 {
-    "name":  "trenches",
-    "version":  "0.1.0",
-    "private":  true,
-    "packageManager":  "pnpm@9.6.0",
-    "engines":  {
-                    "node":  "\u003e=20"
-                },
-    "workspaces":  [
-                       "packages/*",
-                       "services/*",
-                       "apps/*",
-                       "tools/*",
-                       "training/*"
-                   ],
-    "scripts":  {
-                    "shadow:soak":  "node -e \"console.log(\u0027shadow soak: run dev:core for 1-3h with ENABLE_SHADOW_OUTCOMES=1 and EXECUTOR_SHADOW_MODE=1 to populate sim_exec_outcomes\u0027)\""
-                },
-    "dependencies":  {
-                         "bs58":  "^5.0.0",
-                         "dotenv":  "^16.4.5",
-                         "tweetnacl":  "^1.0.3"
-                     },
-    "devDependencies":  {
-                            "@types/eventsource":  "^1.1.11",
-                            "@types/node":  "^20.12.7",
-                            "@types/ws":  "^8.5.10",
-                            "@typescript-eslint/eslint-plugin":  "^7.0.0",
-                            "@typescript-eslint/parser":  "^7.0.0",
-                            "@vitest/coverage-v8":  "^1.6.0",
-                            "concurrently":  "^9.2.1",
-                            "eslint":  "^8.57.0",
-                            "eslint-config-prettier":  "^9.1.0",
-                            "eslint-plugin-import":  "^2.29.1",
-                            "prettier":  "^3.2.5",
-                            "rimraf":  "^5.0.5",
-                            "ts-node":  "^10.9.2",
-                            "tsconfig-paths":  "^4.2.0",
-                            "tslib":  "^2.6.2",
-                            "tsx":  "^4.7.0",
-                            "typescript":  "^5.4.5",
-                            "vitest":  "^1.6.0"
-                        }
+  "name": "trenches",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.6.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "apps/*",
+    "tools/*",
+    "training/*"
+  ],
+  "scripts": {
+    "shadow:soak": "node -e \"console.log('shadow soak: run dev:core for 1-3h with ENABLE_SHADOW_OUTCOMES=1 and EXECUTOR_SHADOW_MODE=1 to populate sim_exec_outcomes')\"",
+    "smoke:sim": "tsx tools/smoke/sim-count-smoke.ts",
+    "runner:stp": "tsx tools/scripts/soak-train-promote.ts",
+    "runner:sgp": "tsx tools/scripts/soak_gpu_promote.ts",
+    "replay:plans": "tsx tools/replay/plans_replay.ts --file ./tmp/plans.ndjson --port 4999",
+    "sample:plans": "tsx tools/replay/sample_plans.ts > ./tmp/plans.ndjson"
+  },
+  "dependencies": {
+    "bs58": "^5.0.0",
+    "dotenv": "^16.4.5",
+    "tweetnacl": "^1.0.3"
+  },
+  "devDependencies": {
+    "@types/eventsource": "^1.1.11",
+    "@types/node": "^20.12.7",
+    "@types/ws": "^8.5.10",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "@vitest/coverage-v8": "^1.6.0",
+    "concurrently": "^9.2.1",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "prettier": "^3.2.5",
+    "rimraf": "^5.0.5",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "tslib": "^2.6.2",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
 }

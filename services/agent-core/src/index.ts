@@ -16,7 +16,9 @@ import { startMetricsServer, registerGauge, getRegistry } from '@trenches/metric
     getDailyRealizedPnlSince,
     listRecentCandidates,
     getPnLSummary,
-    getLunarSummary
+    getLunarSummary,
+    countSimOutcomes,
+    lastSimOutcomeTs
   } from '@trenches/persistence';
 import type { LunarScoreSummary } from '@trenches/persistence';
 import { Snapshot } from '@trenches/shared';
@@ -476,7 +478,7 @@ async function bootstrap() {
     let sizingDist: Array<{ arm: string; share: number }> = [];
     let survival = { avgHazard: 0, forcedFlattens: 0 };
     let backtest = { lastRunId: 0, lastOverallNetPnl: 0, landedRate: 0, avgSlipBps: 0, p50Ttl: 0, p95Ttl: 0 };
-    let shadow = { feeDisagreePct: 0, sizingDisagreePct: 0 };
+    let shadow: any = { feeDisagreePct: 0, sizingDisagreePct: 0 };
     let pnlSummary = { netUsd: 0, grossUsd: 0, feeUsd: 0, slipUsd: 0 };
     let routes: Array<{ route: string; penalty: number }> = [];
     let leaders: Array<{ pool: string; hits: number }> = [];
@@ -520,6 +522,14 @@ async function bootstrap() {
       shadow.sizingDisagreePct = sizPairs.length ? sizPairs.filter(([b,c]) => b !== c).length / sizPairs.length : 0;
     } catch (err) {
       logger.error({ err }, 'failed to aggregate snapshot metrics');
+    }
+    try {
+      const simRows = countSimOutcomes(24 * 3600);
+      const lastSimTs = lastSimOutcomeTs();
+      shadow.simRows24h = simRows;
+      shadow.lastTs = lastSimTs;
+    } catch (err) {
+      // analytics-only
     }
     try {
       pnlSummary = getPnLSummary();

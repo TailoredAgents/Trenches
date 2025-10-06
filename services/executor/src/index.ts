@@ -1,4 +1,4 @@
-import 'dotenv/config';
+﻿import 'dotenv/config';
 import EventSource from 'eventsource';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
@@ -664,3 +664,4 @@ function computeExecutionPrice(params: { isBuy: boolean; sizeSol: number; quoteO
 bootstrap().catch((err) => {
   logger.error({ err }, 'executor failed to start');
 });
+

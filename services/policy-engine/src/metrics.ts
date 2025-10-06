@@ -31,3 +31,8 @@ export const banditRewardGauge: Gauge<string> = registerGauge({
   name: 'policy_bandit_last_reward',
   help: 'Latest reward fed back to bandit'
 });
+
+export const fastSoakEmittedTotal: Counter<string> = registerCounter({
+  name: 'policy_fast_soak_emitted_total',
+  help: 'Plans emitted under FAST_SOAK mode (shadow-only)'
+});

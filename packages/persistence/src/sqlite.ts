@@ -1131,6 +1131,54 @@ export function insertSimOutcome(o: {
   }
 }
 
+export function countSimOutcomes(sinceSec?: number): number {
+  const database = getDb();
+  try {
+    if (sinceSec && sinceSec > 0) {
+      const stmt = database.prepare(
+        `SELECT COUNT(*) AS n FROM sim_exec_outcomes WHERE (CASE WHEN ts>20000000000 THEN ts/1000 ELSE ts END) >= ?`
+      );
+      const row = stmt.get(Math.floor(Date.now() / 1000) - sinceSec) as { n?: number } | undefined;
+      return Number(row?.n ?? 0);
+    }
+    const row = database.prepare(`SELECT COUNT(*) AS n FROM sim_exec_outcomes`).get() as { n?: number } | undefined;
+    return Number(row?.n ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
+export function lastSimOutcomeTs(): number {
+  const database = getDb();
+  try {
+    const r = database
+      .prepare(`SELECT MAX(CASE WHEN ts>20000000000 THEN ts/1000 ELSE ts END) AS ts FROM sim_exec_outcomes`)
+      .get() as { ts?: number } | undefined;
+    return Number(r?.ts ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
+export function countSimByMint(sinceSec?: number): Array<{ mint: string; n: number }> {
+  const database = getDb();
+  try {
+    const sql = sinceSec && sinceSec > 0
+      ? `SELECT mint, COUNT(*) AS n FROM sim_exec_outcomes
+         WHERE mint IS NOT NULL AND (CASE WHEN ts>20000000000 THEN ts/1000 ELSE ts END) >= ?
+         GROUP BY mint ORDER BY n DESC LIMIT 20`
+      : `SELECT mint, COUNT(*) AS n FROM sim_exec_outcomes
+         WHERE mint IS NOT NULL GROUP BY mint ORDER BY n DESC LIMIT 20`;
+    const stmt = database.prepare(sql);
+    const rows = sinceSec && sinceSec > 0
+      ? (stmt.all(Math.floor(Date.now() / 1000) - sinceSec) as Array<{ mint: string; n: number }>)
+      : (stmt.all() as Array<{ mint: string; n: number }>);
+    return rows ?? [];
+  } catch {
+    return [];
+  }
+}
+
 
 
 export function storeTopicEvent(event: TopicEvent) {

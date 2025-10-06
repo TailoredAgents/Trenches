@@ -1,4 +1,4 @@
-import { computeLeaderBoostInfo, applyLeaderSizeBoost, LeaderWalletConfig } from './leader';
+﻿import { computeLeaderBoostInfo, applyLeaderSizeBoost, LeaderWalletConfig } from './leader';
 import 'dotenv/config';
 import EventSource from 'eventsource';
 import { createInMemoryLastEventIdStore, sseQueue, sseRoute, subscribeJsonStream } from '@trenches/util';
@@ -44,6 +44,8 @@ const leaderBoostCounter = registerCounter({
 
 const offline = process.env.NO_RPC === '1';
 const providersOff = process.env.DISABLE_PROVIDERS === '1';
+  const FAST_SOAK = process.env.FAST_SOAK_MODE === '1';
+  logger.info({ FAST_SOAK }, 'fast soak mode (shadow only)');
 
 async function bootstrap() {
   const config = loadConfig();
@@ -163,8 +165,8 @@ async function bootstrap() {
   logger.info({ address }, 'policy engine listening');
 
   const safeFeedUrl = config.policy.safeFeedUrl ?? `http://127.0.0.1:${config.services.safetyEngine.port}/events/safe`;
-  const alphaTopK = (config as any).alpha?.topK ?? 12;
-  const alphaMin = (config as any).alpha?.minScore ?? 0.52;
+  let alphaTopK = (config as any).alpha?.topK ?? 12;
+  let alphaMin = (config as any).alpha?.minScore ?? 0.52;
   const alphaMap = new Map<string, number>();
   let disposeStream: StreamDisposer | null = null;
   if (!offline) {
@@ -307,6 +309,7 @@ async function bootstrap() {
     }
 
     plansEmitted.inc();
+    if (process.env.FAST_SOAK_MODE === '1') { try { const { fastSoakEmittedTotal } = await import('./metrics'); fastSoakEmittedTotal.inc(); } catch {} }
     const reward = selection.expectedReward;
     const smoothing = config.policy.rewardSmoothing;
     const blendedReward = reward * (1 - smoothing) + selection.expectedReward * smoothing;
@@ -404,3 +407,11 @@ function congestionToScore(level: string): number {
 bootstrap().catch((err) => {
   logger.error({ err }, 'policy engine failed to start');
 });
+
+
+
+
+
+
+
+
