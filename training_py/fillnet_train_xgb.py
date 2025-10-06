@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 from datetime import datetime
 
@@ -9,30 +8,22 @@ import optuna
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import brier_score_loss, mean_absolute_error, mean_absolute_percentage_error
 from sklearn.model_selection import TimeSeriesSplit
-
 import xgboost as xgb
 
 from util_ds import get_fillnet_dataset
+from gpu_util import prefer_gpu, device_params, print_device
 
 
-def _tree_method() -> str:
-    try:
-        # xgboost will ignore gpu_hist if no GPU
-        return 'gpu_hist'
-    except Exception:
-        return 'hist'
-
-
-def _objective(trial: optuna.Trial, X: np.ndarray, y: np.ndarray, task: str) -> float:
-    params = {
+def _objective(trial: optuna.Trial, X: np.ndarray, y: np.ndarray, task: str, device_conf: dict) -> float:
+    params = dict(device_conf)
+    params.update({
         'max_depth': trial.suggest_int('max_depth', 3, 8),
         'eta': trial.suggest_float('eta', 0.02, 0.3, log=True),
         'subsample': trial.suggest_float('subsample', 0.6, 1.0),
         'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
-        'tree_method': _tree_method(),
         'eval_metric': 'logloss' if task == 'clf' else 'mae',
         'n_estimators': 600,
-    }
+    })
     if task == 'clf':
         model = xgb.XGBClassifier(**params)
         metric = brier_score_loss
@@ -57,10 +48,14 @@ def main() -> None:
     out_dir = Path('models')
     out_dir.mkdir(exist_ok=True)
     X, y_fill, y_slip, y_ttl, feats = get_fillnet_dataset(days=14)
+    is_gpu = prefer_gpu()
+    print_device(is_gpu)
+    p_params = device_params(is_gpu, dict(objective='binary:logistic'), cpu_threads=2)
+    r_params = device_params(is_gpu, dict(objective='reg:squarederror'), cpu_threads=2)
     result = {
         'version': 2,
         'created': datetime.utcnow().isoformat() + 'Z',
-        'device': _tree_method(),
+        'device': 'cuda' if is_gpu else 'cpu',
         'features': feats,
         'metrics': {},
         'models': {},
@@ -77,16 +72,16 @@ def main() -> None:
 
     # pFill (classification)
     study_clf = optuna.create_study(direction='minimize')
-    study_clf.optimize(lambda t: _objective(t, Xn, y_fill.to_numpy(dtype=float), 'clf'), n_trials=20, show_progress_bar=False)
+    study_clf.optimize(lambda t: _objective(t, Xn, y_fill.to_numpy(dtype=float), 'clf', p_params), n_trials=20, show_progress_bar=False)
     params_clf = study_clf.best_params
     clf = xgb.XGBClassifier(
         max_depth=params_clf['max_depth'],
         eta=params_clf['eta'],
         subsample=params_clf['subsample'],
         colsample_bytree=params_clf['colsample_bytree'],
-        tree_method=_tree_method(),
         n_estimators=800,
     )
+    clf.set_params(**p_params)
     clf.fit(Xn, y_fill.to_numpy(dtype=float))
     # Calibration
     cal = CalibratedClassifierCV(clf, cv=3, method='isotonic')
@@ -100,16 +95,16 @@ def main() -> None:
     # slippage (regression)
     if not y_slip.empty:
         study_reg = optuna.create_study(direction='minimize')
-        study_reg.optimize(lambda t: _objective(t, Xn, y_slip.to_numpy(dtype=float), 'reg'), n_trials=15, show_progress_bar=False)
+        study_reg.optimize(lambda t: _objective(t, Xn, y_slip.to_numpy(dtype=float), 'reg', r_params), n_trials=15, show_progress_bar=False)
         params_slip = study_reg.best_params
         reg_slip = xgb.XGBRegressor(
             max_depth=params_slip['max_depth'],
             eta=params_slip['eta'],
             subsample=params_slip['subsample'],
             colsample_bytree=params_slip['colsample_bytree'],
-            tree_method=_tree_method(),
             n_estimators=600,
         )
+        reg_slip.set_params(**r_params)
         reg_slip.fit(Xn, y_slip.to_numpy(dtype=float))
         mape = float(mean_absolute_percentage_error(y_slip, reg_slip.predict(Xn)))
         result['metrics']['slip_mape'] = mape
@@ -118,16 +113,16 @@ def main() -> None:
     # ttl (regression)
     if not y_ttl.empty:
         study_ttl = optuna.create_study(direction='minimize')
-        study_ttl.optimize(lambda t: _objective(t, Xn, y_ttl.to_numpy(dtype=float), 'reg'), n_trials=15, show_progress_bar=False)
+        study_ttl.optimize(lambda t: _objective(t, Xn, y_ttl.to_numpy(dtype=float), 'reg', r_params), n_trials=15, show_progress_bar=False)
         params_ttl = study_ttl.best_params
         reg_ttl = xgb.XGBRegressor(
             max_depth=params_ttl['max_depth'],
             eta=params_ttl['eta'],
             subsample=params_ttl['subsample'],
             colsample_bytree=params_ttl['colsample_bytree'],
-            tree_method=_tree_method(),
             n_estimators=600,
         )
+        reg_ttl.set_params(**r_params)
         reg_ttl.fit(Xn, y_ttl.to_numpy(dtype=float))
         mae = float(mean_absolute_error(y_ttl, reg_ttl.predict(Xn)))
         result['metrics']['ttl_mae'] = mae
@@ -139,4 +134,3 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
-
