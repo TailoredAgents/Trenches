@@ -27,9 +27,7 @@ const candidateSchema = new parquetjs_lite_1.ParquetSchema({
     sells60: { type: 'INT64' },
     uniques60: { type: 'INT64' },
     spreadBps: { type: 'DOUBLE' },
-    safetyOk: { type: 'BOOLEAN' },
-    : { type: 'DOUBLE' },
-    topicId: { type: 'UTF8', optional: true },
+    safetyOk: { type: 'BOOLEAN' }, topicId: { type: 'UTF8', optional: true },
     matchScore: { type: 'DOUBLE', optional: true },
     poolAddress: { type: 'UTF8', optional: true },
     lpMint: { type: 'UTF8', optional: true },
@@ -97,13 +95,10 @@ const schemaConfigs = {
     topic_matches: { prefix: 'topic_matches', schema: topicMatchSchema }
 };
 class RotatingParquetWriter {
-    writer = null;
-    prefix;
-    schema;
-    rollMs;
-    currentWindowStart = null;
-    pending = Promise.resolve();
     constructor(config, rollHours) {
+        this.writer = null;
+        this.currentWindowStart = null;
+        this.pending = Promise.resolve();
         this.prefix = config.prefix;
         this.schema = config.schema;
         this.rollMs = rollHours * 60 * 60 * 1000;
