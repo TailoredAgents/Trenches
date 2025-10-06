@@ -22,7 +22,7 @@
     "sample:plans": "tsx tools/replay/sample_plans.ts --n 500 --mints 150 --routes 4 --out ./tmp/plans.ndjson",
     "runner:quick-stp": "tsx tools/scripts/quick_stp.ts",
     "sample:plans:n": "tsx tools/replay/sample_plans.ts --n 5000 --mints 200 --routes 4 --out ./tmp/plans.ndjson",
-    "dev:core": "concurrently -k -r -c auto -n core,disc,safe,pol,exec,pos,ing,mig,price,lead,feat \"pnpm -F services/agent-core dev\" \"pnpm -F services/onchain-discovery dev\" \"pnpm -F services/safety-engine dev\" \"pnpm -F services/policy-engine dev\" \"pnpm -F services/executor dev\" \"pnpm -F services/position-manager dev\" \"pnpm -F services/social-ingestor dev\" \"pnpm -F services/migration-watcher dev\" \"pnpm -F services/price-updater dev\" \"pnpm -F services/leader-wallets dev\" \"pnpm -F services/features-job dev\""
+    "dev:core": "concurrently -k -r -c auto -n core,disc,safe,pol,exec,pos,ing,mig,price,lead,feat \"pnpm -F @trenches/agent-core dev\" \"pnpm -F @trenches/onchain-discovery dev\" \"pnpm -F @trenches/safety-engine dev\" \"pnpm -F @trenches/policy-engine dev\" \"pnpm -F @trenches/executor dev\" \"pnpm -F @trenches/position-manager dev\" \"pnpm -F @trenches/social-ingestor dev\" \"pnpm -F @trenches/migration-watcher dev\" \"pnpm -F @trenches/price-updater dev\" \"pnpm -F @trenches/leader-wallets dev\" \"pnpm -F @trenches/features-job dev\""
   },
   "dependencies": {
     "bs58": "^5.0.0",
