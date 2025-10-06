@@ -58,3 +58,7 @@ services/onchain-discovery/providers/*.js
 services/onchain-discovery/providers/*.js.map
 packages/*/src/**/*.js
 packages/*/src/**/*.d.ts
+
+# Local wallets
+.dev/
+.dev/*.json

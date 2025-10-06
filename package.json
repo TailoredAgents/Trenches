@@ -56,9 +56,11 @@
     "ci:audit": "node tools/audit/run-ci-audit.js",
     "ci:check": "pnpm ci:build && pnpm lint:sse && pnpm lint:todo && pnpm ci:audit",
     "smoke:db": "tsx tools/smoke/db-smoke.ts",
-    "smoke:lunar": "tsx tools/smoke/lunar-smoke.ts"
+    "smoke:lunar": "tsx tools/smoke/lunar-smoke.ts",
+    "wallet:import": "PHANTOM_BASE58=%PHANTOM_BASE58% tsx tools/scripts/import-phantom.ts"
   },
   "dependencies": {
+    "bs58": "^5.0.0",
     "dotenv": "^16.4.5"
   },
   "devDependencies": {
@@ -68,6 +70,7 @@
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
     "@vitest/coverage-v8": "^1.6.0",
+    "concurrently": "^9.2.1",
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-import": "^2.29.1",
