@@ -66,7 +66,10 @@
     "train:survival": "python training_py/survival_train.py",
     "retrain:weekly:gpu": "pnpm train:fillnet:gpu && pnpm train:alpha:gpu && pnpm train:rugguard && pnpm train:survival",
     "promote:gate": "python training_py/promote_gpu.py",
-    "retrain:weekly:all": "pnpm retrain:weekly:gpu && pnpm promote:gate"
+    "retrain:weekly:all": "pnpm retrain:weekly:gpu && pnpm promote:gate",
+    "db:views": "tsx tools/scripts/create-views.ts",
+    "sim:run": "pnpm backtest --from 2025-06-01T00:00:00Z --to 2025-10-01T00:00:00Z --window-min 10 --out ./tmp/sim_exec.ndjson",
+    "sim:import": "tsx tools/backtest/import-sim-outcomes.ts ./tmp/sim_exec.ndjson"
   },
   "dependencies": {
     "bs58": "^5.0.0",

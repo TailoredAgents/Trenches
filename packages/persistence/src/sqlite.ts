@@ -708,6 +708,22 @@ const BOOTSTRAP_TABLE_DDLS = [
   `CREATE TABLE IF NOT EXISTS backtest_results( run_id INTEGER NOT NULL, metric TEXT NOT NULL, value REAL NOT NULL, segment TEXT, PRIMARY KEY(run_id, metric, segment) );`,
   `CREATE TABLE IF NOT EXISTS shadow_decisions_fee( ts INTEGER NOT NULL, mint TEXT NOT NULL, chosen_arm INTEGER NOT NULL, baseline_arm INTEGER, delta_reward_est REAL, ctx_json TEXT NOT NULL );`,
   `CREATE TABLE IF NOT EXISTS shadow_decisions_sizing( ts INTEGER NOT NULL, mint TEXT NOT NULL, chosen_arm TEXT NOT NULL, baseline_arm TEXT, delta_reward_est REAL, ctx_json TEXT NOT NULL );`,
+  `CREATE TABLE IF NOT EXISTS sim_exec_outcomes(
+    ts INTEGER,
+    mint TEXT,
+    route TEXT,
+    filled INTEGER,
+    quote_price REAL,
+    exec_price REAL,
+    slippage_bps_req INTEGER,
+    slippage_bps_real REAL,
+    time_to_land_ms INTEGER,
+    cu_price INTEGER,
+    amount_in INTEGER,
+    amount_out INTEGER,
+    source TEXT DEFAULT 'sim',
+    PRIMARY KEY(mint, ts, route)
+  );`,
   `CREATE TABLE IF NOT EXISTS prices ( ts INTEGER NOT NULL, symbol TEXT NOT NULL, usd REAL NOT NULL );`,
   `CREATE TABLE IF NOT EXISTS route_stats ( route TEXT NOT NULL, window_start_ts INTEGER NOT NULL, attempts INTEGER NOT NULL, fails INTEGER NOT NULL, avg_slip_real_bps REAL NOT NULL, avg_slip_exp_bps REAL NOT NULL, penalty REAL NOT NULL, PRIMARY KEY(route, window_start_ts) );`,
   `CREATE TABLE IF NOT EXISTS leader_wallets ( wallet TEXT PRIMARY KEY, score REAL NOT NULL, lastSeenTs INTEGER NOT NULL );`,
@@ -771,6 +787,8 @@ const BOOTSTRAP_COLUMN_ADDITIONS = [
   { table: 'exec_outcomes', column: 'amount_in', type: 'INTEGER' },
   { table: 'exec_outcomes', column: 'amount_out', type: 'INTEGER' },
   { table: 'exec_outcomes', column: 'fee_lamports_total', type: 'INTEGER' },
+  { table: 'exec_outcomes', column: 'order_id', type: 'TEXT' },
+  { table: 'exec_outcomes', column: 'mint', type: 'TEXT' },
   { table: 'positions', column: 'mae_bps', type: 'REAL NOT NULL DEFAULT 0' }
 ] as const;
 
@@ -856,6 +874,39 @@ export function bootstrapDb(
 
   for (const index of BOOTSTRAP_INDEX_DDLS) {
     safeRun(() => ensureIndex(database, index.name, index.ddl), { idx: index.name, ddl: index.ddl });
+  }
+
+  // Best-effort backfill for exec_outcomes.order_id and exec_outcomes.mint
+  try {
+    database.exec('BEGIN');
+    // Backfill order_id by nearest orders (within 5s) and same route if present
+    const stmt1 = database.prepare(`
+      UPDATE exec_outcomes AS eo
+      SET order_id = (
+        SELECT o.id FROM orders o
+        WHERE o.created_ts BETWEEN eo.ts - 5 AND eo.ts + 5
+          AND (eo.route IS NULL OR eo.route = o.route)
+        ORDER BY ABS(o.created_ts - eo.ts) ASC
+        LIMIT 1
+      )
+      WHERE eo.order_id IS NULL;
+    `);
+    stmt1.run();
+
+    // Backfill mint from orders via order_id
+    const stmt2 = database.prepare(`
+      UPDATE exec_outcomes AS eo
+      SET mint = (
+        SELECT o.mint FROM orders o WHERE o.id = eo.order_id LIMIT 1
+      )
+      WHERE eo.mint IS NULL AND eo.order_id IS NOT NULL;
+    `);
+    stmt2.run();
+
+    database.exec('COMMIT');
+  } catch (err) {
+    try { database.exec('ROLLBACK'); } catch {}
+    bootstrapLogger.warn({ err, step: 'backfill_exec_outcomes' }, 'db bootstrap warning');
   }
 
   if (startedTransaction) {

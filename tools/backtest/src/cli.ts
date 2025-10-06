@@ -12,6 +12,7 @@ const argv = yargs(hideBin(process.argv))
   .option('latency', { type: 'string', default: '' })
   .option('costs', { type: 'string', default: 'priorityFee=on,failedTx=on' })
   .option('segments', { type: 'string', default: 'overall' })
+  .option('out', { type: 'string', default: '' })
   .strict()
   .parseSync();
 
@@ -29,6 +30,26 @@ async function main() {
   const { createBacktestRun, finishBacktestRun, insertBacktestResult } = await import('../../../packages/persistence/src/index');
   const runId = createBacktestRun({ from: argv.from, to: argv.to, windowMin: argv['window-min'], latency: argv.latency, costs: argv.costs, segments: argv.segments });
   const summary = computeBacktestSummary(db, fromTs, toTs);
+  // Optional: dump synthetic exec outcomes to NDJSON for training
+  if (argv.out) {
+    try {
+      const fs = await import('fs');
+      const pathMod = await import('path');
+      const p = String(argv.out);
+      const dir = pathMod.dirname(p);
+      if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+      const { loadSimExecOutcomes } = await import('./sim_extract');
+      const rows = loadSimExecOutcomes(db, fromTs, toTs);
+      const fh = fs.createWriteStream(p, { encoding: 'utf8' });
+      for (const r of rows) {
+        fh.write(JSON.stringify(r) + '\n');
+      }
+      fh.end();
+      console.log('SIM_OUT_DUMPED', p, rows.length);
+    } catch (err) {
+      console.error('SIM_OUT_DUMP_FAILED', err);
+    }
+  }
   insertBacktestResult(runId, 'net_pnl_usd', summary.netUsd, 'overall');
   insertBacktestResult(runId, 'gross_usd', summary.grossUsd, 'overall');
   insertBacktestResult(runId, 'fee_usd', summary.feeUsd, 'overall');
