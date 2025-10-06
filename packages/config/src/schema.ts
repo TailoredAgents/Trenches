@@ -257,6 +257,7 @@ export const configSchema = z.object({
       enabled: z.boolean().default(true),
       baseUrl: z.string().url().default('https://api.lunarcrush.com'),
       pollSec: z.number().int().positive().default(180),
+      mcpSseUrl: z.union([z.string().url(), z.literal('')]).default(''),
       endpoints: z
         .object({ topics: z.string().default('/v2'), influencers: z.string().default('/v2') })
         .default({ topics: '/v2', influencers: '/v2' }),
@@ -264,7 +265,7 @@ export const configSchema = z.object({
         .object({ topicBoost: z.number().min(0).max(1).default(0.03), influencerBoost: z.number().min(0).max(1).default(0.02), maxBoost: z.number().min(0).max(1).default(0.06) })
         .default({ topicBoost: 0.03, influencerBoost: 0.02, maxBoost: 0.06 })
     })
-    .default({ enabled: true, baseUrl: 'https://api.lunarcrush.com', pollSec: 180, endpoints: { topics: '/v2', influencers: '/v2' }, sssBias: { topicBoost: 0.03, influencerBoost: 0.02, maxBoost: 0.06 } }),
+    .default({ enabled: true, baseUrl: 'https://api.lunarcrush.com', pollSec: 180, mcpSseUrl: '', endpoints: { topics: '/v2', influencers: '/v2' }, sssBias: { topicBoost: 0.03, influencerBoost: 0.02, maxBoost: 0.06 } }),
   priceUpdater: z
     .object({
       enabled: z.boolean().default(true),
@@ -448,3 +449,5 @@ export const configSchema = z.object({
 });
 
 export type TrenchesConfig = z.infer<typeof configSchema>;
+
+

@@ -1,4 +1,4 @@
-﻿import fs from 'fs';
+import fs from 'fs';
 import path from 'path';
 import YAML from 'yaml';
 import { configSchema, TrenchesConfig } from './schema';
@@ -261,6 +261,12 @@ const envMap: EnvMapping[] = [
   ['safety.candidateFeedUrl', 'SAFETY_CANDIDATE_FEED_URL', (v) => v],
   ['policy.safeFeedUrl', 'POLICY_SAFE_FEED_URL', (v) => v],
   ['policy.blockedFeedUrl', 'POLICY_BLOCKED_FEED_URL', (v) => v],
+  ['lunarcrush.enabled', 'LUNARCRUSH_ENABLED', (v) => v === 'true'],
+  ['lunarcrush.baseUrl', 'LUNARCRUSH_BASE_URL', (v) => v],
+  ['lunarcrush.mcpSseUrl', 'LUNARCRUSH_MCP_SSE_URL', (v) => v],
+  ['lunarcrush.pollSec', 'LUNARCRUSH_POLL_SEC', (v) => Number(v)],
+  ['lunarcrush.endpoints.topics', 'LUNARCRUSH_TOPICS_ENDPOINT', (v) => v],
+  ['lunarcrush.endpoints.influencers', 'LUNARCRUSH_INFLUENCERS_ENDPOINT', (v) => v],
   ['social.neynar.watchFids', 'NEYNAR_WATCH_FIDS', parseNumberList],
   ['social.neynar.keywords', 'NEYNAR_KEYWORDS', parseStringList],
   ['social.neynar.pollIntervalSec', 'NEYNAR_POLL_SEC', (v) => Number(v)],
@@ -414,3 +420,4 @@ export function getConfig(): TrenchesConfig {
   }
   return cachedConfig;
 }
+

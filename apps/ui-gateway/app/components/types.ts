@@ -61,6 +61,23 @@ export type AgentMetricsSummary = {
     };
   };
   price?: { solUsdAgeSec: number | null; ok: boolean };
+  lunarcrush?: {
+    status: 'disabled' | 'ok' | 'stale' | 'no_data' | 'error';
+    message?: string;
+    windowMinutes: number;
+    sampleCount: number;
+    matchedCount: number;
+    matchRate: number;
+    avgBoost: number;
+    maxBoost: number;
+    avgGalaxy: number;
+    avgDominance: number;
+    avgInteractions: number;
+    avgAltRank: number;
+    avgRecency: number;
+    lastScoreTs: number | null;
+    lastMatchedTs: number | null;
+  };
   metrics?: {
     exposureSol?: number;
     opened?: number;
@@ -89,3 +106,4 @@ export type AgentMetricsSummary = {
     providers?: Record<string, number>;
   };
 };
+

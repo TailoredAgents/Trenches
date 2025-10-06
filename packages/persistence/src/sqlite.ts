@@ -2063,6 +2063,130 @@ export function insertExecOutcome(row: { ts: number; quotePrice: number; execPri
     .run({ ...row });
 }
 
+export type LunarScoreSummary = {
+  windowMinutes: number;
+  sampleCount: number;
+  matchedCount: number;
+  matchRate: number;
+  avgBoost: number;
+  maxBoost: number;
+  avgGalaxy: number;
+  avgDominance: number;
+  avgInteractions: number;
+  avgAltRank: number;
+  avgRecency: number;
+  lastScoreTs: number | null;
+  lastMatchedTs: number | null;
+};
+
+export function getLunarSummary(windowMinutes = 60): LunarScoreSummary {
+  const database = getDb();
+  const minutes = Math.max(1, windowMinutes);
+  const sinceTs = Date.now() - minutes * 60 * 1000;
+  const rows = database
+    .prepare('SELECT ts, features_json FROM scores WHERE ts >= ? ORDER BY ts DESC LIMIT 2000')
+    .all(sinceTs) as Array<{ ts: number | null; features_json: string | null }>;
+  if (!rows || rows.length === 0) {
+    return {
+      windowMinutes: minutes,
+      sampleCount: 0,
+      matchedCount: 0,
+      matchRate: 0,
+      avgBoost: 0,
+      maxBoost: 0,
+      avgGalaxy: 0,
+      avgDominance: 0,
+      avgInteractions: 0,
+      avgAltRank: 0,
+      avgRecency: 0,
+      lastScoreTs: null,
+      lastMatchedTs: null
+    };
+  }
+  let sampleCount = 0;
+  let matchedCount = 0;
+  let sumBoost = 0;
+  let maxBoost = 0;
+  let sumGalaxy = 0;
+  let sumDominance = 0;
+  let sumInteractions = 0;
+  let sumAltRank = 0;
+  let sumRecency = 0;
+  let lastScoreTs: number | null = null;
+  let lastMatchedTs: number | null = null;
+
+  for (const row of rows) {
+    const tsRaw = typeof row.ts === 'number' ? row.ts : null;
+    const ts = tsRaw && tsRaw < 1_000_000_000_000 ? tsRaw * 1000 : tsRaw;
+    if (ts && (!lastScoreTs || ts > lastScoreTs)) {
+      lastScoreTs = ts;
+    }
+
+    let features: any = null;
+    try {
+      features = row.features_json ? JSON.parse(row.features_json) : null;
+    } catch {
+      continue;
+    }
+    if (!features || typeof features !== 'object') {
+      continue;
+    }
+
+    sampleCount += 1;
+    const matched = Number(features.lunar_matched ?? features.lunarMatched) === 1;
+    if (matched) {
+      matchedCount += 1;
+      if (ts && (!lastMatchedTs || ts > lastMatchedTs)) {
+        lastMatchedTs = ts;
+      }
+      const boost = Number(features.lunar_boost);
+      if (Number.isFinite(boost)) {
+        sumBoost += boost;
+        if (boost > maxBoost) {
+          maxBoost = boost;
+        }
+      }
+      const galaxy = Number(features.lunar_galaxy_norm);
+      if (Number.isFinite(galaxy)) {
+        sumGalaxy += galaxy;
+      }
+      const dominance = Number(features.lunar_dominance_norm);
+      if (Number.isFinite(dominance)) {
+        sumDominance += dominance;
+      }
+      const interactions = Number(features.lunar_interactions_log);
+      if (Number.isFinite(interactions)) {
+        sumInteractions += interactions;
+      }
+      const altRank = Number(features.lunar_alt_rank_norm);
+      if (Number.isFinite(altRank)) {
+        sumAltRank += altRank;
+      }
+      const recency = Number(features.lunar_recency_weight);
+      if (Number.isFinite(recency)) {
+        sumRecency += recency;
+      }
+    }
+  }
+
+  const matchedDenom = Math.max(1, matchedCount);
+  return {
+    windowMinutes: minutes,
+    sampleCount,
+    matchedCount,
+    matchRate: sampleCount > 0 ? matchedCount / sampleCount : 0,
+    avgBoost: matchedCount > 0 ? sumBoost / matchedDenom : 0,
+    maxBoost,
+    avgGalaxy: matchedCount > 0 ? sumGalaxy / matchedDenom : 0,
+    avgDominance: matchedCount > 0 ? sumDominance / matchedDenom : 0,
+    avgInteractions: matchedCount > 0 ? sumInteractions / matchedDenom : 0,
+    avgAltRank: matchedCount > 0 ? sumAltRank / matchedDenom : 0,
+    avgRecency: matchedCount > 0 ? sumRecency / matchedDenom : 0,
+    lastScoreTs,
+    lastMatchedTs
+  };
+}
+
 export function getExecSummary(): { landedRate: number; avgSlipBps: number; p50Ttl: number; p95Ttl: number } {
   const database = getDb();
   const rows = database
@@ -2276,4 +2400,6 @@ export function insertShadowSizingDecision(row: { ts: number; mint: string; chos
     .prepare(`INSERT INTO shadow_decisions_sizing (ts, mint, chosen_arm, baseline_arm, delta_reward_est, ctx_json) VALUES (@ts, @mint, @chosenArm, @baselineArm, @deltaRewardEst, @ctx)`)
     .run({ ...row, baselineArm: row.baselineArm ?? null, deltaRewardEst: row.deltaRewardEst ?? null, ctx: JSON.stringify(ctx) });
 }
+
+
 

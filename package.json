@@ -55,7 +55,8 @@
     "lint:todo": "rg -n \"TODO|FIXME|XXX|NOTIMPL|NotImplemented\" -S || true",
     "ci:audit": "node tools/audit/run-ci-audit.js",
     "ci:check": "pnpm ci:build && pnpm lint:sse && pnpm lint:todo && pnpm ci:audit",
-    "smoke:db": "tsx tools/smoke/db-smoke.ts"
+    "smoke:db": "tsx tools/smoke/db-smoke.ts",
+    "smoke:lunar": "tsx tools/smoke/lunar-smoke.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.5"

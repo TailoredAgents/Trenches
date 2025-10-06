@@ -7,8 +7,7 @@ import rateLimit from '@fastify/rate-limit';
 import fastifySse from 'fastify-sse-v2';
 import { loadConfig } from '@trenches/config';
 import { insertScore, listAuthorsByKeywords, getAuthorFeatures } from '@trenches/persistence';
-import { createLogger } from '@trenches/logger';
-
+import { createLogger } from '@trenches/logger';\r\nimport { LunarCrushStream } from './lunarCrush';\r\nimport type { LunarFeatures } from './lunarCrush';\r\n
 type Candidate = { mint: string; name?: string; symbol?: string; buys60?: number; sells60?: number; uniques60?: number; lpSol?: number; spreadBps?: number; ageSec?: number; rugProb?: number };
 type CandidateScore = { ts: number; mint: string; horizon: '10m' | '60m' | '24h'; score: number; features: Record<string, number> };
 
@@ -37,6 +36,20 @@ function extractAlphaKeywords(candidate: Candidate): string[] {
 
 async function bootstrap() {
   const cfg = loadConfig();
+  const apiKeyEnv = (process.env.LUNARCRUSH_API_KEY ?? '').trim();
+  const envHandshake = (process.env.LUNARCRUSH_MCP_SSE_URL ?? '').trim();
+  const configHandshake = (cfg.lunarcrush?.mcpSseUrl ?? '').trim();
+  const handshakeUrl = envHandshake || configHandshake || (apiKeyEnv ? 'https://lunarcrush.ai/sse?key=' + encodeURIComponent(apiKeyEnv) : null);
+  const lunar = new LunarCrushStream({
+    enabled: !offline && (cfg.lunarcrush?.enabled ?? true),
+    handshakeUrl,
+    apiKey: apiKeyEnv || undefined
+  });
+  try {
+    lunar.start();
+  } catch (err) {
+    logger.error({ err }, 'failed to start lunarcrush stream');
+  }
   const app = Fastify({ logger: false });
   await app.register(helmet as any, { global: true });
   await app.register(rateLimit as any, { max: 240, timeWindow: '1 minute' });
@@ -75,7 +88,8 @@ async function bootstrap() {
         } else if (authorMentions > 0) {
           authorQualityMean = Math.min(1, Math.log1p(authorMentions) / Math.log1p(50)) * 0.4;
         }
-        const result = scoreCandidate(candidate, { authorQualityMean, authorQualityTop, authorMentions });
+        const lunarFeatures = lunar.evaluate(keywords);
+        const result = scoreCandidate(candidate, { authorQualityMean, authorQualityTop, authorMentions, lunar: lunarFeatures });
         for (const h of horizons) {
           const row: CandidateScore = { ts, mint: candidate.mint, horizon: h as any, score: result.score, features: result.features };
           last.push(row);
@@ -89,7 +103,10 @@ async function bootstrap() {
     });
   };
 
-  function scoreCandidate(c: Candidate, extras: { authorQualityMean: number; authorQualityTop: number; authorMentions: number }): { score: number; features: Record<string, number> } {
+  function scoreCandidate(
+    c: Candidate,
+    extras: { authorQualityMean: number; authorQualityTop: number; authorMentions: number; lunar: LunarFeatures }
+  ): { score: number; features: Record<string, number> } {
     const buys = c.buys60 ?? 0;
     const sells = c.sells60 ?? 0;
     const flow = sells > 0 ? buys / sells : buys;
@@ -107,7 +124,8 @@ async function bootstrap() {
     let z = 1.4 * sFlow + 1.2 * sUniq + 1.0 * sLp + 0.6 * sSpread + 0.5 * sAge + 0.6 * sRug - 1.8;
     const baseScore = 1 / (1 + Math.exp(-z));
     const qualityBoost = Math.min(0.15, extras.authorQualityMean * 0.1 + extras.authorQualityTop * 0.05);
-    const finalScore = Math.min(0.99, Math.max(0.01, baseScore + qualityBoost));
+    const lunarBoost = extras.lunar.boost;
+    const finalScore = Math.min(0.99, Math.max(0.01, baseScore + qualityBoost + lunarBoost));
     return {
       score: finalScore,
       features: {
@@ -119,13 +137,19 @@ async function bootstrap() {
         rug_inverse: sRug,
         author_quality_mean: extras.authorQualityMean,
         author_quality_topk: extras.authorQualityTop,
-        author_mentions: extras.authorMentions
+        author_mentions: extras.authorMentions,
+        lunar_galaxy_norm: extras.lunar.metrics.lunar_galaxy_norm,
+        lunar_dominance_norm: extras.lunar.metrics.lunar_dominance_norm,
+        lunar_interactions_log: extras.lunar.metrics.lunar_interactions_log,
+        lunar_alt_rank_norm: extras.lunar.metrics.lunar_alt_rank_norm,
+        lunar_recency_weight: extras.lunar.metrics.lunar_recency_weight,
+        lunar_boost: extras.lunar.metrics.lunar_boost,
+        lunar_matched: extras.lunar.matched ? 1 : 0
       }
     };
   }
-
-  process.on('SIGINT', () => safetyClient?.dispose());
-  process.on('SIGTERM', () => safetyClient?.dispose());
+  process.on('SIGINT', () => { safetyClient?.dispose(); lunar.stop(); });
+  process.on('SIGTERM', () => { safetyClient?.dispose(); lunar.stop(); });
 
   app.get('/events/scores', async (_req, reply) => {
     const stream = sseQueue<CandidateScore>();
@@ -144,7 +168,7 @@ async function bootstrap() {
     });
   });
 
-  app.get('/healthz', async () => ({ status: offline ? 'degraded' : 'ok', offline, alpha: cfg.alpha }));
+  app.get('/healthz', async () => {\r\n    const lunarStatus = lunar.getStatus();\r\n    const baseStatus = offline ? 'degraded' : 'ok';\r\n    const status = cfg.lunarcrush?.enabled === false || lunarStatus.status !== 'degraded' ? baseStatus : 'degraded';\r\n    return { status, offline, alpha: cfg.alpha, lunarcrush: lunarStatus };\r\n  });
   const address = await app.listen({ host: '0.0.0.0', port: 0 });
   logger.info({ address }, 'alpha-ranker listening');
 

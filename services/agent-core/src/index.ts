@@ -15,8 +15,10 @@ import { startMetricsServer, registerGauge, getRegistry } from '@trenches/metric
     fetchActiveTopicWindows,
     getDailyRealizedPnlSince,
     listRecentCandidates,
-    getPnLSummary
+    getPnLSummary,
+    getLunarSummary
   } from '@trenches/persistence';
+import type { LunarScoreSummary } from '@trenches/persistence';
 import { Snapshot } from '@trenches/shared';
 
 const logger = createLogger('agent-core');
@@ -40,6 +42,8 @@ type ProviderEntry = {
   lastFetchedTs?: number | null;
 };
 
+type LunarSummaryBlock = LunarScoreSummary & { status: 'disabled' | 'ok' | 'stale' | 'no_data' | 'error'; message?: string };
+
 type MetricsSummary = {
   execution: { landedRate: number; avgSlipBps: number; p50Ttl: number; p95Ttl: number };
   providers: Record<string, ProviderEntry>;
@@ -51,6 +55,7 @@ type MetricsSummary = {
     };
   };
   price: { solUsdAgeSec: number; ok: boolean };
+  lunarcrush?: LunarSummaryBlock;
 };
 
 const SUMMARY_FETCH_TIMEOUT_MS = 800;
@@ -281,11 +286,70 @@ async function buildMetricsSummary(config: any, db: any): Promise<MetricsSummary
   const discovery = summarizeProviderCache();
   const price = computePriceStatus(db, config);
 
+  const pollSec = Number(config.lunarcrush?.pollSec ?? 180);
+  const windowMinutes = Number.isFinite(pollSec) && pollSec > 0 ? Math.max(15, Math.round((pollSec / 60) * 12)) : 60;
+  const emptyLunar: LunarScoreSummary = {
+    windowMinutes,
+    sampleCount: 0,
+    matchedCount: 0,
+    matchRate: 0,
+    avgBoost: 0,
+    maxBoost: 0,
+    avgGalaxy: 0,
+    avgDominance: 0,
+    avgInteractions: 0,
+    avgAltRank: 0,
+    avgRecency: 0,
+    lastScoreTs: null,
+    lastMatchedTs: null
+  };
+  const lunarEnabled = config.lunarcrush?.enabled !== false;
+  let lunar: LunarSummaryBlock;
+
+  if (!lunarEnabled) {
+    lunar = { ...emptyLunar, status: 'disabled', message: 'disabled_via_config' };
+  } else {
+    try {
+      const base = getLunarSummary(windowMinutes);
+      let status: LunarSummaryBlock['status'] = 'ok';
+      let message: string | undefined;
+      if (base.sampleCount === 0) {
+        status = 'no_data';
+        message = 'no_scores';
+      } else if (!base.lastMatchedTs) {
+        status = 'no_data';
+        message = 'no_matches';
+      } else {
+        const now = Date.now();
+        const staleThresholdMs = Math.max(10 * 60 * 1000, (Number.isFinite(pollSec) && pollSec > 0 ? pollSec : 180) * 1000 * 5);
+        if (now - base.lastMatchedTs > staleThresholdMs) {
+          status = 'stale';
+          const staleSeconds = Math.round((now - base.lastMatchedTs) / 1000);
+          message = 'stale_' + staleSeconds.toString() + 's';
+        }
+      }
+      lunar = { ...base, status, message };
+    } catch (err) {
+      lunar = { ...emptyLunar, status: 'error', message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  providers.lunarcrush = {
+    state: lunar.status,
+    status: lunar.status,
+    detail: lunar.message,
+    message: lunar.message,
+    lastSuccessTs: lunar.lastMatchedTs,
+    lastEventTs: lunar.lastScoreTs,
+    stale: lunar.status !== 'ok' && lunar.status !== 'disabled'
+  };
+
   return {
     execution,
     providers,
     discovery,
-    price
+    price,
+    lunarcrush: lunar
   };
 }
 
@@ -669,6 +733,7 @@ async function bootstrap() {
 bootstrap().catch((err) => {
   logger.error({ err }, 'agent core failed to start');
 });
+
 
 
 

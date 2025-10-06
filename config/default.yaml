@@ -275,6 +275,7 @@ lunarcrush:
   enabled: true
   baseUrl: https://api.lunarcrush.com
   pollSec: 180
+  mcpSseUrl: ''
   endpoints:
     topics: /v2
     influencers: /v2
@@ -308,3 +309,4 @@ priceUpdater:
   intervalMs: 60000
   staleWarnSec: 300
   pythSolUsdPriceAccount: ""
+
