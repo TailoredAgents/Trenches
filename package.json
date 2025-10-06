@@ -19,8 +19,9 @@
     "runner:stp": "tsx tools/scripts/soak-train-promote.ts",
     "runner:sgp": "tsx tools/scripts/soak_gpu_promote.ts",
     "replay:plans": "tsx tools/replay/plans_replay.ts --file ./tmp/plans.ndjson --port 4999",
-    "sample:plans": "tsx tools/replay/sample_plans.ts > ./tmp/plans.ndjson",
-    "runner:quick-stp": "tsx tools/scripts/quick_stp.ts"
+    "sample:plans": "tsx tools/replay/sample_plans.ts --n 500 --mints 150 > ./tmp/plans.ndjson",
+    "runner:quick-stp": "tsx tools/scripts/quick_stp.ts",
+    "sample:plans:n": "tsx tools/replay/sample_plans.ts --n 5000 --mints 200 > ./tmp/plans.ndjson"
   },
   "dependencies": {
     "bs58": "^5.0.0",

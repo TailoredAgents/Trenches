@@ -173,7 +173,7 @@ async function bootstrap() {
     disposer = startPlanStream(planFeed, bus, async (payload) => {
       ordersReceived.inc();
       bus.emitTrade({ t: 'order_plan', plan: payload.plan });
-      if (!wallet.isReady) {
+      if (!wallet.isReady && !(enableShadowOutcomes && shadowMode)) {
         logger.warn('wallet unavailable, skipping plan');
         ordersFailed.inc({ stage: 'wallet_unavailable' });
         return;
