@@ -18,10 +18,11 @@
     "smoke:sim": "tsx tools/smoke/sim-count-smoke.ts",
     "runner:stp": "tsx tools/scripts/soak-train-promote.ts",
     "runner:sgp": "tsx tools/scripts/soak_gpu_promote.ts",
-    "replay:plans": "tsx tools/replay/plans_replay.ts --file ./tmp/plans.ndjson --port 4999",
-    "sample:plans": "tsx tools/replay/sample_plans.ts --n 500 --mints 150 > ./tmp/plans.ndjson",
+    "replay:plans": "tsx tools/replay/plans_replay.ts",
+    "sample:plans": "tsx tools/replay/sample_plans.ts --n 500 --mints 150 --routes 4 --out ./tmp/plans.ndjson",
     "runner:quick-stp": "tsx tools/scripts/quick_stp.ts",
-    "sample:plans:n": "tsx tools/replay/sample_plans.ts --n 5000 --mints 200 > ./tmp/plans.ndjson"
+    "sample:plans:n": "tsx tools/replay/sample_plans.ts --n 5000 --mints 200 --routes 4 --out ./tmp/plans.ndjson",
+    "dev:core": "concurrently -k -r -c auto -n core,disc,safe,pol,exec,pos,ing,mig,price,lead,feat \"pnpm -F services/agent-core dev\" \"pnpm -F services/onchain-discovery dev\" \"pnpm -F services/safety-engine dev\" \"pnpm -F services/policy-engine dev\" \"pnpm -F services/executor dev\" \"pnpm -F services/position-manager dev\" \"pnpm -F services/social-ingestor dev\" \"pnpm -F services/migration-watcher dev\" \"pnpm -F services/price-updater dev\" \"pnpm -F services/leader-wallets dev\" \"pnpm -F services/features-job dev\""
   },
   "dependencies": {
     "bs58": "^5.0.0",

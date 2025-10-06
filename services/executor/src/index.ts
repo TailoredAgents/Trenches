@@ -26,6 +26,9 @@ const offline = process.env.NO_RPC === '1';
 const providersOff = process.env.DISABLE_PROVIDERS === '1';
 const enableShadowOutcomes = process.env.ENABLE_SHADOW_OUTCOMES === '1';
 const shadowMode = process.env.EXECUTOR_SHADOW_MODE === '1';
+// Replay controls (used only for selecting plan feed in shadow/replay runs)
+const useReplay = process.env.USE_REPLAY === '1';
+const replayUrl = process.env.SOAK_REPLAY_URL || '';
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const MAX_RETRIES = 3;
 const ROUTE_QUARANTINE_DEFAULT: RouteQuarantineConfig = {
@@ -167,7 +170,11 @@ async function bootstrap() {
     // Non-fatal: metrics registry unavailable during startup
   }
 
-  const planFeed = `http://127.0.0.1:${config.services.policyEngine.port}/events/plans`;
+  const defaultPolicyFeed = `http://127.0.0.1:${config.services.policyEngine.port}/events/plans`;
+  const planFeed = useReplay && replayUrl ? replayUrl : defaultPolicyFeed;
+  const isUsingReplay = useReplay && replayUrl.length > 0;
+  const mode = config.execution?.simpleMode ? 'simple' : 'advanced';
+  logger.info({ planFeed, isUsingReplay, mode }, isUsingReplay ? 'using plan replay feed (shadow)' : 'using policy plan feed');
   let disposer: () => void = () => {};
   if (!offline && connection && wallet && jupiter && sender) {
     disposer = startPlanStream(planFeed, bus, async (payload) => {
