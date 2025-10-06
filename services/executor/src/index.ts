@@ -8,12 +8,12 @@ import { Connection } from '@solana/web3.js';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
 import { getRegistry } from '@trenches/metrics';
-import { logTradeEvent, recordOrderPlan, recordFill, insertExecOutcome } from '@trenches/persistence';
+import { logTradeEvent, recordOrderPlan, recordFill, insertExecOutcome, insertSimOutcome } from '@trenches/persistence';
 import { TokenCandidate, OrderPlan, TradeEvent } from '@trenches/shared';
 import { WalletProvider } from './wallet';
 import { JupiterClient } from './jupiter';
 import { TransactionSender } from './sender';
-import { ordersReceived, ordersFailed, ordersSubmitted, simpleModeGauge, flagJitoEnabled, flagSecondaryRpcEnabled, flagWsEnabled, landedRateGauge, slipAvgGauge, timeToLandHistogram, retriesTotal, fallbacksTotal } from './metrics';
+import { ordersReceived, ordersFailed, ordersSubmitted, simpleModeGauge, flagJitoEnabled, flagSecondaryRpcEnabled, flagWsEnabled, landedRateGauge, slipAvgGauge, timeToLandHistogram, retriesTotal, fallbacksTotal, shadowOutcomesTotal } from './metrics';
 import { predictFill } from './fillnet';
 import { decideFees, updateArm } from './fee-bandit';
 import { ExecutorEventBus } from './eventBus';
@@ -24,6 +24,8 @@ import { createRpcConnection, createInMemoryLastEventIdStore, sseQueue, sseRoute
 const logger = createLogger('executor');
 const offline = process.env.NO_RPC === '1';
 const providersOff = process.env.DISABLE_PROVIDERS === '1';
+const enableShadowOutcomes = process.env.ENABLE_SHADOW_OUTCOMES === '1';
+const shadowMode = process.env.EXECUTOR_SHADOW_MODE === '1';
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const MAX_RETRIES = 3;
 const ROUTE_QUARANTINE_DEFAULT: RouteQuarantineConfig = {
@@ -39,6 +41,7 @@ async function bootstrap() {
   const jitoBundleUrl = (config.execution as any)?.jito?.bundleUrl ?? '';
   const jitoConfigured = Boolean((config.execution as any)?.jito?.enabled);
   logger.info({ bundleUrl: jitoBundleUrl, enabled: jitoConfigured }, 'executor jito bundle config');
+  logger.info({ enableShadowOutcomes, shadowMode }, 'shadow outcomes logger');
   const app = Fastify({ logger: false });
   const bus = new ExecutorEventBus();
 
@@ -402,6 +405,38 @@ async function executePlan(opts: {
     quoteOutAmount: quote.outAmount,
     amountIn: amountLamports
   });
+
+  // In shadow mode, record synthetic outcome and skip real execution
+  try {
+    if (enableShadowOutcomes && shadowMode) {
+      const isBuyShadow = isBuy;
+      const execPriceShadow = quotePrice > 0 ? quotePrice : 0;
+      const slipRealShadow = 0; // without simulation/realized, default 0
+      const ttlShadow = chosen.pred?.expTimeMs ?? 1200;
+      insertSimOutcome({
+        ts: Math.floor(Date.now()),
+        mint: candidate.mint,
+        route: plan.route ?? 'jupiter',
+        filled: 1,
+        quote_price: quotePrice,
+        exec_price: execPriceShadow,
+        slippageReq: slippageToUse,
+        slippageReal: slipRealShadow,
+        timeToLandMs: ttlShadow,
+        cu_price: cuPriceToUse,
+        amountIn: amountLamports,
+        amountOut: Number(quote.outAmount),
+        source: 'shadow'
+      });
+      shadowOutcomesTotal.inc({ result: 'ok' });
+      // Mark plan as observed in logs and return without sending
+      logger.info({ mint: candidate.mint, route: plan.route, amountLamports, quoteOut: quote.outAmount }, 'shadow outcome recorded; skipping execution');
+      return;
+    }
+  } catch (err) {
+    shadowOutcomesTotal.inc({ result: 'err' });
+    logger.warn({ err }, 'failed to record shadow outcome');
+  }
 
   let lastError: unknown = null;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {

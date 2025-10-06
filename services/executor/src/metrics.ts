@@ -110,3 +110,9 @@ export const routesExcludedTotal = registerCounter({
   help: 'Number of times a route was excluded by quarantine thresholds',
   labelNames: ['route']
 });
+
+export const shadowOutcomesTotal = registerCounter({
+  name: 'executor_shadow_outcomes_total',
+  help: 'Number of synthetic shadow outcomes recorded',
+  labelNames: ['result']
+});

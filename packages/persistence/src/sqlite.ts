@@ -1103,6 +1103,34 @@ export function recordHeartbeat(component: string, status: string, message?: str
 
 }
 
+export function insertSimOutcome(o: {
+  ts: number;
+  mint: string | null;
+  route: string | null;
+  filled: number;
+  quote_price: number | null;
+  exec_price: number | null;
+  slippageReq: number | null;
+  slippageReal: number | null;
+  timeToLandMs: number | null;
+  cu_price: number | null;
+  amountIn: number | null;
+  amountOut: number | null;
+  source?: string;
+}): void {
+  const database = getDb();
+  const ins = database.prepare(`
+    INSERT OR IGNORE INTO sim_exec_outcomes
+    (ts,mint,route,filled,quote_price,exec_price,slippage_bps_req,slippage_bps_real,time_to_land_ms,cu_price,amount_in,amount_out,source)
+    VALUES (@ts,@mint,@route,@filled,@quote_price,@exec_price,@slippageReq,@slippageReal,@timeToLandMs,@cu_price,@amountIn,@amountOut,@source)
+  `);
+  try {
+    ins.run({ ...o, source: o.source ?? 'shadow' });
+  } catch (err) {
+    // best-effort; analytics-only
+  }
+}
+
 
 
 export function storeTopicEvent(event: TopicEvent) {
