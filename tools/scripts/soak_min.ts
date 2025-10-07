@@ -62,17 +62,70 @@ function monitorPersistent(child: ChildProcess, name: string) {
 }
 
 function spawnCmd(cmd: string, args: string[], extraEnv: Record<string,string> = {}, name='proc'){
-  const env = { ...process.env, ...extraEnv } as NodeJS.ProcessEnv;
+  // Suppress verbose logging during soak tests unless DEBUG is set
+  const suppressLogs = !process.env.DEBUG_SOAK;
+  const env = { 
+    ...process.env, 
+    ...extraEnv,
+    // Reduce log verbosity for child processes
+    LOG_LEVEL: process.env.LOG_LEVEL || 'error',
+    SILENT_MODE: suppressLogs ? '1' : '0'
+  } as NodeJS.ProcessEnv;
+  
   const child = spawn(cmd, args, { env, stdio: ['ignore','pipe','pipe'], shell: process.platform === 'win32' });
-  child.stdout.on('data', d => process.stdout.write(`[${name}:out] ${d}`));
-  child.stderr.on('data', d => process.stderr.write(`[${name}:err] ${d}`));
+  
+  // Only show output if not suppressed or if it's an error
+  if (!suppressLogs) {
+    child.stdout.on('data', d => process.stdout.write(`[${name}:out] ${d}`));
+    child.stderr.on('data', d => process.stderr.write(`[${name}:err] ${d}`));
+  } else {
+    // Still capture errors even when suppressed
+    child.stderr.on('data', d => {
+      const msg = d.toString();
+      if (msg.toLowerCase().includes('error') || msg.toLowerCase().includes('fail')) {
+        process.stderr.write(`[${name}:err] ${d}`);
+      }
+    });
+  }
+  
   return child;
 }
-function terminate(child: ChildProcess | null | undefined){
+async function terminate(child: ChildProcess | null | undefined): Promise<void> {
   if(!child || child.killed) return;
-  try { child.kill('SIGINT'); } catch {}
-  if (process.platform === 'win32' && child.pid) {
-    try { spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', shell: true }); } catch {}
+  
+  // Send SIGINT first for graceful shutdown
+  try { 
+    child.kill('SIGINT');
+  } catch {}
+  
+  // Give process 2 seconds to exit gracefully
+  await sleep(2000);
+  
+  // Force kill if still running
+  if (!child.killed) {
+    if (process.platform === 'win32' && child.pid) {
+      // On Windows, use taskkill with tree flag to kill all child processes
+      try { 
+        const killer = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { 
+          stdio: 'ignore', 
+          shell: true,
+          detached: false 
+        });
+        // Wait for taskkill to complete
+        await new Promise(resolve => {
+          killer.on('exit', resolve);
+          killer.on('error', resolve);
+          setTimeout(resolve, 1000); // Timeout after 1 second
+        });
+      } catch (e) {
+        console.error(`Failed to kill process ${child.pid}:`, e);
+      }
+    } else {
+      // Unix: send SIGKILL
+      try { 
+        child.kill('SIGKILL');
+      } catch {}
+    }
   }
 }
 
@@ -124,13 +177,27 @@ function count(db: Database.Database){
 }
 
 async function main(){
+  let exec: ChildProcess | null = null;
+  let srv: { port: number; close: () => void } | null = null;
+  
+  // Setup cleanup handler for unexpected exits
+  const cleanup = async () => {
+    console.log('SOAK_MIN: cleaning up...');
+    if (exec) await terminate(exec);
+    if (srv) srv.close();
+  };
+  
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
+  process.on('exit', cleanup);
+  
   console.log('SOAK_MIN: preflight...');
   await ensurePlans();
   const lines = fs.readFileSync(PLAN_FILE, 'utf8').split(/\r?\n/).filter(Boolean);
-  const srv = await startInlineReplay(lines);
+  srv = await startInlineReplay(lines);
 
   console.log('SOAK_MIN: starting executor...');
-  const exec = spawnCmd('pnpm', ['-F','@trenches/executor','run','dev'], {
+  exec = spawnCmd('pnpm', ['-F','@trenches/executor','run','dev'], {
     USE_REPLAY: '1',
     SOAK_REPLAY_URL: `http://127.0.0.1:${srv.port}/events/plans`,
     ENABLE_SHADOW_OUTCOMES: '1',
@@ -160,7 +227,8 @@ async function main(){
 
   console.log('SOAK_MIN: stopping executor...');
   execMonitor.markExpected();
-  terminate(exec); srv.close();
+  await terminate(exec); 
+  srv.close();
 
   console.log('SOAK_MIN: training (GPU) + promotion...');
   const train = spawnCmd('pnpm', ['retrain:weekly:gpu'], {}, 'train');

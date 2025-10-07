@@ -25,6 +25,9 @@ class GdeltSource implements SocialSource {
   private statusState: SourceStatus = { state: 'idle', detail: 'not started' };
   private stopped = false;
   private seen = new Set<string>();
+  private readonly MAX_SEEN_SIZE = 10000; // Limit to 10k entries to prevent unbounded growth
+  private errorBackoffMs = 1000; // Start with 1 second backoff
+  private readonly MAX_BACKOFF_MS = 60000; // Max 1 minute backoff
 
   constructor(
     private readonly cfg: GdeltConfig,
@@ -56,12 +59,22 @@ class GdeltSource implements SocialSource {
       try {
         await this.fetchPulse();
         this.updateStatus({ state: 'running', lastSuccessAt: new Date().toISOString() });
+        // Reset backoff on success
+        this.errorBackoffMs = 1000;
       } catch (err) {
         const error = err as Error;
         logger.error({ err: error }, 'gdelt poll failed');
         sourceErrorsTotal.inc({ source: this.name, code: 'poll' });
         this.updateStatus({ state: 'error', detail: error.message, lastErrorAt: new Date().toISOString() });
-        await delay(Math.min(this.cfg.pollIntervalSec * 1000, 60_000));
+        
+        // Exponential backoff with jitter to prevent thundering herd
+        const jitter = Math.random() * 0.3; // 0-30% jitter
+        const backoffWithJitter = this.errorBackoffMs * (1 + jitter);
+        await delay(backoffWithJitter);
+        
+        // Increase backoff for next error (exponential)
+        this.errorBackoffMs = Math.min(this.errorBackoffMs * 2, this.MAX_BACKOFF_MS);
+        continue; // Skip normal poll interval on error
       }
       await delay(this.cfg.pollIntervalSec * 1000);
     }
@@ -86,6 +99,13 @@ class GdeltSource implements SocialSource {
       const id = article.url ?? article.title;
       if (!id || this.seen.has(id)) {
         continue;
+      }
+      // LRU eviction: remove oldest entry if we hit the limit
+      if (this.seen.size >= this.MAX_SEEN_SIZE) {
+        const firstKey = this.seen.values().next().value;
+        if (firstKey) {
+          this.seen.delete(firstKey);
+        }
       }
       this.seen.add(id);
       const post: SocialPost = {

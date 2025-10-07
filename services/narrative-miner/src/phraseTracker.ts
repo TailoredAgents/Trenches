@@ -26,6 +26,8 @@ interface PhraseState {
 
 const WINDOW_MS = 60_000;
 const AUTHOR_TTL_MS = 60_000;
+const MAX_EVENTS_PER_PHRASE = 10000; // Hard limit to prevent unbounded growth
+const MAX_PHRASES = 5000; // Limit total number of tracked phrases
 
 export class PhraseTracker {
   private readonly phrases = new Map<string, PhraseState>();
@@ -38,6 +40,15 @@ export class PhraseTracker {
     this.prune(state, payload.timestamp);
 
     const previousTimestamp = state.lastTimestamp;
+    
+    // Enforce hard limit on events array to prevent unbounded growth
+    if (state.events.length >= MAX_EVENTS_PER_PHRASE) {
+      // Remove oldest 10% when hitting limit
+      const removeCount = Math.floor(MAX_EVENTS_PER_PHRASE * 0.1);
+      state.events = state.events.slice(removeCount);
+      state.head = Math.max(0, state.head - removeCount);
+    }
+    
     state.events.push({ timestamp: payload.timestamp, engagement: payload.engagement, authorId: payload.authorId });
     state.rollingEngagement += payload.engagement;
     state.rollingPosts += 1;
@@ -70,6 +81,15 @@ export class PhraseTracker {
     if (existing) {
       return existing;
     }
+    
+    // Enforce max phrases limit - remove least recently used
+    if (this.phrases.size >= MAX_PHRASES) {
+      const oldestPhrase = this.phrases.keys().next().value;
+      if (oldestPhrase) {
+        this.phrases.delete(oldestPhrase);
+      }
+    }
+    
     const created: PhraseState = {
       events: [],
       head: 0,
