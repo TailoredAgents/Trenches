@@ -1,48 +1,22 @@
 #!/bin/bash
 
-# Q4 Memecoin Mania Startup Script
-# Configures Trenches for aggressive memecoin trading during bull run
+# Trenches Memecoin Hunter Startup Script
+# Optimized for aggressive memecoin trading and moonshot hunting
 
-echo "🚀 Starting Trenches in Q4 AGGRESSIVE MODE for Memecoin Season"
-echo "⚠️  WARNING: This configuration prioritizes SPEED and GAINS over safety"
-echo "💰 Increased position sizes, relaxed safety checks, faster execution"
+echo "🚀 Starting Trenches Memecoin Hunter"
+echo "💰 Aggressive configuration: Fast entries, large positions, moonshot exits"
+echo "🎯 Optimized for maximum gains during bull market conditions"
 
-# Set Q4 aggressive environment variables
-export AGGRESSIVE_MODE=1
+# Set production environment
 export NODE_ENV=production
 
-# Increased resource limits
+# Increased resource limits for high-frequency trading
 export NODE_OPTIONS="--max-old-space-size=8192"
 
-# Relaxed safety thresholds
-export RUGGUARD_THRESHOLD=0.8
-export LP_MIN_SOL=8
-export MIN_POOL_AGE_SEC=15
-
-# Aggressive position sizing
-export DAILY_SPEND_CAP_SOL=2.0
-export MAX_OPEN_POSITIONS=30
-export CONCURRENCY_CAP=8
-export PER_NAME_CAP_FRACTION=0.5
-
-# Speed optimizations
-export FAST_MODE=1
-export QUICK_ENTRY=1
-export MAX_RETRIES=5
-export PRIORITY_FEE=high
-export USE_JITO=1
-
-# Enhanced logging for monitoring aggressive trades
+# Enhanced logging for monitoring trades
 export LOG_LEVEL=info
-export DEBUG_AGGRESSIVE=1
 
-# Q4 specific memecoin detection
-export MEME_SEASON_MODE=1
-export SOCIAL_SIGNAL_MULTIPLIER=1.5
-export MOMENTUM_BOOST=2.0
-
-echo "Environment configured for Q4 aggressive trading"
-echo "Starting services with memecoin season optimizations..."
+echo "Starting all services with aggressive memecoin hunting configuration..."
 
 # Start all services in aggressive mode
 echo "Starting agent-core..."
@@ -90,18 +64,18 @@ PRICE_PID=$!
 sleep 10
 
 echo ""
-echo "🎯 Q4 AGGRESSIVE MODE ACTIVE"
+echo "🎯 TRENCHES MEMECOIN HUNTER ACTIVE"
 echo "📊 Dashboard: http://localhost:3000"
-echo "⚡ Fast-entry mode: ENABLED"
-echo "💪 Position sizing: 2x AGGRESSIVE"
-echo "🎰 Max concurrent positions: 30"
+echo "⚡ Fast-entry mode: ALWAYS ENABLED"
+echo "💪 Position sizing: AGGRESSIVE DEFAULT"
+echo "🎰 Max concurrent positions: 8"
 echo "🚨 RugGuard threshold: 80% (relaxed)"
 echo ""
-echo "🌙 MOONSHOT CONFIGURATION:"
-echo "   - First exit: 100% profit (15% position)"
-echo "   - Second exit: 300% profit (20% position)"  
-echo "   - Third exit: 800% profit (25% position)"
-echo "   - HODL for 2000%: 40% position"
+echo "🌙 MOONSHOT STRATEGY:"
+echo "   - First exit: 100% profit (partial exit)"
+echo "   - Second exit: 300% profit (partial exit)"  
+echo "   - Third exit: 800% profit (partial exit)"
+echo "   - HODL target: 2000%+ gains"
 echo ""
 echo "🎮 Quick Commands:"
 echo "   Monitor: curl http://localhost:4010/snapshot"
@@ -112,7 +86,7 @@ echo ""
 
 # Setup cleanup trap
 cleanup() {
-    echo "🛑 Shutting down Q4 aggressive mode..."
+    echo "🛑 Shutting down Trenches Memecoin Hunter..."
     kill $AGENT_PID $SOCIAL_PID $DISCOVERY_PID $SAFETY_PID $POLICY_PID $EXECUTOR_PID $POSITION_PID $NARRATIVE_PID $LEADER_PID $PRICE_PID 2>/dev/null
     echo "✅ All services stopped"
     exit 0
@@ -120,7 +94,7 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
-echo "🚀 Q4 Memecoin Mania mode is LIVE!"
+echo "🚀 Trenches Memecoin Hunter is LIVE!"
 echo "Press Ctrl+C to stop all services"
 
 # Keep script running

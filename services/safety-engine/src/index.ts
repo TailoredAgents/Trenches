@@ -210,12 +210,11 @@ async function evaluateCandidate(
     return cached;
   }
   
-  // Q4 FAST-ENTRY MODE: Skip safety checks for highly trending tokens
-  const isAggressiveMode = process.env.AGGRESSIVE_MODE === '1';
+  // FAST-ENTRY MODE: Skip safety checks for highly trending tokens
   const candidateAny = candidate as any;
   const isTrending = candidateAny.social?.sss > 5.0; // High social sentiment score
   const hasHighMomentum = candidateAny.social?.velocity > 2.0; // High momentum
-  const isFastEntry = isAggressiveMode && (isTrending || hasHighMomentum);
+  const isFastEntry = isTrending || hasHighMomentum;
   
   if (isFastEntry) {
     logger.info({ 

@@ -31,11 +31,11 @@ services:
     port: 8090
 gating:
   sssMin: 0.6
-  lpMinSol: 20
-  buysSellRatioMin: 2.2
-  uniquesMin: 12
-  minPoolAgeSec: 30
-  maxSpreadBps: 150
+  lpMinSol: 8                    # Aggressive: Lower liquidity for earlier entry (was 20)
+  buysSellRatioMin: 1.5          # Aggressive: Allow more volatile tokens (was 2.2)
+  uniquesMin: 6                  # Aggressive: Faster entry (was 12)
+  minPoolAgeSec: 15              # Aggressive: Earlier entry (was 30)
+  maxSpreadBps: 300              # Aggressive: Tolerate wider spreads (was 150)
 watchWindows:
   durationSec: 1200
   refreshIntervalSec: 5
@@ -91,64 +91,64 @@ topics:
     enabled: false
 ladders:
   takeProfits: [1.5, 2, 3, 5]
-  multiplierPercents: [50, 100, 200, 400]
-  trailActivatePct: 60
-  trailPct: 28
-  hardStopLossPct: 22
+  multiplierPercents: [100, 300, 800, 2000]  # Aggressive: Let moonshots run (was [50, 100, 200, 400])
+  trailActivatePct: 100                      # Aggressive: Let it run more (was 60)
+  trailPct: 40                               # Aggressive: Wider trailing stops (was 28)
+  hardStopLossPct: 35                        # Aggressive: Looser stop loss (was 22)
 bandit:
   rewardHorizonMinutes: 30
   updateIntervalSec: 20
   epsilonFloor: 0.02
   bundles:
-    - id: aggressive-entry
-      label: Aggressive Entry
+    - id: moonshot-hunter
+      label: Moonshot Hunter
       gate: loose
-      slippageBps: 700
+      slippageBps: 500
       tipPercentile: p75
-      sizeMultiplier: 0.7
-    - id: bulk-sniper
-      label: Bulk Sniper
+      sizeMultiplier: 1.5
+    - id: vampire-attack
+      label: Vampire Attack
+      gate: loose
+      slippageBps: 800
+      tipPercentile: p90
+      sizeMultiplier: 2.0
+    - id: fast-entry
+      label: Fast Entry
       gate: normal
       slippageBps: 300
       tipPercentile: p50
-      sizeMultiplier: 1
-    - id: conservative
-      label: Conservative
-      gate: strict
-      slippageBps: 100
-      tipPercentile: p25
-      sizeMultiplier: 0.5
-    - id: hvy-chase
-      label: HVY Chase
+      sizeMultiplier: 1.0
+    - id: alpha-chase
+      label: Alpha Chase
       gate: loose
-      slippageBps: 850
-      tipPercentile: p90
-      sizeMultiplier: 0.85
+      slippageBps: 1000
+      tipPercentile: p95
+      sizeMultiplier: 1.2
 wallet:
   reservesSol: 0.02
-  dailySpendCapSol: 0.30
+  dailySpendCapSol: 2.0              # Aggressive: 6x higher daily spending (was 0.30)
   autoSkimProfitSol: 0.5
-  perNameCapFraction: 0.3
-  perNameCapMaxSol: 5
-  lpImpactCapFraction: 0.015
-  flowCapFraction: 0.4
+  perNameCapFraction: 0.5            # Aggressive: 50% per token (was 0.3)
+  perNameCapMaxSol: 15               # Aggressive: 3x higher max (was 5)
+  lpImpactCapFraction: 0.03          # Aggressive: 2x LP impact (was 0.015)
+  flowCapFraction: 0.6               # Aggressive: Higher flow capacity (was 0.4)
   equityTiers:
     - minEquity: 0
       maxEquity: 3
-      riskFraction: 0.12
+      riskFraction: 0.25             # Aggressive: 2x risk (was 0.12)
     - minEquity: 3
       maxEquity: 10
-      riskFraction: 0.12
+      riskFraction: 0.25             # Aggressive: 2x risk (was 0.12)
     - minEquity: 10
       maxEquity: 25
-      riskFraction: 0.08
+      riskFraction: 0.20             # Aggressive: 2.5x risk (was 0.08)
     - minEquity: 25
       maxEquity: 100
-      riskFraction: 0.05
+      riskFraction: 0.15             # Aggressive: 3x risk (was 0.05)
     - minEquity: 100
       maxEquity: null
-      riskFraction: 0.03
-  concurrencyCap: 3
+      riskFraction: 0.10             # Aggressive: 3x risk (was 0.03)
+  concurrencyCap: 8                  # Aggressive: More concurrent positions (was 3)
   concurrencyScaler:
     base: 1
     max: 1.4
@@ -183,8 +183,8 @@ dataProviders:
   blueskyJetstreamUrl: wss://jetstream2.us-east.host.bsky.network
   gdeltPulseUrl: https://api.gdeltproject.org/api/v2/summary/summary
 safety:
-  lpBurnThreshold: 0.9
-  holderTopCap: 0.2
+  lpBurnThreshold: 0.7             # Aggressive: Relaxed LP burn requirement (was 0.9)
+  holderTopCap: 0.35               # Aggressive: Allow whale involvement (was 0.2)
   lockerPrograms:
     - 6z7H14RTa7tD1ynjUTduV1JN9WewtGku5Kz4DKftd84f
     - Lock111111111111111111111111111111111111111
@@ -198,7 +198,7 @@ policy:
   blockedFeedUrl: null
   contextWindowSec: 900
   minConfidence: 0.4
-  dailyLossCapPct: 0.1
+  dailyLossCapPct: 0.2             # Aggressive: Higher loss tolerance (was 0.1)
   rewardSmoothing: 0.2
 
 caching:
@@ -245,8 +245,8 @@ positionManager:
     min: 1500000
     max: 2500000
   autokill:
-    flowRatioThreshold: 0.6
-    uniquesDropThreshold: 1
+    flowRatioThreshold: 0.4          # Aggressive: More tolerance (was 0.6)
+    uniquesDropThreshold: 3          # Aggressive: Less sensitive (was 1)
     safetyReasons:
       - missing_lp_mint
       - lp_supply_zero

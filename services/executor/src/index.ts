@@ -30,9 +30,8 @@ const shadowMode = process.env.EXECUTOR_SHADOW_MODE === '1';
 const useReplay = process.env.USE_REPLAY === '1';
 const replayUrl = process.env.SOAK_REPLAY_URL || '';
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
-// Q4 AGGRESSIVE MODE: Faster execution with more retries
-const isAggressiveMode = process.env.AGGRESSIVE_MODE === '1';
-const MAX_RETRIES = isAggressiveMode ? 5 : 3; // More retries for aggressive trading
+// Aggressive execution: More retries for better fills
+const MAX_RETRIES = 5;
 const ROUTE_QUARANTINE_DEFAULT: RouteQuarantineConfig = {
   windowMinutes: 1440,
   minAttempts: 8,

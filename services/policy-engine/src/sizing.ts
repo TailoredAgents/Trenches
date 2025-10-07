@@ -27,13 +27,12 @@ export function computeSizing(
     }
   }
   
-  // Q4 AGGRESSIVE MODE: 2x position sizing for memecoin season
-  const isAggressiveMode = process.env.AGGRESSIVE_MODE === '1';
+  // Aggressive sizing: 2x position sizing for high-confidence and trending tokens
   const candidateAny = candidate as any;
   const isHighConfidence = candidateAny.social?.sss > 4.0 || candidateAny.alpha?.score > 0.7;
   const isTrending = candidateAny.social?.velocity > 1.5;
   
-  if (isAggressiveMode && (isHighConfidence || isTrending)) {
+  if (isHighConfidence || isTrending) {
     riskFraction = Math.min(riskFraction * 2.0, 0.4); // 2x sizing, capped at 40%
   }
 
