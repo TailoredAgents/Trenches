@@ -52,6 +52,11 @@ export const socialConfigSchema = z.object({
   })
 });
 
+export const tradingSchema = z.object({
+  maxOpenPositions: z.number().int().positive().default(15),
+  maxDailyNew: z.number().int().positive().default(120)
+}).default({ maxOpenPositions: 15, maxDailyNew: 120 });
+
 export const configSchema = z.object({
   mode: z.enum(['SIM', 'SHADOW', 'SEMI', 'FULL']).default('SIM'),
   logging: z.object({
@@ -406,6 +411,7 @@ export const configSchema = z.object({
       minFreeSol: z.number().nonnegative().optional()
     })
     .default({ baseUnitUsd: 100, arms: [{ type: 'equity_frac', value: 0.005 }, { type: 'equity_frac', value: 0.01 }, { type: 'equity_frac', value: 0.02 }], dailyLossCapUsd: 500, perMintCapUsd: 400, coolOffL: 2, minFreeSol: undefined }),
+  trading: tradingSchema,
   survival: z
     .object({
       baseTrailBps: z.number().int().positive().default(120),

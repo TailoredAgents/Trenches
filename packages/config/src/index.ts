@@ -3,6 +3,9 @@ import path from 'path';
 import YAML from 'yaml';
 import { configSchema, TrenchesConfig } from './schema';
 import { deepMerge } from '@trenches/util';
+const env = process.env as Record<string, string | undefined>;
+const sqlitePath = env.SQLITE_DB_PATH || env.PERSISTENCE_SQLITE_PATH || './data/trenches.db';
+
 
 export type { TrenchesConfig } from './schema';
 
@@ -183,7 +186,7 @@ const baseConfig: TrenchesConfig = configSchema.parse({
   },
   alerts: {},
   persistence: {
-    sqlitePath: './data/trenches.db',
+    sqlitePath,
     parquetDir: './data/parquet',
     parquetRollHours: 6
   },
@@ -201,7 +204,8 @@ const baseConfig: TrenchesConfig = configSchema.parse({
   leaderWallets: { enabled: true, watchMinutes: 5, minHitsForBoost: 1, scoreHalfLifeDays: 14, rankBoost: 0.03, sizeTierBoost: 1 },
   pyth: { solUsdAccount: '' },
   priceUpdater: { enabled: true, intervalMs: 60_000, staleWarnSec: 300, pythSolUsdPriceAccount: '' },
-  featuresJob: { enabled: true, intervalMs: 86_400_000, embedder: 'bge-small-en', lookbackHours: 24, minPostsPerAuthor: 5 }
+  featuresJob: { enabled: true, intervalMs: 86_400_000, embedder: 'bge-small-en', lookbackHours: 24, minPostsPerAuthor: 5 },
+  trading: { maxOpenPositions: 15, maxDailyNew: 120 }
 });
 
 function parseJsonRecord(value: string): Record<string, string> {
@@ -257,6 +261,7 @@ const envMap: EnvMapping[] = [
   ['addresses.raydiumAmmV4', 'RAYDIUM_AMM_V4_PROGRAM_ID', (v) => v],
   ['addresses.raydiumCpmm', 'RAYDIUM_CPMM_PROGRAM_ID', (v) => v],
   ['persistence.sqlitePath', 'SQLITE_DB_PATH', (v) => v],
+  ['persistence.sqlitePath', 'PERSISTENCE_SQLITE_PATH', (v) => v],
   ['persistence.parquetDir', 'PARQUET_OUTPUT_DIR', (v) => v],
   ['security.killSwitchToken', 'KILL_SWITCH_TOKEN', (v) => v],
   ['alerts.telegramChatId', 'TELEGRAM_ALERT_CHAT_ID', (v) => v],
@@ -336,6 +341,8 @@ try {
   (envMap as any).push(['sizing.perMintCapUsd', 'SIZING_PER_MINT_CAP_USD', (v: string) => Number(v)]);
   (envMap as any).push(['sizing.coolOffL', 'SIZING_COOL_OFFL', (v: string) => Number(v)]);
   (envMap as any).push(['sizing.minFreeSol', 'SIZING_MIN_FREE_SOL', (v: string) => Number(v)]);
+  (envMap as any).push(['trading.maxOpenPositions', 'TRADING_MAX_OPEN_POSITIONS', (v: string) => Number(v)]);
+  (envMap as any).push(['trading.maxDailyNew', 'TRADING_MAX_DAILY_NEW', (v: string) => Number(v)]);
   (envMap as any).push(['survival.baseTrailBps', 'SURV_BASE_TRAIL_BPS', (v: string) => Number(v)]);
   (envMap as any).push(['survival.minTrailBps', 'SURV_MIN_TRAIL_BPS', (v: string) => Number(v)]);
   (envMap as any).push(['survival.maxTrailBps', 'SURV_MAX_TRAIL_BPS', (v: string) => Number(v)]);

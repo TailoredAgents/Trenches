@@ -1,35 +1,31 @@
-﻿{
-    "name":  "@trenches/executor",
-    "version":  "0.1.0",
-    "private":  true,
-    "type":  "commonjs",
-    "main":  "dist/index.js",
-    "types":  "dist/index.d.ts",
-    "scripts":  {
-                    "build":  "tsc -b",
-                    "start":  "node dist/index.js",
-                    "dev":  "tsx -r dotenv/config -r tsconfig-paths/register src/index.ts",
-                    "test":  "vitest run"
-                },
-    "dependencies":  {
-                         "@fastify/helmet":  "^11.1.1",
-                         "@fastify/rate-limit":  "^8.1.1",
-                         "bs58":  "^5.0.0",
-                         "eventemitter3":  "^5.0.1",
-                         "eventsource":  "^2.0.2",
-                         "fastify":  "^4.28.0",
-                         "fastify-sse-v2":  "^4.2.1",
-                         "@solana/web3.js":  "^1.91.5",
-                         "@trenches/config":  "workspace:*",
-                         "@trenches/logger":  "workspace:*",
-                         "@trenches/metrics":  "workspace:*",
-                         "@trenches/persistence":  "workspace:*",
-                         "@trenches/shared":  "workspace:*",
-                         "@trenches/util":  "workspace:*",
-                         "node-fetch":  "^3.3.2"
-                     }
+{
+  "name": "@trenches/executor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node dist/index.js",
+    "dev": "tsx -r dotenv/config -r tsconfig-paths/register src/index.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fastify/helmet": "^11.1.1",
+    "@fastify/rate-limit": "^8.1.1",
+    "bs58": "^5.0.0",
+    "eventemitter3": "^5.0.1",
+    "eventsource": "^2.0.2",
+    "fastify": "^4.28.0",
+    "fastify-sse-v2": "^4.2.1",
+    "@solana/web3.js": "^1.91.5",
+    "@trenches/config": "workspace:*",
+    "@trenches/logger": "workspace:*",
+    "@trenches/metrics": "workspace:*",
+    "@trenches/persistence": "workspace:*",
+    "@trenches/shared": "workspace:*",
+    "@trenches/util": "workspace:*",
+    "node-fetch": "^3.3.2"
+  }
 }
-
-
-
-

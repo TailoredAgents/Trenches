@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "@trenches/leader-wallets",
   "version": "0.1.0",
   "private": true,
@@ -21,7 +21,3 @@
     "@solana/web3.js": "^1.95.4"
   }
 }
-
-
-
-

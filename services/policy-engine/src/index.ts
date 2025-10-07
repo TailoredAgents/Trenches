@@ -10,7 +10,7 @@ import { Connection } from '@solana/web3.js';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
 import { getRegistry, registerGauge, registerCounter } from '@trenches/metrics';
-import { logTradeEvent, getDailyRealizedPnlSince, recordPolicyAction, getDb } from '@trenches/persistence';
+import { logTradeEvent, getDailyRealizedPnlSince, recordPolicyAction, getDb, getDailyPnlUsd, countOpenPositions, countNewPositionsToday } from '@trenches/persistence';
 import { TokenCandidate, TradeEvent, CongestionLevel, OrderPlan } from '@trenches/shared';
 import { PolicyEventBus } from './eventBus';
 import { plansEmitted, plansSuppressed, sizingDurationMs, walletEquityGauge, walletFreeGauge, banditRewardGauge } from './metrics';
@@ -49,6 +49,32 @@ const providersOff = process.env.DISABLE_PROVIDERS === '1';
 
 async function bootstrap() {
   const config = loadConfig();
+
+  function withinTradingCaps(): boolean {
+    try {
+      const maxOpen = config.trading?.maxOpenPositions;
+      if (typeof maxOpen === 'number' && countOpenPositions() >= maxOpen) {
+        plansSuppressed.inc({ reason: 'max_open' });
+        return false;
+      }
+      const maxDailyNew = config.trading?.maxDailyNew;
+      if (typeof maxDailyNew === 'number' && countNewPositionsToday() >= maxDailyNew) {
+        plansSuppressed.inc({ reason: 'max_daily_new' });
+        return false;
+      }
+      const dailyLossCapUsd = config.sizing?.dailyLossCapUsd;
+      if (typeof dailyLossCapUsd === 'number' && dailyLossCapUsd > 0) {
+        const pnlUsd = getDailyPnlUsd();
+        if (pnlUsd <= -Math.abs(dailyLossCapUsd)) {
+          plansSuppressed.inc({ reason: 'daily_loss_cap' });
+          return false;
+        }
+      }
+    } catch (err) {
+      logger.warn({ err }, 'withinTradingCaps failed');
+    }
+    return true;
+  }
   const leaderConfig: LeaderWalletConfig = config.leaderWallets ?? { enabled: false, watchMinutes: 5, minHitsForBoost: 1, rankBoost: 0.03, sizeTierBoost: 1 };
   const leaderCapsConfig = {
     perNameCapFraction: config.wallet.perNameCapFraction,
@@ -273,6 +299,10 @@ async function bootstrap() {
 
     if (sizing.size <= 0) {
       plansSuppressed.inc({ reason: sizing.reason });
+      return;
+    }
+
+    if (!withinTradingCaps()) {
       return;
     }
 

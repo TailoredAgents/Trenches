@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "@trenches/social-ingestor",
   "version": "0.1.0",
   "private": true,
@@ -30,7 +30,3 @@
     "@trenches/metrics": "workspace:*"
   }
 }
-
-
-
-

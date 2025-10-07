@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "@trenches/narrative-miner",
   "version": "0.1.0",
   "private": true,
@@ -27,7 +27,3 @@
     "@trenches/util": "workspace:*"
   }
 }
-
-
-
-

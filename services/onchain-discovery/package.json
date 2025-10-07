@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "@trenches/onchain-discovery",
   "version": "0.1.0",
   "private": true,
@@ -29,7 +29,3 @@
     "ws": "^8.16.0"
   }
 }
-
-
-
-

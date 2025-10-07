@@ -2348,6 +2348,46 @@ export function getNearestPrice(ts: number, symbol: string): number | null {
   return typeof row?.usd === 'number' ? row.usd : null;
 }
 
+export function getDailyPnlUsd(): number {
+  try {
+    const database = getDb();
+    const since = new Date();
+    since.setUTCHours(0, 0, 0, 0);
+    const row = database
+      .prepare(`SELECT COALESCE(SUM(pnl_usd), 0) AS s FROM sizing_outcomes WHERE ts >= @since`)
+      .get({ since: since.getTime() }) as { s?: number } | undefined;
+    return Number(row?.s ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
+export function countOpenPositions(): number {
+  try {
+    const database = getDb();
+    const row = database
+      .prepare(`SELECT COUNT(*) AS n FROM positions WHERE quantity IS NOT NULL AND quantity > 0`)
+      .get() as { n?: number } | undefined;
+    return Number(row?.n ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
+export function countNewPositionsToday(): number {
+  try {
+    const database = getDb();
+    const since = new Date();
+    since.setUTCHours(0, 0, 0, 0);
+    const row = database
+      .prepare(`SELECT COUNT(*) AS n FROM exec_outcomes WHERE filled = 1 AND mint IS NOT NULL AND ts >= @since`)
+      .get({ since: since.getTime() }) as { n?: number } | undefined;
+    return Number(row?.n ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
 export function getPnLSummary(): { netUsd: number; grossUsd: number; feeUsd: number; slipUsd: number } {
   const database = getDb();
   const rows = database
