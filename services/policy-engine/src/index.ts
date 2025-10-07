@@ -225,8 +225,11 @@ async function bootstrap() {
     }
     if (typeof (candidate as any).rugProb === 'number') {
       const rugProb = (candidate as any).rugProb as number;
-      if (rugProb > 0.6) {
+      // Q4 Aggressive Mode: Raised threshold from 0.6 to 0.8 for memecoin season
+      const rugThreshold = process.env.AGGRESSIVE_MODE === '1' ? 0.8 : 0.6;
+      if (rugProb > rugThreshold) {
         plansSuppressed.inc({ reason: 'rugprob_high' });
+        logger.debug({ rugProb, rugThreshold, mint: candidate.mint }, 'rejected by rugguard');
         return;
       }
     }

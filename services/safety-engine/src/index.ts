@@ -209,6 +209,32 @@ async function evaluateCandidate(
   if (cached) {
     return cached;
   }
+  
+  // Q4 FAST-ENTRY MODE: Skip safety checks for highly trending tokens
+  const isAggressiveMode = process.env.AGGRESSIVE_MODE === '1';
+  const candidateAny = candidate as any;
+  const isTrending = candidateAny.social?.sss > 5.0; // High social sentiment score
+  const hasHighMomentum = candidateAny.social?.velocity > 2.0; // High momentum
+  const isFastEntry = isAggressiveMode && (isTrending || hasHighMomentum);
+  
+  if (isFastEntry) {
+    logger.info({ 
+      mint: candidate.mint, 
+      sss: candidateAny.social?.sss, 
+      velocity: candidateAny.social?.velocity 
+    }, 'FAST-ENTRY MODE: Bypassing safety checks for trending token');
+    
+    const fastResult: SafetyEvaluation = {
+      ok: true,
+      reasons: ['fast_entry_mode'],
+      whaleFlag: false,
+      features: {},
+      rugProb: 0.1 // Low rug probability for trending tokens
+    };
+    cache.set(cacheKey, fastResult);
+    return fastResult;
+  }
+  
   const start = Date.now();
   const reasons: string[] = [];
 
