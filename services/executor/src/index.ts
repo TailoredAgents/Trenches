@@ -173,14 +173,24 @@ async function bootstrap() {
   const defaultPolicyFeed = `http://127.0.0.1:${config.services.policyEngine.port}/events/plans`;
   const planFeed = useReplay && replayUrl ? replayUrl : defaultPolicyFeed;
   const isUsingReplay = useReplay && replayUrl.length > 0;
+  const canSimulateReplay = enableShadowOutcomes && shadowMode && isUsingReplay;
   const mode = config.execution?.simpleMode ? 'simple' : 'advanced';
   logger.info({ planFeed, isUsingReplay, mode }, isUsingReplay ? 'using plan replay feed (shadow)' : 'using policy plan feed');
   let disposer: () => void = () => {};
-  if (!offline && connection && wallet && jupiter && sender) {
+  const canExecute = !offline && connection && wallet && jupiter && sender;
+  if (canExecute || canSimulateReplay) {
     disposer = startPlanStream(planFeed, bus, async (payload) => {
       ordersReceived.inc();
       bus.emitTrade({ t: 'order_plan', plan: payload.plan });
-      if (!wallet.isReady && !(enableShadowOutcomes && shadowMode)) {
+      if (canSimulateReplay && (!wallet || !jupiter || !sender || offline)) {
+        try {
+          recordReplayShadowOutcome(payload);
+        } catch (err) {
+          logger.error({ err }, 'failed to record replay shadow outcome');
+        }
+        return;
+      }
+      if (!wallet!.isReady && !(enableShadowOutcomes && shadowMode)) {
         logger.warn('wallet unavailable, skipping plan');
         ordersFailed.inc({ stage: 'wallet_unavailable' });
         return;
@@ -258,6 +268,35 @@ function startPlanStream(
     }
   });
   return () => client.dispose();
+}
+
+function recordReplayShadowOutcome(payload: { plan: OrderPlan; context: { candidate: TokenCandidate } }) {
+  const { plan, context } = payload;
+  const candidate = context?.candidate ?? ({} as TokenCandidate);
+  const now = Date.now();
+  const amountIn = typeof (plan as any).inAmount === 'number'
+    ? Number((plan as any).inAmount)
+    : Math.max(0, Math.round((plan.sizeSol ?? 0) * 1_000_000_000));
+  const amountOut = typeof (plan as any).outAmount === 'number'
+    ? Number((plan as any).outAmount)
+    : 0;
+  const quotePrice = amountIn > 0 ? amountOut / amountIn : 0;
+  insertSimOutcome({
+    ts: now,
+    mint: candidate?.mint ?? null,
+    route: plan.route ?? 'replay',
+    filled: 1,
+    quote_price: quotePrice,
+    exec_price: quotePrice,
+    slippageReq: (plan as any).slippageBps ?? null,
+    slippageReal: (plan as any).slippageBps ?? null,
+    timeToLandMs: 1000,
+    cu_price: (plan as any).cuPrice ?? null,
+    amountIn,
+    amountOut,
+    source: 'shadow_replay'
+  });
+  shadowOutcomesTotal.inc({ result: 'ok' });
 }
 
 async function executePlan(opts: {
