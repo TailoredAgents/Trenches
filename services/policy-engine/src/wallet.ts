@@ -57,7 +57,7 @@ export class WalletManager {
         reserves: config.wallet.reservesSol,
         openPositions: 0,
         spendUsed: 0,
-        spendRemaining: config.wallet.dailySpendCapSol
+        spendRemaining: config.wallet.dailySpendCapPct ? 0 * config.wallet.dailySpendCapPct : config.wallet.dailySpendCapSol || 0.3
       };
       this.lastSnapshot = snapshot;
       return snapshot;
@@ -75,7 +75,11 @@ export class WalletManager {
     const openPositions = getOpenPositionsCount();
 
     const free = Math.max(equitySol - reserves, 0);
-    const spendRemaining = Math.max(config.wallet.dailySpendCapSol - dailySpend, 0);
+    // Use percentage-based daily spending cap
+    const dailySpendCapSol = config.wallet.dailySpendCapPct 
+      ? equitySol * config.wallet.dailySpendCapPct 
+      : config.wallet.dailySpendCapSol || 0.3; // fallback
+    const spendRemaining = Math.max(dailySpendCapSol - dailySpend, 0);
 
     const snapshot: WalletSnapshot = {
       equity: equitySol,

@@ -166,6 +166,7 @@ export const configSchema = z.object({
   wallet: z.object({
     reservesSol: z.number().min(0).default(0.02),
     dailySpendCapSol: z.number().min(0).default(1.5),
+    dailySpendCapPct: z.number().min(0).max(1).optional(), // Percentage-based daily spending
     autoSkimProfitSol: z.number().min(0).default(0.5),
     perNameCapFraction: z.number().min(0).max(1).default(0.3),
     perNameCapMaxSol: z.number().positive().default(5),

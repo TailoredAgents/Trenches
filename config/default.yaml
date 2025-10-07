@@ -90,11 +90,11 @@ topics:
   test:
     enabled: false
 ladders:
-  takeProfits: [1.5, 2, 3, 5]
-  multiplierPercents: [100, 300, 800, 2000]  # Aggressive: Let moonshots run (was [50, 100, 200, 400])
-  trailActivatePct: 100                      # Aggressive: Let it run more (was 60)
-  trailPct: 40                               # Aggressive: Wider trailing stops (was 28)
-  hardStopLossPct: 35                        # Aggressive: Looser stop loss (was 22)
+  takeProfits: [0.25, 0.3, 0.25, 0.2]       # Balanced scalp: 25%, 30%, 25%, 20% exits
+  multiplierPercents: [40, 80, 150, 400]    # Profitable at 40%, great at 80%, moonshots at 400%
+  trailActivatePct: 80                       # Activate trailing at 80% gain  
+  trailPct: 30                               # 30% trailing stop (balanced)
+  hardStopLossPct: 25                        # 25% hard stop loss
 bandit:
   rewardHorizonMinutes: 30
   updateIntervalSec: 20
@@ -125,30 +125,28 @@ bandit:
       tipPercentile: p95
       sizeMultiplier: 1.2
 wallet:
-  reservesSol: 0.02
-  dailySpendCapSol: 2.0              # Aggressive: 6x higher daily spending (was 0.30)
+  reservesSol: 0.1                   # Keep 0.1 SOL reserve for fees/gas
+  dailySpendCapPct: 0.8              # Use up to 80% of account per day
   autoSkimProfitSol: 0.5
-  perNameCapFraction: 0.5            # Aggressive: 50% per token (was 0.3)
-  perNameCapMaxSol: 15               # Aggressive: 3x higher max (was 5)
-  lpImpactCapFraction: 0.03          # Aggressive: 2x LP impact (was 0.015)
-  flowCapFraction: 0.6               # Aggressive: Higher flow capacity (was 0.4)
+  perNameCapFraction: 0.2            # Max 20% of account per token (safer)
+  perNameCapMaxSol: null             # No hard cap - let percentage govern
+  lpImpactCapFraction: 0.03          # 3% of LP pool max impact
+  flowCapFraction: 0.6               # 60% of flow capacity
+  # Percentage-based position sizing (% of total account equity)
   equityTiers:
     - minEquity: 0
-      maxEquity: 3
-      riskFraction: 0.25             # Aggressive: 2x risk (was 0.12)
-    - minEquity: 3
-      maxEquity: 10
-      riskFraction: 0.25             # Aggressive: 2x risk (was 0.12)
-    - minEquity: 10
-      maxEquity: 25
-      riskFraction: 0.20             # Aggressive: 2.5x risk (was 0.08)
-    - minEquity: 25
+      maxEquity: 5
+      riskFraction: 0.15             # 15% of account per position (small accounts)
+    - minEquity: 5  
+      maxEquity: 20
+      riskFraction: 0.12             # 12% of account per position (medium accounts)
+    - minEquity: 20
       maxEquity: 100
-      riskFraction: 0.15             # Aggressive: 3x risk (was 0.05)
+      riskFraction: 0.10             # 10% of account per position (large accounts)
     - minEquity: 100
       maxEquity: null
-      riskFraction: 0.10             # Aggressive: 3x risk (was 0.03)
-  concurrencyCap: 8                  # Aggressive: More concurrent positions (was 3)
+      riskFraction: 0.08             # 8% of account per position (whale accounts)
+  concurrencyCap: 6                  # 6 concurrent positions max
   concurrencyScaler:
     base: 1
     max: 1.4

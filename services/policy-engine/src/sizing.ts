@@ -62,7 +62,11 @@ export function computeSizing(
   const flowCap = config.wallet.flowCapFraction * Math.max(candidate.lpSol, 0);
   caps.flow = flowCap;
 
-  const dailyCapRemaining = Math.max(config.wallet.dailySpendCapSol - wallet.spendUsed, 0);
+  // Use percentage-based daily spending cap
+  const dailySpendCapSol = config.wallet.dailySpendCapPct 
+    ? totalEquity * config.wallet.dailySpendCapPct 
+    : config.wallet.dailySpendCapSol || 0.3; // fallback to old method
+  const dailyCapRemaining = Math.max(dailySpendCapSol - wallet.spendUsed, 0);
   caps.daily = dailyCapRemaining;
 
   const baseSize = Math.max(Math.min(riskCap, perNameCap, impactCap, flowCap, dailyCapRemaining), 0);
