@@ -169,7 +169,7 @@ export const configSchema = z.object({
     dailySpendCapPct: z.number().min(0).max(1).optional(), // Percentage-based daily spending
     autoSkimProfitSol: z.number().min(0).default(0.5),
     perNameCapFraction: z.number().min(0).max(1).default(0.3),
-    perNameCapMaxSol: z.number().positive().default(5),
+    perNameCapMaxSol: z.number().positive().nullable().default(5),
     lpImpactCapFraction: z.number().min(0).max(1).default(0.015),
     flowCapFraction: z.number().min(0).max(1).default(0.4),
     equityTiers: z.array(equityTierSchema),
@@ -224,7 +224,34 @@ export const configSchema = z.object({
     ignoreAccounts: z.array(z.string()).default([
       '1nc1nerator11111111111111111111111111111111'
     ]),
-    candidateFeedUrl: z.string().optional().nullable()
+    candidateFeedUrl: z.string().optional().nullable(),
+    fastEntry: z.object({
+      sssThreshold: z.number().min(0).default(6.0),
+      velocityThreshold: z.number().min(0).default(2.5),
+      minimumChecks: z.object({
+        lpMinSol: z.number().min(0).default(12),
+        uniquesMin: z.number().min(0).default(8),
+        lpBurnThreshold: z.number().min(0).max(1).default(0.6),
+        maxRugProb: z.number().min(0).max(1).default(0.9),
+        holderTopCap: z.number().min(0).max(1).default(0.4)
+      }).default({
+        lpMinSol: 12,
+        uniquesMin: 8,
+        lpBurnThreshold: 0.6,
+        maxRugProb: 0.9,
+        holderTopCap: 0.4
+      })
+    }).default({
+      sssThreshold: 6.0,
+      velocityThreshold: 2.5,
+      minimumChecks: {
+        lpMinSol: 12,
+        uniquesMin: 8,
+        lpBurnThreshold: 0.6,
+        maxRugProb: 0.9,
+        holderTopCap: 0.4
+      }
+    })
   }),
 
   policy: z.object({

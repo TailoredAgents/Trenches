@@ -210,25 +210,80 @@ async function evaluateCandidate(
     return cached;
   }
   
-  // FAST-ENTRY MODE: Skip safety checks for highly trending tokens
+  // FAST-ENTRY MODE: Apply minimum safety checks for highly trending tokens
   const candidateAny = candidate as any;
-  const isTrending = candidateAny.social?.sss > 5.0; // High social sentiment score
-  const hasHighMomentum = candidateAny.social?.velocity > 2.0; // High momentum
+  const fastEntryConfig = config.safety.fastEntry;
+  const isTrending = candidateAny.social?.sss > fastEntryConfig.sssThreshold;
+  const hasHighMomentum = candidateAny.social?.velocity > fastEntryConfig.velocityThreshold;
   const isFastEntry = isTrending || hasHighMomentum;
   
   if (isFastEntry) {
     logger.info({ 
       mint: candidate.mint, 
       sss: candidateAny.social?.sss, 
-      velocity: candidateAny.social?.velocity 
-    }, 'FAST-ENTRY MODE: Bypassing safety checks for trending token');
+      velocity: candidateAny.social?.velocity,
+      sssThreshold: fastEntryConfig.sssThreshold,
+      velocityThreshold: fastEntryConfig.velocityThreshold
+    }, 'FAST-ENTRY MODE: Applying minimum safety checks for trending token');
+    
+    // Apply only minimum checks for fast-entry mode
+    const fastReasons: string[] = [];
+    
+    // Minimum LP check
+    if (candidate.lpSol < fastEntryConfig.minimumChecks.lpMinSol) {
+      fastReasons.push('lp_insufficient');
+    }
+    
+    // Minimum unique traders check  
+    if (candidate.uniques60 < fastEntryConfig.minimumChecks.uniquesMin) {
+      fastReasons.push('uniques_low');
+    }
+    
+    // Minimum LP burn check
+    const lpResult = await checkLpSafety(
+      connection,
+      candidate.lpMint,
+      config.safety.lockerPrograms,
+      fastEntryConfig.minimumChecks.lpBurnThreshold
+    );
+    if (!lpResult.ok) {
+      fastReasons.push(...lpResult.reasons);
+    }
+    
+    // Minimum holder concentration check
+    const holderResult = await checkHolderSkew(
+      connection,
+      candidate.mint,
+      config.safety.ignoreAccounts,
+      [candidate.poolCoinAccount, candidate.poolPcAccount, candidate.poolAddress],
+      fastEntryConfig.minimumChecks.holderTopCap
+    );
+    if (!holderResult.ok) {
+      fastReasons.push(...holderResult.reasons);
+    }
+    
+    // Minimum rug probability check
+    let rugProb = 0.5;
+    const featureFlags = (config as any).features ?? {};
+    const rugGuardEnabled = featureFlags.rugGuard !== false;
+    if (rugGuardEnabled) {
+      try {
+        const verdict = await classify(candidate.mint, candidateToFeatures(candidate), { connection });
+        rugProb = verdict.rugProb;
+        if (rugProb > fastEntryConfig.minimumChecks.maxRugProb) {
+          fastReasons.push('rug_probability_high');
+        }
+      } catch (err) {
+        logger.warn({ err }, 'fast-entry rug probability check failed');
+      }
+    }
     
     const fastResult: SafetyEvaluation = {
-      ok: true,
-      reasons: ['fast_entry_mode'],
-      whaleFlag: false,
+      ok: fastReasons.length === 0,
+      reasons: fastReasons.length === 0 ? ['fast_entry_mode'] : fastReasons,
+      whaleFlag: holderResult.whaleFlag || false,
       features: {},
-      rugProb: 0.1 // Low rug probability for trending tokens
+      rugProb
     };
     cache.set(cacheKey, fastResult);
     return fastResult;

@@ -31,11 +31,11 @@ services:
     port: 8090
 gating:
   sssMin: 0.6
-  lpMinSol: 8                    # Aggressive: Lower liquidity for earlier entry (was 20)
-  buysSellRatioMin: 1.5          # Aggressive: Allow more volatile tokens (was 2.2)
-  uniquesMin: 6                  # Aggressive: Faster entry (was 12)
-  minPoolAgeSec: 15              # Aggressive: Earlier entry (was 30)
-  maxSpreadBps: 300              # Aggressive: Tolerate wider spreads (was 150)
+  lpMinSol: 15                   # Balanced: Higher manipulation cost (was 8, originally 20)
+  buysSellRatioMin: 1.5          # Keep: Good volatility tolerance (was 2.2)
+  uniquesMin: 10                 # Balanced: Harder to game (was 6, originally 12)
+  minPoolAgeSec: 15              # Keep: Good speed (was 30)
+  maxSpreadBps: 300              # Keep: Allows early liquidity (was 150)
 watchWindows:
   durationSec: 1200
   refreshIntervalSec: 5
@@ -122,7 +122,7 @@ bandit:
       label: Alpha Chase
       gate: loose
       slippageBps: 1000
-      tipPercentile: p95
+      tipPercentile: p90
       sizeMultiplier: 1.2
 wallet:
   reservesSol: 0.1                   # Keep 0.1 SOL reserve for fees/gas
@@ -181,8 +181,8 @@ dataProviders:
   blueskyJetstreamUrl: wss://jetstream2.us-east.host.bsky.network
   gdeltPulseUrl: https://api.gdeltproject.org/api/v2/summary/summary
 safety:
-  lpBurnThreshold: 0.7             # Aggressive: Relaxed LP burn requirement (was 0.9)
-  holderTopCap: 0.35               # Aggressive: Allow whale involvement (was 0.2)
+  lpBurnThreshold: 0.7             # Keep: Reasonable for memecoins (was 0.9)
+  holderTopCap: 0.25               # Balanced: Less whale risk (was 0.35, originally 0.2)
   lockerPrograms:
     - 6z7H14RTa7tD1ynjUTduV1JN9WewtGku5Kz4DKftd84f
     - Lock111111111111111111111111111111111111111
@@ -190,6 +190,16 @@ safety:
   ignoreAccounts:
     - 1nc1nerator11111111111111111111111111111111
   candidateFeedUrl: null
+  # Fast-entry safety minimums - never skip these even for trending tokens
+  fastEntry:
+    sssThreshold: 6.0              # Raised from 5.0 - higher bar for fast-entry
+    velocityThreshold: 2.5         # Raised from 2.0 - require stronger momentum  
+    minimumChecks:
+      lpMinSol: 12                 # Always require 12+ SOL even in fast mode
+      uniquesMin: 8                # Always require 8+ traders even in fast mode
+      lpBurnThreshold: 0.6         # Always require 60%+ LP burn even in fast mode
+      maxRugProb: 0.9              # Still check rug probability (90% threshold)
+      holderTopCap: 0.4            # Allow higher whale concentration in fast mode
 
 policy:
   safeFeedUrl: null
