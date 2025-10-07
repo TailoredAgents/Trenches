@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import path from 'path';
 import WebSocket from 'ws';
 import { SocialPost } from '@trenches/shared';
 import { createLogger } from '@trenches/logger';
@@ -193,8 +194,8 @@ class BlueskySource implements SocialSource {
     if (this.cursor === undefined) {
       return;
     }
-    const dir = this.cfg.cursorPath.includes('/') ? this.cfg.cursorPath.slice(0, this.cfg.cursorPath.lastIndexOf('/')) : '';
-    if (dir) {
+    const dir = path.dirname(this.cfg.cursorPath);
+    if (dir && dir !== '.' && dir !== this.cfg.cursorPath) {
       await fs.mkdir(dir, { recursive: true });
     }
     await fs.writeFile(this.cfg.cursorPath, String(this.cursor), 'utf-8');

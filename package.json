@@ -16,8 +16,6 @@
   "scripts": {
     "shadow:soak": "node -e \"console.log('shadow soak: run dev:core for 1-3h with ENABLE_SHADOW_OUTCOMES=1 and EXECUTOR_SHADOW_MODE=1 to populate sim_exec_outcomes')\"",
     "smoke:sim": "tsx tools/smoke/sim-count-smoke.ts",
-    "runner:stp": "tsx tools/scripts/soak-train-promote.ts",
-    "runner:sgp": "tsx tools/scripts/soak_gpu_promote.ts",
     "replay:plans": "tsx tools/replay/plans_replay.ts",
     "sample:plans": "tsx tools/replay/sample_plans.ts --n 500 --mints 150 --routes 4 --out ./tmp/plans.ndjson",
     "runner:quick-stp": "tsx tools/scripts/quick_stp.ts",

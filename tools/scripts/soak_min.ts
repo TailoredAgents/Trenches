@@ -17,6 +17,50 @@ const TARGET_MINTS = Number(process.env.STP_TARGET_MINTS || 40);
 const TIME_CAP_SEC = Number(process.env.STP_TIME_CAP_SEC || 180);
 const POLL_MS = Number(process.env.STP_POLL_MS || 3000);
 
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+function waitChildSuccess(child: ChildProcess, name: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    child.once('exit', (code, signal) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      const detail = code !== null ? `exit code ${code}` : signal ? `signal ${signal}` : 'unknown exit';
+      reject(new Error(`${name} exited unexpectedly (${detail})`));
+    });
+    child.once('error', (err) => {
+      reject(err instanceof Error ? err : new Error(String(err)));
+    });
+  });
+}
+
+function monitorPersistent(child: ChildProcess, name: string) {
+  let expected = false;
+  let failure: Error | null = null;
+  const describe = (code: number | null, signal: NodeJS.Signals | null) => {
+    const parts: string[] = [];
+    if (code !== null) parts.push(`code ${code}`);
+    if (signal) parts.push(`signal ${signal}`);
+    const detail = parts.length ? parts.join(', ') : 'unknown reason';
+    return new Error(`${name} exited unexpectedly (${detail})`);
+  };
+  child.on('exit', (code, signal) => {
+    if (expected) return;
+    failure = describe(code, signal);
+  });
+  child.on('error', (err) => {
+    if (expected) return;
+    failure = err instanceof Error ? err : new Error(String(err));
+  });
+  return {
+    getFailure: () => failure,
+    markExpected: () => {
+      expected = true;
+    }
+  };
+}
+
 function spawnCmd(cmd: string, args: string[], extraEnv: Record<string,string> = {}, name='proc'){
   const env = { ...process.env, ...extraEnv } as NodeJS.ProcessEnv;
   const child = spawn(cmd, args, { env, stdio: ['ignore','pipe','pipe'], shell: process.platform === 'win32' });
@@ -36,12 +80,12 @@ async function ensurePlans(): P {
   if (fs.existsSync(PLAN_FILE) && fs.statSync(PLAN_FILE).size > 0) return;
   await new Promise<void>((resolve, reject) => {
     const p = spawnCmd('pnpm', ['run','sample:plans:n'], {}, 'gen');
-    p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`sample:plans:n exit ${code}`))));
+    waitChildSuccess(p, 'sample:plans:n').then(resolve).catch(reject);
   });
   const t0 = Date.now();
   while (Date.now() - t0 < 10000) {
     try { if (fs.existsSync(PLAN_FILE) && fs.statSync(PLAN_FILE).size > 0) return; } catch {}
-    await new Promise(r=>setTimeout(r,200));
+    await sleep(200);
   }
   throw new Error('plan file not found');
 }
@@ -97,12 +141,17 @@ async function main(){
     EXECUTOR_PORT: '0',
     HEALTH_PORT: '0'
   }, 'exec');
+  const execMonitor = monitorPersistent(exec, '@trenches/executor dev');
 
   const db = new Database(DB_PATH);
   const t0 = Date.now();
   let ok = false;
   while (Date.now() - t0 < TIME_CAP_SEC * 1000) {
-    await new Promise(r=>setTimeout(r,POLL_MS));
+    await sleep(POLL_MS);
+    const execFailure = execMonitor.getFailure();
+    if (execFailure) {
+      throw execFailure;
+    }
     const { rows, mints } = count(db);
     console.log(`[soak-min] rows=${rows} mints=${mints} elapsed=${((Date.now()-t0)/1000).toFixed(0)}s`);
     if (rows >= TARGET_ROWS && mints >= TARGET_MINTS) { ok = true; break; }
@@ -110,13 +159,14 @@ async function main(){
   db.close();
 
   console.log('SOAK_MIN: stopping executor...');
+  execMonitor.markExpected();
   terminate(exec); srv.close();
 
   console.log('SOAK_MIN: training (GPU) + promotion...');
   const train = spawnCmd('pnpm', ['retrain:weekly:gpu'], {}, 'train');
-  await new Promise(r=>train.on('close', r));
+  await waitChildSuccess(train, 'retrain:weekly:gpu');
   const gate = spawnCmd('pnpm', ['promote:gate'], {}, 'promote');
-  await new Promise(r=>gate.on('close', r));
+  await waitChildSuccess(gate, 'promote:gate');
 
   const db2 = new Database(DB_PATH);
   const { rows: rowsAll, mints: mintsAll } = count(db2);
