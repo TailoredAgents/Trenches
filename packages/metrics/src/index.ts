@@ -39,9 +39,15 @@ export function getRegistry(): Registry {
   return registry;
 }
 
-export function startMetricsServer(): http.Server {
+export type MetricsServerOptions = {
+  port?: number;
+  host?: string;
+};
+
+export function startMetricsServer(options: MetricsServerOptions = {}): http.Server {
   const { services } = getConfig();
-  const port = services.metrics.port;
+  const port = options.port ?? services.metrics.port;
+  const host = options.host ?? '0.0.0.0';
   const logger = createLogger('metrics');
 
   const server = http.createServer(async (req, res) => {
@@ -67,8 +73,8 @@ export function startMetricsServer(): http.Server {
     }
   });
 
-  server.listen(port, () => {
-    logger.info({ port }, 'metrics server listening');
+  server.listen(port, host, () => {
+    logger.info({ port, host }, 'metrics server listening');
   });
 
   server.on('error', (err) => {

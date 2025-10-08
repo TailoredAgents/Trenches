@@ -27,6 +27,7 @@ services:
     port: 4018
   leaderWallets:
     port: 4019
+    metricsPort: 8110
   featuresJob:
     port: 4020
   metrics:

@@ -48,7 +48,7 @@ const baseConfig: TrenchesConfig = configSchema.parse({
     positionManager: { port: 4016 },
     narrativeMiner: { port: 4017 },
     migrationWatcher: { port: 4018 },
-    leaderWallets: { port: 4019 },
+    leaderWallets: { port: 4019, metricsPort: 8110 },
     featuresJob: { port: 4020 },
     metrics: { port: 8090 }
   },
@@ -257,6 +257,8 @@ const envMap: EnvMapping[] = [
   ['services.positionManager.port', 'POSITION_MANAGER_PORT', (v) => Number(v)],
   ['services.narrativeMiner.port', 'NARRATIVE_MINER_PORT', (v) => Number(v)],
   ['services.migrationWatcher.port', 'MIGRATION_WATCHER_PORT', (v) => Number(v)],
+  ['services.leaderWallets.port', 'LEADER_WALLETS_PORT', (v) => Number(v)],
+  ['services.leaderWallets.metricsPort', 'LEADER_WALLETS_METRICS_PORT', (v) => Number(v)],
   ['services.metrics.port', 'HEALTH_PORT', (v) => Number(v)],
   ['rpc.primaryUrl', 'SOLANA_PRIMARY_RPC_URL', (v) => v],
   ['rpc.secondaryUrl', 'SOLANA_SECONDARY_RPC_URL', (v) => v],

@@ -2,7 +2,7 @@ import 'dotenv/config';
 import Fastify, { type FastifyReply } from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
-import type { ServerResponse } from 'http';
+import type { Server as HttpServer, ServerResponse } from 'http';
 import { Connection, PublicKey, LogsCallback } from '@solana/web3.js';
 import { loadConfig } from '@trenches/config';
 import { startMetricsServer, registerCounter, registerGauge } from '@trenches/metrics';
@@ -25,7 +25,7 @@ const SIGNATURE_CACHE_SIZE = 2048;
 const FORWARD_RETURN_MIN_OFFSET_MS = 15 * 60 * 1000;
 const FORWARD_RETURN_MAX_OFFSET_MS = 60 * 60 * 1000;
 
-const metricsServer = startMetricsServer();
+let metricsServer: HttpServer | null = null;
 const logger = createLogger('leader-wallets');
 const offline = process.env.NO_RPC === '1';
 const providersOff = process.env.DISABLE_PROVIDERS === '1';
@@ -73,6 +73,8 @@ function startSseStream(reply: FastifyReply, clients: Set<ServerResponse>): void
 
 async function bootstrap(): Promise<void> {
   const cfg = loadConfig();
+  const metricsPort = cfg.services.leaderWallets.metricsPort ?? cfg.services.metrics.port;
+  metricsServer = startMetricsServer({ port: metricsPort });
   const leaderCfg = cfg.leaderWallets ?? {
     enabled: true,
     watchMinutes: 5,
@@ -237,9 +239,12 @@ async function bootstrap(): Promise<void> {
     } catch (err) {
       logger.error({ err }, 'failed to close leader-wallets fastify app');
     }
-    await new Promise<void>((resolve) => {
-      metricsServer.close(() => resolve());
-    });
+    if (metricsServer) {
+      await new Promise<void>((resolve) => {
+        metricsServer?.close(() => resolve());
+      });
+      metricsServer = null;
+    }
     if (reason) {
       logger.info({ reason }, 'leader-wallets shutting down');
     }
@@ -427,5 +432,3 @@ async function bootstrap(): Promise<void> {
 bootstrap().catch((err) => {
   logger.error({ err }, 'leader-wallets failed to start');
 });
-
-

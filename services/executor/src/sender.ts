@@ -25,17 +25,37 @@ export class TransactionSender {
     const tipBase64 = opts.jitoTipTxBase64 ?? null;
     const tipLamports = opts.jitoTipLamports ?? 0;
     const config = loadConfig();
-    const jitoEnabled = Boolean((config.execution as any)?.jitoEnabled);
+    const jitoUrl = config.rpc.jitoHttpUrl;
+    const jitoEnabled = Boolean((config.execution as any)?.jitoEnabled && jitoUrl);
+
+    if (jitoEnabled) {
+      try {
+        const extraTxs = tipBase64 ? [tipBase64] : undefined;
+        const jitoResult = await this.sendViaJito(opts.transaction, jitoUrl!, extraTxs);
+        ordersSubmitted.inc();
+        jitoUsageGauge.inc();
+        fillsRecorded.inc();
+        lastLatencyMs.set(Date.now() - start);
+        return { signature: jitoResult.signature, slot: jitoResult.slot };
+      } catch (err) {
+        ordersFailed.inc({ stage: 'jito' });
+        logger.warn({ err }, 'Jito send failed; falling back to primary RPC path');
+      }
+    }
+
     try {
-      if (tipBase64 && tipLamports > 0 && !jitoEnabled) {
+      if (tipBase64 && tipLamports > 0) {
         await this.trySendTip(Buffer.from(tipBase64, 'base64'));
       }
       const signature = await this.sendPrimary(opts.transaction);
       ordersSubmitted.inc();
-      const confirmation = await this.connection.confirmTransaction({
-        signature,
-        ...(await this.connection.getLatestBlockhash())
-      }, 'confirmed');
+      const confirmation = await this.connection.confirmTransaction(
+        {
+          signature,
+          ...(await this.connection.getLatestBlockhash())
+        },
+        'confirmed'
+      );
       if (confirmation.value.err) {
         throw new Error(`transaction failed: ${JSON.stringify(confirmation.value.err)}`);
       }
@@ -46,20 +66,7 @@ export class TransactionSender {
     } catch (primaryErr) {
       ordersFailed.inc({ stage: 'primary' });
       logger.error({ err: primaryErr }, 'primary send failed');
-      if (!jitoEnabled || !config.rpc.jitoHttpUrl) {
-        throw primaryErr;
-      }
-      try {
-        const jitoResult = await this.sendViaJito(opts.transaction, config.rpc.jitoHttpUrl, tipBase64 ? [tipBase64] : undefined);
-        ordersSubmitted.inc();
-        jitoUsageGauge.inc();
-        lastLatencyMs.set(Date.now() - start);
-        return { signature: jitoResult.signature, slot: jitoResult.slot };
-      } catch (jitoErr) {
-        ordersFailed.inc({ stage: 'jito' });
-        logger.error({ err: jitoErr }, 'both primary and Jito send failed');
-        throw jitoErr;
-      }
+      throw primaryErr;
     }
   }
 
