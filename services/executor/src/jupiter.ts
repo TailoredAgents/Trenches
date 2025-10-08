@@ -1,4 +1,3 @@
-import fetch from 'node-fetch';
 import { Connection, VersionedTransaction } from '@solana/web3.js';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';

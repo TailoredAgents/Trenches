@@ -1,5 +1,4 @@
 import bs58 from 'bs58';
-import fetch from 'node-fetch';
 import { Connection, VersionedTransaction, Commitment } from '@solana/web3.js';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';

@@ -25,7 +25,6 @@
     "@trenches/metrics": "workspace:*",
     "@trenches/persistence": "workspace:*",
     "@trenches/shared": "workspace:*",
-    "@trenches/util": "workspace:*",
-    "node-fetch": "^3.3.2"
+    "@trenches/util": "workspace:*"
   }
 }

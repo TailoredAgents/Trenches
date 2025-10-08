@@ -3,7 +3,6 @@ import path from 'path';
 import DatabaseConstructor from 'better-sqlite3';
 import fs from 'fs';
 import yargs from 'yargs';
-import fetch from 'node-fetch';
 import http from 'http';
 
 const argv = yargs(process.argv.slice(2))

@@ -31,7 +31,13 @@
     "dev:core": "concurrently -k -r -c auto -n core,disc,safe,pol,exec,pos,ing,mig,price,lead,feat \"pnpm -F @trenches/agent-core dev\" \"pnpm -F @trenches/onchain-discovery dev\" \"pnpm -F @trenches/safety-engine dev\" \"pnpm -F @trenches/policy-engine dev\" \"pnpm -F @trenches/executor dev\" \"pnpm -F @trenches/position-manager dev\" \"pnpm -F @trenches/social-ingestor dev\" \"pnpm -F @trenches/migration-watcher dev\" \"pnpm -F @trenches/price-updater dev\" \"pnpm -F @trenches/leader-wallets dev\" \"pnpm -F @trenches/features-job dev\"",
     "py:install": "python -m pip install -r training_py/requirements.txt",
     "py:device": "python training_py/gpu_check.py",
-    "py:xgb-info": "python training_py/xgb_info.py"
+    "py:xgb-info": "python training_py/xgb_info.py",
+    "typecheck": "tsc -b",
+    "lint": "eslint . --ext .ts,.tsx",
+    "ci:build": "pnpm -r --workspace-concurrency=1 build",
+    "dev:shadow": "cross-env NO_RPC=1 ENABLE_SHADOW_OUTCOMES=1 EXECUTOR_SHADOW_MODE=1 pnpm dev:core",
+    "replay:serve": "tsx tools/backtest/src/replay.ts --serve-plans --port 4505",
+    "dev:shadow:replay": "cross-env NO_RPC=1 ENABLE_SHADOW_OUTCOMES=1 EXECUTOR_SHADOW_MODE=1 USE_REPLAY=1 SOAK_REPLAY_URL=http://127.0.0.1:4505/events/plans pnpm -F @trenches/executor dev"
   },
   "dependencies": {
     "bs58": "^5.0.0",
@@ -45,6 +51,7 @@
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
     "@vitest/coverage-v8": "^1.6.0",
+    "cross-env": "^7.0.3",
     "concurrently": "^9.2.1",
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",
