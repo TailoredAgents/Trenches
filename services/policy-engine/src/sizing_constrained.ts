@@ -28,7 +28,6 @@ export function chooseSize(ctx: SizingContext & { rugProb?: number; pFill?: numb
   const priceHint = Number(process.env.SOL_PRICE_HINT ?? NaN);
   const solPriceUsd = priceFromDb && priceFromDb > 0 ? priceFromDb : Number.isFinite(priceHint) && priceHint > 0 ? priceHint : undefined;
   const perMintCapUsd = typeof (cfg as any).sizing?.perMintCapUsd === 'number' ? (cfg as any).sizing.perMintCapUsd : undefined;
-  const perMintCapFromUsd = solPriceUsd && perMintCapUsd ? perMintCapUsd / solPriceUsd : Infinity;
 
   const candidates: Array<{ arm: string; notional: number }> = arms.map((a: any) => {
     const armNotional = Math.max(0, equity * a.value);
@@ -39,6 +38,40 @@ export function chooseSize(ctx: SizingContext & { rugProb?: number; pFill?: numb
     if (c.notional <= best.notional) continue;
     best = c;
   }
+  if (!best) {
+    best = { arm: 'unknown', notional: 0 };
+  }
+
+  if (perMintCapUsd && perMintCapUsd > 0 && solPriceUsd === undefined) {
+    const riskNote = 'missing_sol_price';
+    const armLabel = best ? best.arm : arms.length > 0 ? `${arms[0].type}:${arms[0].value}` : 'unknown';
+    const zeroCapsSnapshot = {
+      perNameFractionCap,
+      perNameMaxCap,
+      dailyCapRemaining: dailyRemaining,
+      perMintCapFromUsd: 0,
+      walletFree
+    };
+    const dec: SizeDecision = { ts, mint: ctx.candidate.mint, arm: armLabel, notional: 0, riskNote };
+    insertSizingDecision(
+      {
+        ts,
+        mint: ctx.candidate.mint,
+        arm: armLabel,
+        notional: 0,
+        finalSize: 0,
+        reason: riskNote,
+        equity,
+        free: walletFree,
+        tier: 'constrained',
+        caps: zeroCapsSnapshot
+      },
+      { ctx, sol_price_available: false }
+    );
+    return dec;
+  }
+
+  const perMintCapFromUsd = solPriceUsd && perMintCapUsd ? perMintCapUsd / solPriceUsd : Infinity;
 
   const capCandidates = [
     { reason: 'arm_cap', value: best.notional },
