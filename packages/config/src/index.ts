@@ -52,6 +52,21 @@ const baseConfig: TrenchesConfig = configSchema.parse({
     featuresJob: { port: 4020 },
     metrics: { port: 8090 }
   },
+  endpoints: {
+    agentCore: { baseUrl: 'http://127.0.0.1:4010' },
+    executor: { baseUrl: 'http://127.0.0.1:4011' },
+    policyEngine: { baseUrl: 'http://127.0.0.1:4015' },
+    safetyEngine: { baseUrl: 'http://127.0.0.1:4014' },
+    onchainDiscovery: { baseUrl: 'http://127.0.0.1:4013' },
+    alphaRanker: { baseUrl: 'http://127.0.0.1:4021' },
+    positionManager: { baseUrl: 'http://127.0.0.1:4016' },
+    socialIngestor: { baseUrl: 'http://127.0.0.1:4012' },
+    narrativeMiner: { baseUrl: 'http://127.0.0.1:4017' },
+    migrationWatcher: { baseUrl: 'http://127.0.0.1:4018' },
+    leaderWallets: { baseUrl: 'http://127.0.0.1:4019' },
+    featuresJob: { baseUrl: 'http://127.0.0.1:4020' },
+    metrics: { baseUrl: 'http://127.0.0.1:8090' }
+  },
   gating: {
     lpMinSol: 20,
     buysSellRatioMin: 2.2,

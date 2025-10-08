@@ -11,7 +11,7 @@ import { performance } from 'perf_hooks';
 import { loadConfig, TrenchesConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
 import { getRegistry } from '@trenches/metrics';
-import { createInMemoryLastEventIdStore, sseQueue, sseRoute, subscribeJsonStream } from '@trenches/util';
+import { createInMemoryLastEventIdStore, sseQueue, sseRoute, subscribeJsonStream, resolveServiceUrl } from '@trenches/util';
 import { SocialEngagement, SocialPost, TokenCandidate, TopicEvent } from '@trenches/shared';
 import { fetchTopicClusters, fetchTopicWindows } from '@trenches/persistence';
 import { NarrativeEventBus } from './eventBus';
@@ -71,6 +71,10 @@ export interface NarrativeMinerHandle {
 
 export async function createNarrativeMiner(options: NarrativeMinerOptions = {}): Promise<NarrativeMinerHandle> {
   const config = options.configOverride ?? loadConfig();
+  const servicesRecord = config.services as Partial<Record<string, { port?: number }>>;
+  const endpointsRecord = config.endpoints as Partial<Record<string, { baseUrl?: string }>> | undefined;
+  const defaultSocialUrl = resolveServiceUrl(servicesRecord, endpointsRecord, 'socialIngestor', '/events/social');
+  const defaultCandidateUrl = resolveServiceUrl(servicesRecord, endpointsRecord, 'onchainDiscovery', '/events/candidates');
   const disableStreams = options.disableStreams ?? Boolean(config.topics.test?.enabled);
   const app = Fastify({ logger: false });
   const bus = new NarrativeEventBus();
@@ -404,9 +408,9 @@ export async function createNarrativeMiner(options: NarrativeMinerOptions = {}):
   const streamHandles: StreamHandle[] = [];
 
   if (!disableStreams) {
-    const socialUrl = options.urls?.social ?? `http://127.0.0.1:${config.services.socialIngestor.port}/events/social`;
+    const socialUrl = options.urls?.social ?? defaultSocialUrl;
     const candidateUrl =
-      options.urls?.candidates ?? `http://127.0.0.1:${config.services.onchainDiscovery.port}/events/candidates`;
+      options.urls?.candidates ?? defaultCandidateUrl;
 
     const socialStream = startStream(socialUrl, (status) => {
       socialStatus = status;
@@ -653,4 +657,3 @@ if (require.main === module) {
     }
   })();
 }
-

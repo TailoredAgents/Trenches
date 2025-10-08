@@ -9,7 +9,7 @@ import { createLogger } from '@trenches/logger';
 import { getRegistry, registerCounter } from '@trenches/metrics';
 import { storeTokenCandidate } from '@trenches/persistence';
 import { TokenCandidate } from '@trenches/shared';
-import { createInMemoryLastEventIdStore, TtlCache, sseQueue, sseRoute, subscribeJsonStream } from '@trenches/util';
+import { createInMemoryLastEventIdStore, TtlCache, sseQueue, sseRoute, subscribeJsonStream, resolveServiceUrl } from '@trenches/util';
 import { DiscoveryEventBus } from './eventBus';
 import { DexScreenerClient } from './dexscreener';
 import { BirdeyeClient } from './birdeye';
@@ -26,6 +26,8 @@ const providersOff = process.env.DISABLE_PROVIDERS === '1';
 
 async function bootstrap() {
   const config = loadConfig();
+  const servicesRecord = config.services as Partial<Record<string, { port?: number }>>;
+  const endpointsRecord = config.endpoints as Partial<Record<string, { baseUrl?: string }>> | undefined;
   const app = Fastify({ logger: false });
   const bus = new DiscoveryEventBus();
   const streamDisposers: Array<() => void> = [];
@@ -303,7 +305,7 @@ async function bootstrap() {
 
   // Optionally consume migrations as high-priority seeds
   if (!offline && (config as any).features?.migrationWatcher !== false) {
-    const url = `http://127.0.0.1:${(config as any).services?.migrationWatcher?.port ?? 4018}/events/migrations`;
+    const url = resolveServiceUrl(servicesRecord, endpointsRecord, 'migrationWatcher', '/events/migrations');
     const lastEventIdStore = createInMemoryLastEventIdStore();
     const migrationDedup = new TtlCache<string, boolean>(2 * 60 * 1000);
     const client = subscribeJsonStream<{ ts: number; mint: string; pool: string; source: string; initSig: string }>(url, {

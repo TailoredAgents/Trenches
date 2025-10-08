@@ -1,4 +1,4 @@
-﻿import 'dotenv/config';
+import 'dotenv/config';
 import EventSource from 'eventsource';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
@@ -19,7 +19,7 @@ import { decideFees, updateArm } from './fee-bandit';
 import { ExecutorEventBus } from './eventBus';
 import { computeWindowStart, loadRouteStats, recordRouteAttempt, markRouteExcluded, RouteQuarantineConfig, RouteStatSnapshot } from './routeQuarantine';
 import { applyMigrationPresetAdjustment, MigrationPresetConfig } from './migrationPreset';
-import { createRpcConnection, createInMemoryLastEventIdStore, sseQueue, sseRoute, subscribeJsonStream } from '@trenches/util';
+import { createRpcConnection, createInMemoryLastEventIdStore, sseQueue, sseRoute, subscribeJsonStream, resolveServiceUrl } from '@trenches/util';
 
 const logger = createLogger('executor');
 const offline = process.env.NO_RPC === '1';
@@ -62,6 +62,8 @@ const ROUTE_QUARANTINE_DEFAULT: RouteQuarantineConfig = {
 
 async function bootstrap() {
   const config = loadConfig();
+  const servicesRecord = config.services as Partial<Record<string, { port?: number }>>;
+  const endpointsRecord = config.endpoints as Partial<Record<string, { baseUrl?: string }>> | undefined;
   const jitoBundleUrl = (config.execution as any)?.jito?.bundleUrl ?? '';
   const jitoConfigured = Boolean((config.execution as any)?.jito?.enabled);
   logger.info({ bundleUrl: jitoBundleUrl, enabled: jitoConfigured }, 'executor jito bundle config');
@@ -191,7 +193,7 @@ async function bootstrap() {
     // Non-fatal: metrics registry unavailable during startup
   }
 
-  const defaultPolicyFeed = `http://127.0.0.1:${config.services.policyEngine.port}/events/plans`;
+  const defaultPolicyFeed = resolveServiceUrl(servicesRecord, endpointsRecord, 'policyEngine', '/events/plans');
   const planFeed = useReplay && replayUrl ? replayUrl : defaultPolicyFeed;
   const isUsingReplay = useReplay && replayUrl.length > 0;
   const canSimulateReplay = enableShadowOutcomes && shadowMode && isUsingReplay;
@@ -791,3 +793,5 @@ function computeExecutionPrice(params: { tokenDecimals: number; solAmountLamport
 bootstrap().catch((err) => {
   logger.error({ err }, 'executor failed to start');
 });
+
+

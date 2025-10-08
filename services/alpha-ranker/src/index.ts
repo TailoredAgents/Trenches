@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import EventSource from 'eventsource';
-import { createInMemoryLastEventIdStore, subscribeJsonStream, sseQueue, sseRoute } from '@trenches/util';
+import { createInMemoryLastEventIdStore, subscribeJsonStream, sseQueue, sseRoute, resolveServiceUrl } from '@trenches/util';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -58,7 +58,9 @@ async function bootstrap() {
   await app.register(rateLimit as any, { max: 240, timeWindow: '1 minute' });
   await app.register(fastifySse as any);
 
-  const url = `http://127.0.0.1:${cfg.services.safetyEngine.port}/events/safe`;
+  const servicesRecord = cfg.services as Partial<Record<string, { port?: number }>>;
+  const endpointsRecord = cfg.endpoints as Partial<Record<string, { baseUrl?: string }>> | undefined;
+  const url = resolveServiceUrl(servicesRecord, endpointsRecord, 'safetyEngine', '/events/safe');
   const last: CandidateScore[] = [];
   let safetyClient: ReturnType<typeof subscribeJsonStream<Candidate>> | null = null;
 
@@ -192,3 +194,4 @@ async function bootstrap() {
 }
 
 bootstrap().catch((err) => { logger.error({ err }, 'alpha-ranker failed to start'); process.exit(1); });
+

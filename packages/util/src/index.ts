@@ -5,3 +5,4 @@ export * from './tokenBucket';
 export { createRpcConnection } from './rpc';
 export type { RpcConnectionConfig, RpcConnectionOptions } from './rpc';
 export * from './sseClient';
+export * from './serviceEndpoints';

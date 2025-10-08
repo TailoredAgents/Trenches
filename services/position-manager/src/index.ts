@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import EventSource from 'eventsource';
-import { createSSEClient, createInMemoryLastEventIdStore, TtlCache, createRpcConnection } from '@trenches/util';
+import { createSSEClient, createInMemoryLastEventIdStore, TtlCache, createRpcConnection, resolveServiceUrl } from '@trenches/util';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -26,6 +26,8 @@ const POSITION_GAUGE_REFRESH = registerGauge({
 
 async function bootstrap() {
   const config = loadConfig();
+  const servicesRecord = config.services as Partial<Record<string, { port?: number }>>;
+  const endpointsRecord = config.endpoints as Partial<Record<string, { baseUrl?: string }>> | undefined;
   const killSwitchToken = config.security.killSwitchToken;
   const app = Fastify({ logger: false });
 
@@ -99,7 +101,7 @@ async function bootstrap() {
 
 
 
-  const executorFeed = `http://127.0.0.1:${config.services.executor.port}/events/trades`;
+  const executorFeed = resolveServiceUrl(servicesRecord, endpointsRecord, 'executor', '/events/trades');
   let disposeStream: () => void = () => {};
   if (!offline && connection) {
     disposeStream = startTradeStream(executorFeed, async (event) => {
@@ -549,7 +551,9 @@ function pickExitTip(config: ReturnType<typeof loadConfig>): number {
 
 async function submitExitPlan(plan: OrderPlan, candidate?: TokenCandidate): Promise<void> {
   const config = loadConfig();
-  const executorUrl = `http://127.0.0.1:${config.services.executor.port}/execute`;
+  const servicesRecord = config.services as Partial<Record<string, { port?: number }>>;
+  const endpointsRecord = config.endpoints as Partial<Record<string, { baseUrl?: string }>> | undefined;
+  const executorUrl = resolveServiceUrl(servicesRecord, endpointsRecord, 'executor', '/execute');
   const response = await fetch(executorUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

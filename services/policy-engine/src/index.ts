@@ -1,7 +1,7 @@
-﻿import { computeLeaderBoostInfo, applyLeaderSizeBoost, LeaderWalletConfig } from './leader';
+import { computeLeaderBoostInfo, applyLeaderSizeBoost, LeaderWalletConfig } from './leader';
 import 'dotenv/config';
 import EventSource from 'eventsource';
-import { createInMemoryLastEventIdStore, sseQueue, sseRoute, subscribeJsonStream, createRpcConnection } from '@trenches/util';
+import { createInMemoryLastEventIdStore, sseQueue, sseRoute, subscribeJsonStream, createRpcConnection, resolveServiceUrl } from '@trenches/util';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -49,6 +49,8 @@ const providersOff = process.env.DISABLE_PROVIDERS === '1';
 
 async function bootstrap() {
   const config = loadConfig();
+  const servicesRecord = config.services as Partial<Record<string, { port?: number }>>;
+  const endpointsRecord = config.endpoints as Partial<Record<string, { baseUrl?: string }>> | undefined;
 
   function withinTradingCaps(): boolean {
     try {
@@ -97,13 +99,12 @@ async function bootstrap() {
   const bandit = new LinUCBBandit(PLAN_FEATURE_DIM);
 
   const alphaHorizons = (config.alpha?.horizons ?? ['10m', '60m', '24h']) as Array<'10m' | '60m' | '24h'>;
-  const alphaServices = (config as any).services ?? {};
-  const alphaPort = alphaServices.alphaRanker?.port as number | undefined;
   const alphaClient = createAlphaClient({
-    baseUrl: !offline && alphaPort ? `http://127.0.0.1:${alphaPort}/events/scores` : null,
+    baseUrl: !offline ? resolveServiceUrl(servicesRecord, endpointsRecord, 'alphaRanker', '/events/scores') : null,
     horizons: alphaHorizons,
     maxEntries: 512
   });
+  const safetyFeedUrl = resolveServiceUrl(servicesRecord, endpointsRecord, 'safetyEngine', '/events/safe');
 
   await app.register(helmet as any, { global: true });
   await app.register(rateLimit as any, {
@@ -162,7 +163,7 @@ async function bootstrap() {
     rpc: config.rpc.primaryUrl,
     wallet: walletStatus,
     walletPubkey: walletReady && walletManager ? walletManager.publicKey.toBase58() : undefined,
-    safeFeed: config.policy.safeFeedUrl ?? `http://127.0.0.1:${config.services.safetyEngine.port}/events/safe`
+    safeFeed: config.policy.safeFeedUrl ?? safetyFeedUrl
   }));
 
   app.get('/metrics', async (_, reply) => {
@@ -190,7 +191,7 @@ async function bootstrap() {
   const address = await app.listen({ port: config.services.policyEngine.port, host: '0.0.0.0' });
   logger.info({ address }, 'policy engine listening');
 
-  const safeFeedUrl = config.policy.safeFeedUrl ?? `http://127.0.0.1:${config.services.safetyEngine.port}/events/safe`;
+  const safeFeedUrl = config.policy.safeFeedUrl ?? safetyFeedUrl;
   const alphaTopK = (config as any).alpha?.topK ?? 12;
   const alphaMin = (config as any).alpha?.minScore ?? 0.52;
   const alphaMap = new Map<string, { score: number; updatedAt: number }>();
@@ -472,3 +473,5 @@ function congestionToScore(level: string): number {
 bootstrap().catch((err) => {
   logger.error({ err }, 'policy engine failed to start');
 });
+
+

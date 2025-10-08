@@ -10,7 +10,7 @@ import { createLogger } from '@trenches/logger';
 import { getRegistry } from '@trenches/metrics';
 import { insertRugVerdict, storeTokenCandidate, listRecentSocialPosts } from '@trenches/persistence';
 import { TokenCandidate } from '@trenches/shared';
-import { TtlCache, createRpcConnection, createInMemoryLastEventIdStore, subscribeJsonStream, sseQueue, sseRoute } from '@trenches/util';
+import { TtlCache, createRpcConnection, createInMemoryLastEventIdStore, subscribeJsonStream, sseQueue, sseRoute, resolveServiceUrl } from '@trenches/util';
 import { SafetyEventBus } from './eventBus';
 import { safetyEvaluations, safetyPasses, safetyBlocks,  evaluationDuration, authorityPassRatio, avgRugProb, pumpInferencesTotal, rugguardAvgPumpProb } from './metrics';
 import { checkTokenSafety } from './tokenSafety';
@@ -55,6 +55,8 @@ function textMatchesKeywords(text: string, keywords: string[]): boolean {
 
 async function bootstrap() {
   const config = loadConfig();
+  const servicesRecord = config.services as Partial<Record<string, { port?: number }>>;
+  const endpointsRecord = config.endpoints as Partial<Record<string, { baseUrl?: string }>> | undefined;
   const app = Fastify({ logger: false });
   const bus = new SafetyEventBus();
   const candidateCache = new TtlCache<string, SafetyEvaluation>(EVALUATION_CACHE_MS);
@@ -73,12 +75,14 @@ async function bootstrap() {
   });
   await app.register(fastifySse as any);
 
+  const defaultCandidateFeed = resolveServiceUrl(servicesRecord, endpointsRecord, 'onchainDiscovery', '/events/candidates');
+
   app.get('/healthz', async () => ({
     status: offline ? 'degraded' : 'ok',
     offline,
     providersOff,
     rpc: config.rpc.primaryUrl,
-    feed: config.safety.candidateFeedUrl ?? `http://127.0.0.1:${config.services.onchainDiscovery.port}/events/candidates`
+    feed: config.safety.candidateFeedUrl ?? defaultCandidateFeed
   }));
 
   app.get('/metrics', async (_, reply) => {
@@ -112,7 +116,7 @@ async function bootstrap() {
   const address = await app.listen({ port: config.services.safetyEngine.port, host: '0.0.0.0' });
   logger.info({ address }, 'safety engine listening');
 
-  const feedUrl = config.safety.candidateFeedUrl ?? `http://127.0.0.1:${config.services.onchainDiscovery.port}/events/candidates`;
+  const feedUrl = config.safety.candidateFeedUrl ?? defaultCandidateFeed;
   let disposeStream: (() => void) | null = null;
   if (!offline && connection) {
     disposeStream = startCandidateStream(feedUrl, async (candidate) => {

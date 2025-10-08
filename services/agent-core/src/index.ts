@@ -22,6 +22,7 @@ import { startMetricsServer, registerGauge, getRegistry } from '@trenches/metric
   } from '@trenches/persistence';
 import type { LunarScoreSummary } from '@trenches/persistence';
 import { Snapshot } from '@trenches/shared';
+import { resolveServiceUrl } from '@trenches/util';
 
 const logger = createLogger('agent-core');
 
@@ -137,13 +138,17 @@ function computePriceStatus(db: any, config: any): { solUsdAgeSec: number; ok: b
 
 async function collectProviderStatuses(config: any): Promise<Record<string, ProviderEntry>> {
   const out: Record<string, ProviderEntry> = {};
+  const servicesRecord = config.services as Partial<Record<string, { port?: number }>>;
+  const endpointsRecord = config.endpoints as Partial<Record<string, { baseUrl?: string }>> | undefined;
+  const socialHealthUrl = resolveServiceUrl(servicesRecord, endpointsRecord, 'socialIngestor', '/healthz');
+  const discoveryHealthUrl = resolveServiceUrl(servicesRecord, endpointsRecord, 'onchainDiscovery', '/healthz');
 
   const socialResult = await fetchProviderHealth(
     'social-ingestor',
     () =>
       fetchJsonWithTimeout<{
         sources?: Array<{ name: string; status?: { state?: string; detail?: string; lastSuccessAt?: string; lastEventTs?: number } }>
-      }>(`http://127.0.0.1:${config.services.socialIngestor.port}/healthz`)
+      }>(socialHealthUrl)
   );
   const socialHealth = socialResult.data;
   if (socialHealth?.sources) {
@@ -179,7 +184,7 @@ async function collectProviderStatuses(config: any): Promise<Record<string, Prov
       fetchJsonWithTimeout<{
         providers?: { solanatracker?: { status?: string; lastPollTs?: number; message?: string } };
         birdeyeApiKey?: boolean;
-      }>(`http://127.0.0.1:${config.services.onchainDiscovery.port}/healthz`)
+      }>(discoveryHealthUrl)
   );
 
   const discoveryHealth = discoveryResult.data;
@@ -357,6 +362,10 @@ async function buildMetricsSummary(config: any, db: any): Promise<MetricsSummary
 
 async function bootstrap() {
   const config = loadConfig();
+  const servicesRecord = config.services as Partial<Record<string, { port?: number }>>;
+  const endpointsRecord = config.endpoints as Partial<Record<string, { baseUrl?: string }>> | undefined;
+  const policyHealthUrl = resolveServiceUrl(servicesRecord, endpointsRecord, 'policyEngine', '/healthz');
+  const positionFlattenUrl = resolveServiceUrl(servicesRecord, endpointsRecord, 'positionManager', '/control/flatten');
   const controlsEnabled = Boolean(config.security.killSwitchToken);
   const metricsServer = startMetricsServer();
   const lagP50 = registerGauge({ name: 'migration_to_candidate_lag_ms', help: 'Lag between migration and candidate (ms)', labelNames: ['quantile'] });
@@ -644,7 +653,7 @@ async function bootstrap() {
       }
       // Probe wallet readiness from policy-engine
       try {
-        const pe = await fetch(`http://127.0.0.1:${config.services.policyEngine.port}/healthz`);
+        const pe = await fetch(policyHealthUrl);
         const health = (await pe.json()) as { status?: string; wallet?: string };
         if (health.status === 'awaiting_credentials' || health.wallet === 'missing_keystore') {
           reply.code(503).send({ status: 'awaiting_credentials', detail: 'wallet_unavailable' });
@@ -657,7 +666,7 @@ async function bootstrap() {
       }
       // Forward to position-manager
       try {
-        const res = await fetch(`http://127.0.0.1:${config.services.positionManager.port}/control/flatten`, {
+        const res = await fetch(positionFlattenUrl, {
           method: 'POST',
           headers: { Authorization: `Bearer ${killSwitchToken}` }
         });
@@ -743,10 +752,6 @@ async function bootstrap() {
 bootstrap().catch((err) => {
   logger.error({ err }, 'agent core failed to start');
 });
-
-
-
-
 
 
 

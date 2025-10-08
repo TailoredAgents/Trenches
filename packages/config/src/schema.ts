@@ -58,6 +58,10 @@ export const tradingSchema = z.object({
   maxDailyNew: z.number().int().positive().default(120)
 }).default({ maxOpenPositions: 15, maxDailyNew: 120 });
 
+const endpointSchema = z.object({
+  baseUrl: z.string().url()
+});
+
 export const configSchema = z.object({
   mode: z.enum(['SIM', 'SHADOW', 'SEMI', 'FULL']).default('SIM'),
   logging: z.object({
@@ -297,6 +301,24 @@ export const configSchema = z.object({
     killSwitchToken: z.string().optional(),
     allowRemoteKillSwitch: z.boolean().default(false)
   }).default({ allowRemoteKillSwitch: false }),
+  endpoints: z
+    .object({
+      agentCore: endpointSchema.optional(),
+      executor: endpointSchema.optional(),
+      policyEngine: endpointSchema.optional(),
+      safetyEngine: endpointSchema.optional(),
+      onchainDiscovery: endpointSchema.optional(),
+      alphaRanker: endpointSchema.optional(),
+      positionManager: endpointSchema.optional(),
+      socialIngestor: endpointSchema.optional(),
+      narrativeMiner: endpointSchema.optional(),
+      migrationWatcher: endpointSchema.optional(),
+      leaderWallets: endpointSchema.optional(),
+      featuresJob: endpointSchema.optional(),
+      metrics: endpointSchema.optional()
+    })
+    .partial()
+    .default({}),
   positionManager: z
     .object({
       tipRangeLamports: z
