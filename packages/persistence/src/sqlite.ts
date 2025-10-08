@@ -1745,6 +1745,19 @@ function normalizeTimestampForSqlite(isoTimestamp: string): { millis: number; sq
   return { millis, sqlite };
 }
 
+function parseSqliteDate(value: string | undefined | null): number | null {
+  if (!value) {
+    return null;
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})/.exec(value);
+  if (!match) {
+    return null;
+  }
+  const [, year, month, day, hour, minute, second] = match;
+  const ts = Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
+  return Number.isFinite(ts) ? ts : null;
+}
+
 export function getDailySizingSpendSince(isoTimestamp: string): number {
   const database = getDb();
   const { millis, sqlite } = normalizeTimestampForSqlite(isoTimestamp);
@@ -2168,9 +2181,8 @@ export function computeMigrationCandidateLagQuantiles(): { p50: number; p95: num
     const cand = database
       .prepare(`SELECT updated_at FROM candidates WHERE mint = ? ORDER BY updated_at DESC LIMIT 1`)
       .get(row.mint) as { updated_at?: string } | undefined;
-    if (!cand?.updated_at) continue;
-    const candTs = Date.parse(cand.updated_at);
-    if (!Number.isFinite(candTs)) continue;
+    const candTs = parseSqliteDate(cand?.updated_at);
+    if (candTs === null || !Number.isFinite(candTs)) continue;
     const lag = Math.max(0, candTs - row.ts);
     lags.push(lag);
   }
@@ -2229,6 +2241,26 @@ export function insertExecOutcome(row: { ts: number; quotePrice: number; execPri
       mint: row.mint ?? null,
       side: row.side ?? 'buy'
     });
+}
+
+export function getExecOutcomesSince(sinceTs: number, limit = 200): Array<{ ts: number; mint: string | null; filled: number; slippageBpsReal: number | null; orderId: string | null }> {
+  const database = getDb();
+  const rows = database
+    .prepare(
+      `SELECT ts, mint, filled, slippage_bps_real AS slip, order_id
+       FROM exec_outcomes
+       WHERE ts > @since
+       ORDER BY ts ASC
+       LIMIT @limit`
+    )
+    .all({ since: sinceTs, limit: Math.max(1, limit) }) as Array<{ ts: number; mint: string | null; slip: number | null; filled: number; order_id: string | null }>;
+  return rows.map((row) => ({
+    ts: Number(row.ts ?? 0),
+    mint: row.mint ?? null,
+    filled: Number(row.filled ?? 0),
+    slippageBpsReal: row.slip ?? null,
+    orderId: row.order_id ?? null
+  }));
 }
 
 export type LunarScoreSummary = {

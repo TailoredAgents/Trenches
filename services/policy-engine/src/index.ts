@@ -10,7 +10,7 @@ import { Connection } from '@solana/web3.js';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
 import { getRegistry, registerGauge, registerCounter } from '@trenches/metrics';
-import { logTradeEvent, getDailyRealizedPnlSince, recordPolicyAction, getDb, getDailyPnlUsd, countOpenPositions, countNewPositionsToday } from '@trenches/persistence';
+import { logTradeEvent, getDailyRealizedPnlSince, recordPolicyAction, getDb, getDailyPnlUsd, countOpenPositions, countNewPositionsToday, getExecOutcomesSince } from '@trenches/persistence';
 import { TokenCandidate, TradeEvent, CongestionLevel, OrderPlan } from '@trenches/shared';
 import { PolicyEventBus } from './eventBus';
 import { plansEmitted, plansSuppressed, sizingDurationMs, walletEquityGauge, walletFreeGauge, banditRewardGauge } from './metrics';
@@ -30,6 +30,17 @@ const PLAN_FEATURE_DIM = 7;
 const WALLET_REFRESH_MS = 5_000;
 const CONGESTION_REFRESH_MS = 3_000;
 const ALPHA_ENTRY_TTL_MS = 5 * 60_000;
+const EXEC_POLL_INTERVAL_MS = 2_000;
+const PENDING_TIMEOUT_MS = 60_000;
+const FAILED_REWARD = -0.5;
+
+type PendingSelection = {
+  actionId: string;
+  context: number[];
+  expectedReward: number;
+  createdAt: number;
+  mint: string;
+};
 
 const lastWalletGaugeRefresh = registerGauge({
   name: 'policy_wallet_last_refresh_epoch',
@@ -97,6 +108,102 @@ async function bootstrap() {
   const walletStatus = walletManager?.status ?? { ready: false, reason: 'missing_keystore' };
   const walletReady = walletStatus.ready;
   const bandit = new LinUCBBandit(PLAN_FEATURE_DIM);
+  const pendingSelections = new Map<string, PendingSelection[]>();
+  let lastExecOutcomeTs = Date.now();
+  const rewardSmoothingInput = typeof config.policy.rewardSmoothing === 'number' ? config.policy.rewardSmoothing : 0;
+  const rewardSmoothing = Math.max(0, Math.min(1, rewardSmoothingInput));
+  let execOutcomeTimer: NodeJS.Timeout | null = null;
+  let pendingSweepTimer: NodeJS.Timeout | null = null;
+
+  const enqueuePendingSelection = (entry: PendingSelection): void => {
+    const queue = pendingSelections.get(entry.mint);
+    if (queue) {
+      queue.push(entry);
+    } else {
+      pendingSelections.set(entry.mint, [entry]);
+    }
+  };
+
+  const shiftPendingSelection = (mint: string, execTs: number): PendingSelection | undefined => {
+    const queue = pendingSelections.get(mint);
+    if (!queue || queue.length === 0) {
+      return undefined;
+    }
+    let index = queue.findIndex((item) => item.createdAt <= execTs + 5_000);
+    if (index === -1) {
+      index = 0;
+    }
+    const [entry] = queue.splice(index, 1);
+    if (queue.length === 0) {
+      pendingSelections.delete(mint);
+    }
+    return entry;
+  };
+
+  const applyReward = (entry: PendingSelection, realizedReward: number): void => {
+    const blended = rewardSmoothing > 0 && rewardSmoothing < 1
+      ? entry.expectedReward * rewardSmoothing + realizedReward * (1 - rewardSmoothing)
+      : realizedReward;
+    bandit.update(entry.actionId, entry.context, blended);
+    banditRewardGauge.set(realizedReward);
+  };
+
+  const computeRealizedReward = (filled: number, slippageBpsReal: number | null): number => {
+    if (filled >= 1) {
+      const slip = typeof slippageBpsReal === 'number' ? Math.abs(slippageBpsReal) : 0;
+      const penalty = Math.min(1, Math.max(0, slip) / 1000);
+      return Math.max(0, 1 - penalty);
+    }
+    return FAILED_REWARD;
+  };
+
+  const pollExecOutcomes = async (): Promise<void> => {
+    try {
+      const outcomes = getExecOutcomesSince(lastExecOutcomeTs, 200);
+      if (!outcomes.length) {
+        return;
+      }
+      for (const outcome of outcomes) {
+        lastExecOutcomeTs = Math.max(lastExecOutcomeTs, outcome.ts);
+        if (!outcome.mint) {
+          continue;
+        }
+        const entry = shiftPendingSelection(outcome.mint, outcome.ts);
+        if (!entry) {
+          logger.debug({ mint: outcome.mint, ts: outcome.ts }, 'no pending selection matched exec outcome');
+          continue;
+        }
+        const realized = computeRealizedReward(outcome.filled, outcome.slippageBpsReal);
+        applyReward(entry, realized);
+      }
+      pruneExpiredSelections(Date.now());
+    } catch (err) {
+      logger.error({ err }, 'failed to poll exec outcomes');
+    }
+  };
+
+  const pruneExpiredSelections = (now: number): void => {
+    for (const [mint, queue] of pendingSelections) {
+      while (queue.length > 0 && queue[0].createdAt <= now - PENDING_TIMEOUT_MS) {
+        const entry = queue.shift();
+        if (!entry) {
+          continue;
+        }
+        applyReward(entry, FAILED_REWARD);
+      }
+      if (queue.length === 0) {
+        pendingSelections.delete(mint);
+      }
+    }
+  };
+
+  execOutcomeTimer = setInterval(() => {
+    void pollExecOutcomes();
+  }, EXEC_POLL_INTERVAL_MS);
+  pendingSweepTimer = setInterval(() => {
+    pruneExpiredSelections(Date.now());
+  }, Math.max(5_000, Math.floor(PENDING_TIMEOUT_MS / 2)));
+  void pollExecOutcomes();
 
   const alphaHorizons = (config.alpha?.horizons ?? ['10m', '60m', '24h']) as Array<'10m' | '60m' | '24h'>;
   const alphaClient = createAlphaClient({
@@ -376,11 +483,15 @@ async function bootstrap() {
         logger.warn({ err }, 'failed to record fast soak metric');
       }
     }
-    const reward = selection.expectedReward;
-    const smoothing = config.policy.rewardSmoothing;
-    const blendedReward = reward * (1 - smoothing) + selection.expectedReward * smoothing;
-    bandit.update(selection.action.id, contextVector, blendedReward);
-    banditRewardGauge.set(reward);
+    const expectedReward = selection.expectedReward;
+    banditRewardGauge.set(expectedReward);
+    enqueuePendingSelection({
+      actionId: selection.action.id,
+      context: contextVector,
+      expectedReward,
+      createdAt: Date.now(),
+      mint: candidate.mint
+    });
 
     bus.emitPlan(orderPlan);
 
@@ -389,7 +500,7 @@ async function bootstrap() {
       mint: candidate.mint,
       context: orderPlan.context,
       parameters: { plan, selection },
-      reward
+      reward: expectedReward
     });
 
     const tradeEvent: TradeEvent = { t: 'order_plan', plan };
@@ -404,6 +515,15 @@ async function bootstrap() {
 
   async function shutdown(reason: string) {
     logger.warn({ reason }, 'shutting down policy engine');
+    if (execOutcomeTimer) {
+      clearInterval(execOutcomeTimer);
+      execOutcomeTimer = null;
+    }
+    if (pendingSweepTimer) {
+      clearInterval(pendingSweepTimer);
+      pendingSweepTimer = null;
+    }
+    pruneExpiredSelections(Date.now());
     try {
       await app.close();
     } catch (err) {

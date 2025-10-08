@@ -29,10 +29,11 @@ export class TokenBucket {
 
   waitForToken(cost = 1): number {
     this.refill();
-    if (this.tokens >= cost) {
+    this.tokens -= cost;
+    if (this.tokens >= 0) {
       return 0;
     }
-    const deficit = cost - this.tokens;
+    const deficit = -this.tokens;
     const waitSec = deficit / this.refillRatePerSec;
     return Math.max(waitSec * 1000, 0);
   }
