@@ -87,6 +87,8 @@ export const configSchema = z.object({
       })
       .default({ port: 4019, metricsPort: 8110 }),
     featuresJob: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4020 }),
+    priceUpdater: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4022 }),
+    rpcMonitor: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4023 }),
     metrics: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 8090 })
   }),
   gating: z.object({lpMinSol: z.number().min(0).default(20),

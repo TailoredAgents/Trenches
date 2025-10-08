@@ -305,7 +305,6 @@ function startPlanStream(
       if (parsedCtx && payload.context && typeof payload.context === 'object') {
         (payload.context as any).parsedCtx = parsedCtx;
       }
-      bus.emitTrade({ t: 'order_plan', plan: payload.plan });
       try {
         await handler(payload);
       } catch (err) {
@@ -498,7 +497,14 @@ async function executePlan(opts: {
     }
     throw new Error(`route ${routeKey} quarantined`);
   }
-  const chosen = eligible.sort((a, b) => (b.pred.pFill - b.penalty) - (a.pred.pFill - a.penalty))[0];
+  const scoredEligible = eligible
+    .map((entry) => {
+      const normPenalty = Math.min(1, Math.max(0, entry.penalty / 100));
+      const score = 0.8 * entry.pred.pFill - 0.2 * normPenalty;
+      return { ...entry, normPenalty, score };
+    })
+    .sort((a, b) => b.score - a.score);
+  const chosen = scoredEligible[0];
   const feeDecision = cfg.features.feeBandit
     ? decideFees({
         congestionScore,
@@ -616,12 +622,13 @@ async function executePlan(opts: {
   let lastError: unknown = null;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
     try {
-      const { transaction, prioritizationFeeLamports } = await jupiter.buildSwapTx({
+      const { transaction, prioritizationFeeLamports, lastValidBlockHeight } = await jupiter.buildSwapTx({
         quoteResponse: quote,
         userPublicKey: wallet.publicKey.toBase58(),
         computeUnitPriceMicroLamports: cuPriceToUse
       });
 
+      const recentBlockhash = transaction.message.recentBlockhash;
       transaction.sign([wallet.keypairInstance]);
       const jitoTipLamports = plan.jitoTipLamports ?? 0;
       let tipTxBase64: string | null = null;
@@ -630,7 +637,7 @@ async function executePlan(opts: {
         if (tipAccount) {
           try {
             const tipTx = new Transaction();
-            tipTx.recentBlockhash = transaction.message.recentBlockhash;
+            tipTx.recentBlockhash = recentBlockhash;
             tipTx.feePayer = wallet.publicKey;
             tipTx.add(
               SystemProgram.transfer({
@@ -656,7 +663,9 @@ async function executePlan(opts: {
         jitoTipLamports: plan.jitoTipLamports,
         jitoTipTxBase64: tipTxBase64,
         computeUnitPriceMicroLamports: plan.computeUnitPriceMicroLamports,
-        label: orderId
+        label: orderId,
+        lastValidBlockHeight,
+        recentBlockhash
       });
 
       let quantityRaw = isBuy ? quoteOutRaw : amountLamports;

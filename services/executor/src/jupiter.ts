@@ -67,8 +67,7 @@ export class JupiterClient {
       userPublicKey: params.userPublicKey,
       wrapAndUnwrapSol: params.wrapAndUnwrapSol ?? true,
       computeUnitPriceMicroLamports: params.computeUnitPriceMicroLamports,
-      asLegacyTransaction: false,
-      prioritizationFeeLamports: params.quoteResponse.otherAmountThreshold ? undefined : undefined
+      asLegacyTransaction: false
     };
     const response = await fetch(url, {
       method: 'POST',

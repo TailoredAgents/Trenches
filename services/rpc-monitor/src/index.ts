@@ -82,7 +82,8 @@ async function bootstrap() {
     logger.warn('NO_RPC=1; rpc-monitor running without active sampling');
   }
 
-  const address = await app.listen({ host: '0.0.0.0', port: 0 });
+  const listenPort = cfg.services?.rpcMonitor?.port ?? 4023;
+  const address = await app.listen({ host: '0.0.0.0', port: listenPort });
   logger.info({ address }, 'rpc-monitor listening');
 
   const shutdown = async (reason: string) => {
@@ -107,4 +108,3 @@ bootstrap().catch((err) => {
   logger.error({ err }, 'rpc-monitor failed to start');
   process.exit(1);
 });
-

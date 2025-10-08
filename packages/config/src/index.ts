@@ -50,6 +50,8 @@ const baseConfig: TrenchesConfig = configSchema.parse({
     migrationWatcher: { port: 4018 },
     leaderWallets: { port: 4019, metricsPort: 8110 },
     featuresJob: { port: 4020 },
+    priceUpdater: { port: 4022 },
+    rpcMonitor: { port: 4023 },
     metrics: { port: 8090 }
   },
   endpoints: {
@@ -65,6 +67,8 @@ const baseConfig: TrenchesConfig = configSchema.parse({
     migrationWatcher: { baseUrl: 'http://127.0.0.1:4018' },
     leaderWallets: { baseUrl: 'http://127.0.0.1:4019' },
     featuresJob: { baseUrl: 'http://127.0.0.1:4020' },
+    priceUpdater: { baseUrl: 'http://127.0.0.1:4022' },
+    rpcMonitor: { baseUrl: 'http://127.0.0.1:4023' },
     metrics: { baseUrl: 'http://127.0.0.1:8090' }
   },
   gating: {

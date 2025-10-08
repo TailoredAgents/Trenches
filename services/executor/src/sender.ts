@@ -20,6 +20,8 @@ export class TransactionSender {
     jitoTipTxBase64?: string | null;
     computeUnitPriceMicroLamports?: number;
     label: string;
+    lastValidBlockHeight?: number;
+    recentBlockhash?: string;
   }): Promise<{ signature: string; slot: number }> {
     const start = Date.now();
     const tipBase64 = opts.jitoTipTxBase64 ?? null;
@@ -31,7 +33,7 @@ export class TransactionSender {
     if (jitoEnabled) {
       try {
         const extraTxs = tipBase64 ? [tipBase64] : undefined;
-        const jitoResult = await this.sendViaJito(opts.transaction, jitoUrl!, extraTxs);
+        const jitoResult = await this.sendViaJito(opts.transaction, jitoUrl!, extraTxs, opts.recentBlockhash, opts.lastValidBlockHeight);
         ordersSubmitted.inc();
         jitoUsageGauge.inc();
         fillsRecorded.inc();
@@ -45,17 +47,11 @@ export class TransactionSender {
 
     try {
       if (tipBase64 && tipLamports > 0) {
-        await this.trySendTip(Buffer.from(tipBase64, 'base64'));
+        await this.trySendTip(Buffer.from(tipBase64, 'base64'), opts.recentBlockhash, opts.lastValidBlockHeight);
       }
       const signature = await this.sendPrimary(opts.transaction);
       ordersSubmitted.inc();
-      const confirmation = await this.connection.confirmTransaction(
-        {
-          signature,
-          ...(await this.connection.getLatestBlockhash())
-        },
-        'confirmed'
-      );
+      const confirmation = await this.confirmWithBlockhash(signature, opts.recentBlockhash, opts.lastValidBlockHeight);
       if (confirmation.value.err) {
         throw new Error(`transaction failed: ${JSON.stringify(confirmation.value.err)}`);
       }
@@ -70,6 +66,17 @@ export class TransactionSender {
     }
   }
 
+  private async confirmWithBlockhash(signature: string, blockhash?: string, lastValidBlockHeight?: number) {
+    if (blockhash && typeof lastValidBlockHeight === 'number') {
+      return this.connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+    }
+    const latest = await this.connection.getLatestBlockhash();
+    return this.connection.confirmTransaction(
+      { signature, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
+      'confirmed'
+    );
+  }
+
   private async sendPrimary(transaction: VersionedTransaction): Promise<string> {
     const signature = await this.connection.sendTransaction(transaction, {
       maxRetries: 3,
@@ -78,7 +85,13 @@ export class TransactionSender {
     return signature;
   }
 
-  private async sendViaJito(transaction: VersionedTransaction, jitoUrl: string, extraTransactionsBase64?: string[]): Promise<{ signature: string; slot: number }> {
+  private async sendViaJito(
+    transaction: VersionedTransaction,
+    jitoUrl: string,
+    extraTransactionsBase64?: string[],
+    blockhash?: string,
+    lastValidBlockHeight?: number
+  ): Promise<{ signature: string; slot: number }> {
     const serialized = Buffer.from(transaction.serialize());
     const bundleTransactions = [...(extraTransactionsBase64 ?? []), serialized.toString('base64')];
     const bundle = {
@@ -99,30 +112,22 @@ export class TransactionSender {
     if (!payload.result?.bundleId) {
       throw new Error('Jito response missing bundleId');
     }
-        const signatureBytes = transaction.signatures[0];
+    const signatureBytes = transaction.signatures[0];
     const signature = bs58.encode(signatureBytes);
-    const latestBlockhash = await this.connection.getLatestBlockhash();
-    const confirmation = await this.connection.confirmTransaction(
-      {
-        signature,
-        ...latestBlockhash
-      },
-      'confirmed'
-    );
+    const confirmation = await this.confirmWithBlockhash(signature, blockhash, lastValidBlockHeight);
     if (confirmation.value.err) {
       throw new Error(`Jito bundle failed ${JSON.stringify(confirmation.value.err)}`);
     }
     return { signature, slot: confirmation.context.slot };
   }
 
-  private async trySendTip(rawTransaction: Buffer): Promise<void> {
+  private async trySendTip(rawTransaction: Buffer, blockhash?: string, lastValidBlockHeight?: number): Promise<void> {
     try {
       const signature = await this.connection.sendRawTransaction(rawTransaction, {
         maxRetries: 2,
         skipPreflight: false
       });
-      const latestBlockhash = await this.connection.getLatestBlockhash();
-      await this.connection.confirmTransaction({ signature, ...latestBlockhash }, 'confirmed');
+      await this.confirmWithBlockhash(signature, blockhash, lastValidBlockHeight);
       logger.debug({ signature }, 'tip transaction sent');
     } catch (err) {
       logger.warn({ err }, 'failed to send tip transaction');

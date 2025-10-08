@@ -102,7 +102,8 @@ async function bootstrap() {
     reply.send(await registry.metrics());
   });
 
-  const address = await app.listen({ host: '0.0.0.0', port: 0 });
+  const listenPort = config.services?.priceUpdater?.port ?? 4022;
+  const address = await app.listen({ host: '0.0.0.0', port: listenPort });
   logger.info({ address }, 'price-updater listening');
 
   if (!enabled) {
