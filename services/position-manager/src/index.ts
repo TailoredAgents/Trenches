@@ -287,7 +287,12 @@ async function handleFillEvent(
 
   await persistPosition(state);
   await refreshExposureMetrics(positions);
-  pendingCache.clear();
+  const prefix = `${mint}:`;
+  for (const [key] of pendingCache.entries()) {
+    if (key.startsWith(prefix)) {
+      pendingCache.delete(key);
+    }
+  }
 }
 
 async function refreshPrices(

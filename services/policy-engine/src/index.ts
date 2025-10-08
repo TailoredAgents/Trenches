@@ -209,7 +209,8 @@ async function bootstrap() {
   const alphaClient = createAlphaClient({
     baseUrl: !offline ? resolveServiceUrl(servicesRecord, endpointsRecord, 'alphaRanker', '/events/scores') : null,
     horizons: alphaHorizons,
-    maxEntries: 512
+    maxEntries: 512,
+    maxAgeMs: ALPHA_ENTRY_TTL_MS
   });
   const safetyFeedUrl = resolveServiceUrl(servicesRecord, endpointsRecord, 'safetyEngine', '/events/safe');
 
@@ -314,15 +315,21 @@ async function bootstrap() {
       const leaderInfo = computeLeaderBoostInfo(candidate, leaderConfig, now);
       try {
         if ((config as any).features?.alphaRanker) {
-          const baseScore = alphaClient.getLatestScore(candidate.mint, '10m');
-          if (baseScore === undefined) {
+          const scoreEntry = alphaClient.getLatestScore(candidate.mint, '10m');
+          if (scoreEntry === undefined) {
             alphaMap.delete(candidate.mint);
           } else {
-            let sc = baseScore;
+            const sourceTs = scoreEntry.ts;
+            if (now - sourceTs > ALPHA_ENTRY_TTL_MS) {
+              alphaMap.delete(candidate.mint);
+              plansSuppressed.inc({ reason: 'alpha_stale' });
+              return;
+            }
+            let sc = scoreEntry.score;
             if (leaderInfo.applied) {
               sc += leaderConfig.rankBoost;
             }
-            alphaMap.set(candidate.mint, { score: sc, updatedAt: now });
+            alphaMap.set(candidate.mint, { score: sc, updatedAt: sourceTs });
             if (sc < alphaMin) {
               plansSuppressed.inc({ reason: 'alpha_below_min' });
               return;

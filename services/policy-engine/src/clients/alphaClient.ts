@@ -6,26 +6,42 @@ type Horizon = '10m' | '60m' | '24h';
 
 type ScoreEvent = { ts: number; mint: string; horizon: Horizon; score: number };
 
+type AlphaScoreEntry = { score: number; ts: number };
+
 export type AlphaClientOptions = {
   baseUrl?: string | null;
   horizons?: Horizon[];
   maxEntries?: number;
+  maxAgeMs?: number;
 };
 
 export type AlphaClient = {
-  getLatestScore: (mint: string, horizon: Horizon) => number | undefined;
+  getLatestScore: (mint: string, horizon: Horizon) => AlphaScoreEntry | undefined;
   dispose: () => void;
   size: () => number;
 };
 
 const DEFAULT_MAX_ENTRIES = 512;
+const DEFAULT_MAX_AGE_MS = 5 * 60_000;
+
+function normalizeTimestamp(value: number): number {
+  if (!Number.isFinite(value)) {
+    return Date.now();
+  }
+  // If the value looks like seconds, convert to ms
+  if (value < 1_000_000_000_000) {
+    return value * 1000;
+  }
+  return value;
+}
 
 export function createAlphaClient(options: AlphaClientOptions): AlphaClient {
   const logger = createLogger('policy.alpha-client');
   const baseUrl = options.baseUrl ?? null;
   const horizons = new Set<Horizon>((options.horizons ?? ['10m', '60m', '24h']) as Horizon[]);
   const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
-  const cache = new Map<string, { score: number; ts: number }>();
+  const maxAgeMs = options.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
+  const cache = new Map<string, AlphaScoreEntry>();
 
   let subscription: { dispose(): void } | null = null;
 
@@ -65,17 +81,25 @@ export function createAlphaClient(options: AlphaClientOptions): AlphaClient {
         if (!horizons.has(horizon)) {
           return;
         }
-        const ts = typeof payload.ts === 'number' ? payload.ts : Date.now();
-        remember(payload.mint, horizon, payload.score, ts);
+        const tsRaw = typeof payload.ts === 'number' ? payload.ts : Date.now();
+        remember(payload.mint, horizon, payload.score, normalizeTimestamp(tsRaw));
       }
     });
   } else {
     logger.warn('alpha client disabled: no baseUrl provided');
   }
 
-  const getLatestScore = (mint: string, horizon: Horizon): number | undefined => {
-    const entry = cache.get(`${mint}:${horizon}`);
-    return entry?.score;
+  const getLatestScore = (mint: string, horizon: Horizon): AlphaScoreEntry | undefined => {
+    const key = `${mint}:${horizon}`;
+    const entry = cache.get(key);
+    if (!entry) {
+      return undefined;
+    }
+    if (Date.now() - entry.ts > maxAgeMs) {
+      cache.delete(key);
+      return undefined;
+    }
+    return entry;
   };
 
   const dispose = () => {
