@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
 import { loadConfig } from '@trenches/config';
@@ -60,4 +61,3 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => fail((err as Error).message));
-

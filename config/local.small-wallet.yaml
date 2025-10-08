@@ -1,0 +1,42 @@
+wallet:
+  # Keep a small reserve for fees
+  reservesSol: 0.05
+  # Spend at most 20% of account per day
+  dailySpendCapPct: 0.2
+  # Cap per-name exposure aggressively
+  perNameCapFraction: 0.2
+  perNameCapMaxSol: 0.25
+  # Limit LP impact and flow fraction
+  lpImpactCapFraction: 0.02
+  flowCapFraction: 0.3
+  # Equity tiers tuned for small accounts
+  equityTiers:
+    - minEquity: 0
+      maxEquity: 5
+      riskFraction: 0.05
+    - minEquity: 5
+      maxEquity: 20
+      riskFraction: 0.08
+    - minEquity: 20
+      maxEquity: 100
+      riskFraction: 0.1
+    - minEquity: 100
+      maxEquity: null
+      riskFraction: 0.08
+  # Single position at a time for safety
+  concurrencyCap: 1
+  concurrencyScaler:
+    base: 1
+    max: 1.2
+    recoveryMinutes: 60
+
+positionManager:
+  # Narrow exit tips for small positions
+  tipRangeLamports:
+    min: 500000
+    max: 1500000
+
+execution:
+  # Keep slippage modest on small notional
+  maxSlipBps: 200
+
