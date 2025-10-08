@@ -297,18 +297,6 @@ export const configSchema = z.object({
     killSwitchToken: z.string().optional(),
     allowRemoteKillSwitch: z.boolean().default(false)
   }).default({ allowRemoteKillSwitch: false }),
-  endpoints: z
-    .object({
-      agentCore: z.object({ baseUrl: z.string().url() }).optional(),
-      executor: z.object({ baseUrl: z.string().url() }).optional(),
-      policyEngine: z.object({ baseUrl: z.string().url() }).optional(),
-      safetyEngine: z.object({ baseUrl: z.string().url() }).optional(),
-      onchainDiscovery: z.object({ baseUrl: z.string().url() }).optional(),
-      alphaRanker: z.object({ baseUrl: z.string().url() }).optional(),
-      positionManager: z.object({ baseUrl: z.string().url() }).optional()
-    })
-    .partial()
-    .default({}),
   positionManager: z
     .object({
       tipRangeLamports: z

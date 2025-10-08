@@ -52,15 +52,6 @@ const baseConfig: TrenchesConfig = configSchema.parse({
     featuresJob: { port: 4020 },
     metrics: { port: 8090 }
   },
-  endpoints: {
-    agentCore: { baseUrl: 'http://127.0.0.1:4010' },
-    executor: { baseUrl: 'http://127.0.0.1:4011' },
-    policyEngine: { baseUrl: 'http://127.0.0.1:4015' },
-    safetyEngine: { baseUrl: 'http://127.0.0.1:4014' },
-    onchainDiscovery: { baseUrl: 'http://127.0.0.1:4013' },
-    alphaRanker: { baseUrl: 'http://127.0.0.1:4021' },
-    positionManager: { baseUrl: 'http://127.0.0.1:4016' }
-  },
   gating: {
     lpMinSol: 20,
     buysSellRatioMin: 2.2,
@@ -452,4 +443,3 @@ export function getConfig(): TrenchesConfig {
   }
   return cachedConfig;
 }
-
