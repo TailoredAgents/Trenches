@@ -17,11 +17,19 @@ export class TransactionSender {
   async sendAndConfirm(opts: {
     transaction: VersionedTransaction;
     jitoTipLamports?: number;
+    jitoTipTxBase64?: string | null;
     computeUnitPriceMicroLamports?: number;
     label: string;
   }): Promise<{ signature: string; slot: number }> {
     const start = Date.now();
+    const tipBase64 = opts.jitoTipTxBase64 ?? null;
+    const tipLamports = opts.jitoTipLamports ?? 0;
+    const config = loadConfig();
+    const jitoEnabled = Boolean((config.execution as any)?.jitoEnabled);
     try {
+      if (tipBase64 && tipLamports > 0 && !jitoEnabled) {
+        await this.trySendTip(Buffer.from(tipBase64, 'base64'));
+      }
       const signature = await this.sendPrimary(opts.transaction);
       ordersSubmitted.inc();
       const confirmation = await this.connection.confirmTransaction({
@@ -38,13 +46,11 @@ export class TransactionSender {
     } catch (primaryErr) {
       ordersFailed.inc({ stage: 'primary' });
       logger.error({ err: primaryErr }, 'primary send failed');
-      const config = loadConfig();
-      const jitoEnabled = Boolean((config.execution as any)?.jitoEnabled);
       if (!jitoEnabled || !config.rpc.jitoHttpUrl) {
         throw primaryErr;
       }
       try {
-        const jitoResult = await this.sendViaJito(opts.transaction, config.rpc.jitoHttpUrl);
+        const jitoResult = await this.sendViaJito(opts.transaction, config.rpc.jitoHttpUrl, tipBase64 ? [tipBase64] : undefined);
         ordersSubmitted.inc();
         jitoUsageGauge.inc();
         lastLatencyMs.set(Date.now() - start);
@@ -65,13 +71,14 @@ export class TransactionSender {
     return signature;
   }
 
-  private async sendViaJito(transaction: VersionedTransaction, jitoUrl: string): Promise<{ signature: string; slot: number }> {
+  private async sendViaJito(transaction: VersionedTransaction, jitoUrl: string, extraTransactionsBase64?: string[]): Promise<{ signature: string; slot: number }> {
     const serialized = Buffer.from(transaction.serialize());
+    const bundleTransactions = [...(extraTransactionsBase64 ?? []), serialized.toString('base64')];
     const bundle = {
       jsonrpc: '2.0',
       id: 1,
       method: 'sendBundle',
-      params: [[serialized.toString('base64')]]
+      params: [bundleTransactions]
     };
     const response = await fetch(jitoUrl, {
       method: 'POST',
@@ -99,5 +106,19 @@ export class TransactionSender {
       throw new Error(`Jito bundle failed ${JSON.stringify(confirmation.value.err)}`);
     }
     return { signature, slot: confirmation.context.slot };
+  }
+
+  private async trySendTip(rawTransaction: Buffer): Promise<void> {
+    try {
+      const signature = await this.connection.sendRawTransaction(rawTransaction, {
+        maxRetries: 2,
+        skipPreflight: false
+      });
+      const latestBlockhash = await this.connection.getLatestBlockhash();
+      await this.connection.confirmTransaction({ signature, ...latestBlockhash }, 'confirmed');
+      logger.debug({ signature }, 'tip transaction sent');
+    } catch (err) {
+      logger.warn({ err }, 'failed to send tip transaction');
+    }
   }
 }

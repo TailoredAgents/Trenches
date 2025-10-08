@@ -4,7 +4,7 @@ import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import fastifySse from 'fastify-sse-v2';
-import { Connection, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
+import { Connection, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
 import { getRegistry } from '@trenches/metrics';
@@ -518,11 +518,38 @@ async function executePlan(opts: {
       });
 
       transaction.sign([wallet.keypairInstance]);
+      const jitoTipLamports = plan.jitoTipLamports ?? 0;
+      let tipTxBase64: string | null = null;
+      if (jitoTipLamports > 0) {
+        const tipAccount = cfg.rpc.jitoTipAccount ?? '';
+        if (tipAccount) {
+          try {
+            const tipTx = new Transaction();
+            tipTx.recentBlockhash = transaction.message.recentBlockhash;
+            tipTx.feePayer = wallet.publicKey;
+            tipTx.add(
+              SystemProgram.transfer({
+                fromPubkey: wallet.publicKey,
+                toPubkey: new PublicKey(tipAccount),
+                lamports: jitoTipLamports
+              })
+            );
+            tipTx.sign(wallet.keypairInstance);
+            tipTxBase64 = tipTx.serialize().toString('base64');
+          } catch (err) {
+            logger.warn({ err, mint: candidate.mint }, 'failed to build jito tip transaction');
+          }
+        } else {
+          logger.warn({ mint: candidate.mint }, 'jitoTipLamports set but rpc.jitoTipAccount missing');
+        }
+      }
 
+      const appliedTipLamports = tipTxBase64 ? plan.jitoTipLamports ?? 0 : 0;
       const tSend = Date.now();
       const { signature, slot } = await sender.sendAndConfirm({
         transaction,
         jitoTipLamports: plan.jitoTipLamports,
+        jitoTipTxBase64: tipTxBase64,
         computeUnitPriceMicroLamports: plan.computeUnitPriceMicroLamports,
         label: orderId
       });
@@ -605,7 +632,7 @@ async function executePlan(opts: {
       };
       logTradeEvent(fillEvent);
       const ttl = Date.now() - tSend;
-      const feeLamportsTotal = (prioritizationFeeLamports ?? 0) + (plan.jitoTipLamports ?? 0);
+      const feeLamportsTotal = (prioritizationFeeLamports ?? 0) + appliedTipLamports;
       const amountIn = amountInUsed;
       const amountOut = amountOutUsed;
       insertExecOutcome({

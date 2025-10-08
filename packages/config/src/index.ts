@@ -148,6 +148,7 @@ const baseConfig: TrenchesConfig = configSchema.parse({
     wsUrl: '',
     jitoHttpUrl: '',
     jitoGrpcUrl: '',
+    jitoTipAccount: '',
     jupiterBaseUrl: 'https://quote-api.jup.ag/v6',
     httpHeaders: {}
   },
@@ -247,6 +248,7 @@ const envMap: EnvMapping[] = [
   ['rpc.wsUrl', 'SOLANA_WS_URL', (v) => v],
   ['rpc.jitoHttpUrl', 'JITO_BLOCK_ENGINE_HTTP', (v) => v],
   ['rpc.jitoGrpcUrl', 'JITO_BLOCK_ENGINE_GRPC', (v) => v],
+  ['rpc.jitoTipAccount', 'JITO_TIP_ACCOUNT', (v) => v],
   ['rpc.jupiterBaseUrl', 'JUPITER_API_URL', (v) => v],
   ['rpc.httpHeaders', 'SOLANA_RPC_HTTP_HEADERS', parseJsonRecord],
   ['pyth.solUsdAccount', 'PYTH_SOL_USD_PRICE_ACCOUNT', (v) => v],

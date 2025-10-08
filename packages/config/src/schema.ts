@@ -178,15 +178,27 @@ export const configSchema = z.object({
     concurrencyCap: z.number().int().positive().default(3),
     concurrencyScaler: concurrencyScalerSchema.default({ base: 1, max: 1.4, recoveryMinutes: 60 })
   }),
-  rpc: z.object({
-    primaryUrl: z.string().url().or(z.literal('')).default('http://127.0.0.1:8899'),
-    secondaryUrl: z.string().url().or(z.literal('')).default(''),
-    wsUrl: z.string().url().or(z.literal('')).default(''),
-    jitoHttpUrl: z.string().url().or(z.literal('')).default(''),
-    jitoGrpcUrl: z.string().url().or(z.literal('')).default(''),
-    jupiterBaseUrl: z.string().url().default('https://quote-api.jup.ag/v6'),
-    httpHeaders: z.record(z.string(), z.string()).default({})
-  }),
+  rpc: z
+    .object({
+      primaryUrl: z.string().url().or(z.literal('')).default('http://127.0.0.1:8899'),
+      secondaryUrl: z.string().url().or(z.literal('')).default(''),
+      wsUrl: z.string().url().or(z.literal('')).default(''),
+      jitoHttpUrl: z.string().url().or(z.literal('')).default(''),
+      jitoGrpcUrl: z.string().url().or(z.literal('')).default(''),
+      jitoTipAccount: z.string().default(''),
+      jupiterBaseUrl: z.string().url().default('https://quote-api.jup.ag/v6'),
+      httpHeaders: z.record(z.string(), z.string()).default({})
+    })
+    .default({
+      primaryUrl: 'http://127.0.0.1:8899',
+      secondaryUrl: '',
+      wsUrl: '',
+      jitoHttpUrl: '',
+      jitoGrpcUrl: '',
+      jitoTipAccount: '',
+      jupiterBaseUrl: 'https://quote-api.jup.ag/v6',
+      httpHeaders: {}
+    }),
   dataProviders: z.object({
     neynarBaseUrl: z.string().url().default('https://api.neynar.com'),
     dexscreenerBaseUrl: z.string().url().default('https://api.dexscreener.com'),

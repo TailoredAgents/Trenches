@@ -158,6 +158,7 @@ rpc:
   wsUrl: ''
   jitoHttpUrl: ''
   jitoGrpcUrl: ''
+  jitoTipAccount: ''
   jupiterBaseUrl: https://quote-api.jup.ag/v6
   httpHeaders: {}
 execution:

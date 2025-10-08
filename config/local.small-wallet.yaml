@@ -1,3 +1,6 @@
+rpc:
+  jitoTipAccount: ''
+
 wallet:
   # Keep a small reserve for fees
   reservesSol: 0.05
@@ -39,4 +42,3 @@ positionManager:
 execution:
   # Keep slippage modest on small notional
   maxSlipBps: 200
-
