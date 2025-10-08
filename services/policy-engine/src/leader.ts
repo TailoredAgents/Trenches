@@ -19,7 +19,7 @@ export type LeaderBoostInfo = {
 
 export type WalletCapsConfig = {
   perNameCapFraction: number;
-  perNameCapMaxSol: number;
+  perNameCapMaxSol: number | null;
   lpImpactCapFraction: number;
   flowCapFraction: number;
 };
@@ -52,7 +52,7 @@ export function applyLeaderSizeBoost(
     return baseSize;
   }
   const boostFactor = 1 + 0.25 * Math.max(cfg.sizeTierBoost, 0);
-  const perMintCap = Math.min(caps.perNameCapFraction * wallet.equity, caps.perNameCapMaxSol);
+  const perMintCap = Math.min(caps.perNameCapFraction * wallet.equity, caps.perNameCapMaxSol ?? Infinity);
   const impactCap = caps.lpImpactCapFraction * Math.max(candidate.lpSol ?? 0, 0);
   const flowCap = caps.flowCapFraction * Math.max(candidate.lpSol ?? 0, 0);
   const capValues = [wallet.free, wallet.spendRemaining, perMintCap, impactCap, flowCap]

@@ -53,7 +53,7 @@ export function computeSizing(
     return { size: 0, base: 0, caps, tier: `${riskFraction}`, reason: 'concurrency_cap' };
   }
 
-  const perNameCap = Math.min(config.wallet.perNameCapFraction * totalEquity, config.wallet.perNameCapMaxSol);
+  const perNameCap = Math.min(config.wallet.perNameCapFraction * totalEquity, config.wallet.perNameCapMaxSol ?? Infinity);
   caps.perName = perNameCap;
 
   const impactCap = config.wallet.lpImpactCapFraction * Math.max(candidate.lpSol, 0);

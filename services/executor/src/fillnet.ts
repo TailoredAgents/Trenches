@@ -3,6 +3,7 @@ import { insertFillPrediction } from '@trenches/persistence';
 import { createLogger } from '@trenches/logger';
 import { registerGauge, registerCounter } from '@trenches/metrics';
 import fs from 'fs';
+import path from 'path';
 import { loadConfig } from '@trenches/config';
 
 const logger = createLogger('fillnet');
@@ -31,9 +32,9 @@ function ensureModel(): void {
   if (model !== null) return;
   try {
     const cfg = loadConfig();
-    const path = (cfg as any).fillnet?.modelPath ?? 'models/fillnet_v2.json';
-    if (fs.existsSync(path)) {
-      const raw = JSON.parse(fs.readFileSync(path, 'utf-8'));
+    const modelPath = (cfg as any).fillnet?.modelPath ?? path.join('models', 'fillnet_v2.json');
+    if (fs.existsSync(modelPath)) {
+      const raw = JSON.parse(fs.readFileSync(modelPath, 'utf-8'));
       model = raw;
     } else {
       model = {};

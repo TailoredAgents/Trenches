@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import path from 'path';
 
 export const concurrencyScalerSchema = z.object({
   base: z.number().min(0),
@@ -479,11 +480,11 @@ export const configSchema = z.object({
     .default({ horizons: ['10m','60m','24h'], topK: 12, minScore: 0.52 }),
   fillnet: z
     .object({
-      modelPath: z.string().default('models/fillnet_v2.json'),
+      modelPath: z.string().default(path.join('models', 'fillnet_v2.json')),
       minFillProb: z.number().min(0).max(1).default(0.92),
       maxSlipBps: z.number().int().positive().default(250)
     })
-    .default({ modelPath: 'models/fillnet_v2.json', minFillProb: 0.92, maxSlipBps: 250 }),
+    .default({ modelPath: path.join('models', 'fillnet_v2.json'), minFillProb: 0.92, maxSlipBps: 250 }),
   pnl: z
     .object({
       useUsd: z.boolean().default(true),

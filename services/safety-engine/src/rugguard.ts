@@ -1,13 +1,15 @@
 import { Connection, PublicKey } from '@solana/web3.js';
 import fs from 'fs';
+import path from 'path';
 import { RugGuardVerdict, TokenCandidate } from '@trenches/shared';
 
 let rgModel: { w?: number[] } | null = null;
 function ensureRgModel(): void {
   if (rgModel !== null) return;
   try {
-    if (fs.existsSync('models/rugguard_v2.json')) {
-      rgModel = JSON.parse(fs.readFileSync('models/rugguard_v2.json', 'utf-8'));
+    const modelPath = path.join('models', 'rugguard_v2.json');
+    if (fs.existsSync(modelPath)) {
+      rgModel = JSON.parse(fs.readFileSync(modelPath, 'utf-8'));
     } else { rgModel = {}; }
   } catch { rgModel = {}; }
 }

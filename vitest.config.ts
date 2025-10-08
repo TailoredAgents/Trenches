@@ -4,7 +4,16 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['**/*.spec.ts', '**/*.test.ts']
+    include: ['**/*.spec.ts', '**/*.test.ts'],
+    pool: 'threads',
+    poolOptions: {
+      threads: {
+        singleThread: true
+      }
+    },
+    deps: {
+      interopDefault: true
+    }
   }
 });
 

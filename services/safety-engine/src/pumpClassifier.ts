@@ -1,4 +1,5 @@
 import fs from 'fs';
+import path from 'path';
 import { createLogger } from '@trenches/logger';
 import { sigmoid } from '@trenches/util';
 
@@ -37,9 +38,9 @@ function hashEmbed(text: string, dim = 512): number[] {
 function ensureModel(): void {
   if (model !== null) return;
   try {
-    const path = 'models/pump_classifier_v1.json';
-    if (fs.existsSync(path)) {
-      const raw = JSON.parse(fs.readFileSync(path, 'utf-8')) as PumpModel;
+    const modelPath = path.join('models', 'pump_classifier_v1.json');
+    if (fs.existsSync(modelPath)) {
+      const raw = JSON.parse(fs.readFileSync(modelPath, 'utf-8')) as PumpModel;
       if (Array.isArray(raw.weights) && typeof raw.bias === 'number') {
         model = raw;
         embedDim = raw.dim ?? raw.weights.length;
