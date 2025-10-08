@@ -67,7 +67,9 @@ function spawnCmd(cmd: string, args: string[], extraEnv: Record<string,string> =
 }
 function terminate(child: ChildProcess | null | undefined){
   if(!child || child.killed) return;
-  try { child.kill('SIGINT'); } catch {}
+  try { child.kill('SIGINT'); } catch (err) {
+    // process already terminated; nothing to do
+  }
   if (process.platform === 'win32' && child.pid) {
     spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', shell: true });
   }
@@ -79,7 +81,11 @@ async function waitForFile(file: string, timeoutMs=10000, failureChecks: Array<(
       const err = check();
       if (err) throw err;
     }
-    try { if (fs.existsSync(file) && fs.statSync(file).size > 0) return; } catch {}
+    try {
+      if (fs.existsSync(file) && fs.statSync(file).size > 0) return;
+    } catch (err) {
+      // transient fs error; retry until timeout
+    }
     await sleep(250);
   }
   throw new Error(`plan file not found: ${file}`);
@@ -125,7 +131,8 @@ function count(db: Database.Database){
   // 4) Wait for rows/mints or time cap
   const db = new Database(DB);
   const t0 = Date.now();
-  while (true) {
+  const timeCapMs = TIME_CAP_MIN*60000;
+  while (Date.now() - t0 < timeCapMs) {
     await sleep(POLL_SEC*1000);
     const replayFailure = replayMonitor.getFailure();
     if (replayFailure) {
@@ -138,7 +145,9 @@ function count(db: Database.Database){
     const { rows, mints } = count(db);
     const elapsed = ((Date.now()-t0)/60000).toFixed(1);
     console.log(`[stp] rows=${rows} mints=${mints} elapsed=${elapsed}m`);
-    if ((rows >= TARGET_ROWS && mints >= TARGET_MINTS) || (Date.now()-t0) >= TIME_CAP_MIN*60000) break;
+    if (rows >= TARGET_ROWS && mints >= TARGET_MINTS) {
+      break;
+    }
   }
   db.close();
 

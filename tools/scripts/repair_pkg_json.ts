@@ -8,7 +8,7 @@ function stripBOM(s: string) { return s.charCodeAt(0) === 0xFEFF ? s.slice(1) : 
 function jsonClean(s: string) {
   let t = stripBOM(s);
   t = t.replace(/\/\*[\s\S]*?\*\//g, '')      // /* ... */
-       .replace(/(^|[^\:])\/\/.*$/gm, '$1');     // // ...
+       .replace(/(^|[^:])\/\/.*$/gm, '$1');     // // ...
   t = t.replace(/,\s*([}\]])/g, '$1');           // trailing commas
   return t;
 }

@@ -38,7 +38,7 @@ export function computeStops(state: PositionSnapshot, extras: {
   const rug = clamp01(extras.rugProb ?? 0);
   const green = clamp01(pnlPct / 0.12);
   const buyFlow = clamp01((extras.flowRatio - 1) / 0.6);
-  let z = 1.2*red + 0.9*wide + 1.0*choppy + 0.8*sellFlow + 0.7*slipShock + 0.6*rug - 0.9*green - 0.6*buyFlow;
+  const z = 1.2*red + 0.9*wide + 1.0*choppy + 0.8*sellFlow + 0.7*slipShock + 0.6*rug - 0.9*green - 0.6*buyFlow;
   const hazard = clamp01(sigmoid(z));
   const base = (cfg as any).survival?.baseTrailBps ?? 120;
   const minB = (cfg as any).survival?.minTrailBps ?? 60;
@@ -61,7 +61,6 @@ export function computeStops(state: PositionSnapshot, extras: {
   }
   return hs;
 }
-
 
 
 

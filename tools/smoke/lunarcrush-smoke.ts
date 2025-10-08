@@ -12,17 +12,17 @@ let events = 0;
 let errors = 0;
 const start = Date.now();
 let finished = false;
-let timer: ReturnType<typeof setTimeout>;
+let timer: ReturnType<typeof setTimeout> | null = null;
 
 const closeAll = () => {
-  try { handshake?.close(); } catch {}
-  try { stream?.close(); } catch {}
+  try { handshake?.close(); } catch (err) { /* ignore cleanup errors */ }
+  try { stream?.close(); } catch (err) { /* ignore cleanup errors */ }
 };
 
 const finish = (status: 'ok' | 'no_data' | 'error', message?: string) => {
   if (finished) return;
   finished = true;
-  if (timer) { clearTimeout(timer); }
+  if (timer) { clearTimeout(timer); timer = null; }
   closeAll();
   const elapsed = Date.now() - start;
   const detail = message ? ` ${message}` : '';

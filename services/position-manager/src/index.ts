@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import EventSource from 'eventsource';
-import { createSSEClient, createInMemoryLastEventIdStore } from '@trenches/util';
+import { createSSEClient, createInMemoryLastEventIdStore, TtlCache, createRpcConnection } from '@trenches/util';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -15,8 +15,6 @@ import { BirdeyePriceOracle } from './birdeye';
 import { getMintDecimals } from './mint';
 import { PositionState } from './types';
 import { positionsOpened, positionsClosed, exitsTriggered, trailingActivations, positionSizeGauge } from './metrics';
-import { TtlCache, createRpcConnection } from '@trenches/util';
-
 const logger = createLogger('position-manager');
 const offline = process.env.NO_RPC === '1';
 const providersOff = process.env.DISABLE_PROVIDERS === '1';

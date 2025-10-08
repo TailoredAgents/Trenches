@@ -8,7 +8,7 @@ function combineWeights(rows: Array<{ ctx_json:string }>, rewardKey: 'pFill'|'re
   let ipsNum=0, ipsDen=0; const wisSamples: Array<{w:number; r:number}> = []; let drNum=0, drDen=0;
   for (const r of rows) {
     let p=1, reward=0, w=1; let ctx:any={};
-    try { ctx=JSON.parse(r.ctx_json||'{}'); const probs=ctx.probs as number[]|undefined; const ai=ctx.armIndex as number|undefined; p = probs && ai!=null ? probs[ai] : 1; const raw = ctx[rewardKey]; reward = typeof raw === 'number' ? raw : 1; } catch {}
+    try { ctx=JSON.parse(r.ctx_json||'{}'); const probs=ctx.probs as number[]|undefined; const ai=ctx.armIndex as number|undefined; p = probs && ai!=null ? probs[ai] : 1; const raw = ctx[rewardKey]; reward = typeof raw === 'number' ? raw : 1; } catch (err) { /* ignore invalid JSON context */ }
     w = 1/Math.max(1e-6, p);
     ipsNum += w*reward; ipsDen += 1;
     wisSamples.push({ w, r: reward });

@@ -7,7 +7,9 @@ import rateLimit from '@fastify/rate-limit';
 import fastifySse from 'fastify-sse-v2';
 import { loadConfig } from '@trenches/config';
 import { insertScore, listAuthorsByKeywords, getAuthorFeatures } from '@trenches/persistence';
-import { createLogger } from '@trenches/logger';\r\nimport { LunarCrushStream } from './lunarCrush';\r\nimport type { LunarFeatures } from './lunarCrush';\r\n
+import { createLogger } from '@trenches/logger';
+import { LunarCrushStream } from './lunarCrush';
+import type { LunarFeatures } from './lunarCrush';
 type Candidate = { mint: string; name?: string; symbol?: string; buys60?: number; sells60?: number; uniques60?: number; lpSol?: number; spreadBps?: number; ageSec?: number; rugProb?: number };
 type CandidateScore = { ts: number; mint: string; horizon: '10m' | '60m' | '24h'; score: number; features: Record<string, number> };
 
@@ -121,7 +123,7 @@ async function bootstrap() {
     const sSpread = 1 - Math.min(1, spr / 200);
     const sAge = 1 - Math.min(1, age / 1800);
     const sRug = 1 - rug;
-    let z = 1.4 * sFlow + 1.2 * sUniq + 1.0 * sLp + 0.6 * sSpread + 0.5 * sAge + 0.6 * sRug - 1.8;
+    const z = 1.4 * sFlow + 1.2 * sUniq + 1.0 * sLp + 0.6 * sSpread + 0.5 * sAge + 0.6 * sRug - 1.8;
     const baseScore = 1 / (1 + Math.exp(-z));
     const qualityBoost = Math.min(0.15, extras.authorQualityMean * 0.1 + extras.authorQualityTop * 0.05);
     const lunarBoost = extras.lunar.boost;
@@ -168,7 +170,12 @@ async function bootstrap() {
     });
   });
 
-  app.get('/healthz', async () => {\r\n    const lunarStatus = lunar.getStatus();\r\n    const baseStatus = offline ? 'degraded' : 'ok';\r\n    const status = cfg.lunarcrush?.enabled === false || lunarStatus.status !== 'degraded' ? baseStatus : 'degraded';\r\n    return { status, offline, alpha: cfg.alpha, lunarcrush: lunarStatus };\r\n  });
+  app.get('/healthz', async () => {
+    const lunarStatus = lunar.getStatus();
+    const baseStatus = offline ? 'degraded' : 'ok';
+    const status = cfg.lunarcrush?.enabled === false || lunarStatus.status !== 'degraded' ? baseStatus : 'degraded';
+    return { status, offline, alpha: cfg.alpha, lunarcrush: lunarStatus };
+  });
   const address = await app.listen({ host: '0.0.0.0', port: 0 });
   logger.info({ address }, 'alpha-ranker listening');
 

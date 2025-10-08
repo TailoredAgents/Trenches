@@ -25,7 +25,7 @@ function resolveKeystorePath(envPath: string): string | null {
   if (!envPath) return null;
   if (path.isAbsolute(envPath) && fs.existsSync(envPath)) return envPath;
   let dir = process.cwd();
-  while (true) {
+  while (dir.length > 0) {
     const candidate = path.resolve(dir, envPath);
     if (fs.existsSync(candidate)) return candidate;
     const parent = path.dirname(dir);

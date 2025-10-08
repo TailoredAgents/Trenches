@@ -37,7 +37,12 @@
     "ci:build": "pnpm -r --workspace-concurrency=1 build",
     "dev:shadow": "cross-env NO_RPC=1 ENABLE_SHADOW_OUTCOMES=1 EXECUTOR_SHADOW_MODE=1 pnpm dev:core",
     "replay:serve": "tsx tools/backtest/src/replay.ts --serve-plans --port 4505",
-    "dev:shadow:replay": "cross-env NO_RPC=1 ENABLE_SHADOW_OUTCOMES=1 EXECUTOR_SHADOW_MODE=1 USE_REPLAY=1 SOAK_REPLAY_URL=http://127.0.0.1:4505/events/plans pnpm -F @trenches/executor dev"
+    "dev:shadow:replay": "cross-env NO_RPC=1 ENABLE_SHADOW_OUTCOMES=1 EXECUTOR_SHADOW_MODE=1 USE_REPLAY=1 SOAK_REPLAY_URL=http://127.0.0.1:4505/events/plans pnpm -F @trenches/executor dev",
+    "verify:env": "tsx tools/scripts/verify_env.ts",
+    "win:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/stop-stack.ps1",
+    "win:start:full": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/start-full.ps1",
+    "win:start:shadow": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/start-shadow.ps1",
+    "win:health": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/health.ps1"
   },
   "dependencies": {
     "bs58": "^5.0.0",

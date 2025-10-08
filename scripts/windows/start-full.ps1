@@ -1,0 +1,23 @@
+Param()
+
+$ErrorActionPreference = 'Continue'
+
+$repoRoot = (Get-Location).Path
+$dotenv = Join-Path $repoRoot '.env'
+if (Test-Path $dotenv) {
+  $env:DOTENV_CONFIG_PATH = $dotenv
+}
+
+# Ensure FULL mode and live providers
+$env:AGENT_MODE = 'FULL'
+Remove-Item Env:NO_RPC -ErrorAction SilentlyContinue
+Remove-Item Env:DISABLE_PROVIDERS -ErrorAction SilentlyContinue
+Remove-Item Env:ENABLE_SHADOW_OUTCOMES -ErrorAction SilentlyContinue
+Remove-Item Env:EXECUTOR_SHADOW_MODE -ErrorAction SilentlyContinue
+
+Write-Host "Starting Trenches stack in FULL mode..." -ForegroundColor Cyan
+Write-Host "DOTENV_CONFIG_PATH=$($env:DOTENV_CONFIG_PATH)" -ForegroundColor DarkCyan
+
+# This will keep the console attached for logs
+pnpm run dev:core
+

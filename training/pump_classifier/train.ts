@@ -135,7 +135,7 @@ export async function trainPumpClassifier(options?: { dataPath?: string; outPath
     return vec;
   });
 
-  let weights = new Array(dim).fill(0).map(() => (Math.random() - 0.5) * 0.01);
+  const weights = new Array(dim).fill(0).map(() => (Math.random() - 0.5) * 0.01);
   let bias = 0;
   const lr = 0.05;
   const epochs = Math.min(20, Math.max(5, Math.floor(2000 / samples.length)));

@@ -905,7 +905,9 @@ export function bootstrapDb(
 
     database.exec('COMMIT');
   } catch (err) {
-    try { database.exec('ROLLBACK'); } catch {}
+    try { database.exec('ROLLBACK'); } catch (rollbackErr) {
+      bootstrapLogger.warn({ err: rollbackErr }, 'rollback failed after backfill error');
+    }
     bootstrapLogger.warn({ err, step: 'backfill_exec_outcomes' }, 'db bootstrap warning');
   }
 
@@ -1007,7 +1009,7 @@ function runMigrations(instance: DatabaseConstructor.Database) {
 
         if (upper.startsWith('ALTER TABLE') && upper.includes('ADD COLUMN')) {
 
-          const match = withoutSemicolon.match(/^ALTER\s+TABLE\s+[\"`]?([A-Za-z0-9_]+)[\"`]?\s+ADD\s+COLUMN\s+[\"`]?([A-Za-z0-9_]+)[\"`]?\s+(.+)$/i);
+          const match = withoutSemicolon.match(/^ALTER\s+TABLE\s+["`]?([A-Za-z0-9_]+)["`]?\s+ADD\s+COLUMN\s+["`]?([A-Za-z0-9_]+)["`]?\s+(.+)$/i);
 
           if (match) {
 
@@ -1023,7 +1025,7 @@ function runMigrations(instance: DatabaseConstructor.Database) {
 
         if (upper.startsWith('CREATE') && upper.includes(' INDEX ')) {
 
-          const match = withoutSemicolon.match(/^CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?[\"`]?([A-Za-z0-9_]+)[\"`]?/i);
+          const match = withoutSemicolon.match(/^CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?["`]?([A-Za-z0-9_]+)["`]?/i);
 
           if (match) {
 

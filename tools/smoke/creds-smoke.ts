@@ -20,7 +20,9 @@ async function main(): Promise<void> {
       const od = await fetch(odUrl);
       const odJson = (await od.json()) as { birdeyeApiKey?: boolean };
       birdeye = Boolean((odJson as any).birdeyeApiKey);
-    } catch {}
+    } catch (err) {
+      // health check unavailable; treat as missing key
+    }
     const line = `creds-smoke: neynar=${map.get('neynar') ?? 'idle'} bluesky=${map.get('bluesky') ?? 'idle'} reddit=${map.get('reddit') ?? 'idle'} telegram=${map.get('telegram') ?? 'idle'} birdeye=apiKey:${birdeye}`;
     console.log(line);
     // Warn if keys present but not running after ~15s grace
@@ -50,4 +52,3 @@ async function main(): Promise<void> {
 }
 
 void main();
-

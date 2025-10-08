@@ -313,7 +313,9 @@ try {
   (envMap as any).push(['execution.feeArms', 'EXEC_FEE_ARMS', (v: string) => {
     try { const arr = JSON.parse(v); return Array.isArray(arr) ? arr : []; } catch { return []; }
   }]);
-} catch {}
+} catch (err) {
+  // Ignore optional override registration failures
+}
 
 // Price updater env overrides
 try {
@@ -321,7 +323,9 @@ try {
   (envMap as any).push(['priceUpdater.intervalMs', 'PRICE_UPDATER_INTERVAL_MS', (v: string) => Number(v)]);
   (envMap as any).push(['priceUpdater.staleWarnSec', 'PRICE_UPDATER_STALE_WARN_SEC', (v: string) => Number(v)]);
   (envMap as any).push(['priceUpdater.pythSolUsdPriceAccount', 'PYTH_SOL_USD_PRICE_ACCOUNT', (v: string) => v]);
-} catch {}
+} catch (err) {
+  // Ignore optional override registration failures
+}
 
 try {
   (envMap as any).push(['alpha.topK', 'ALPHA_TOPK', (v: string) => Number(v)]);
@@ -330,7 +334,9 @@ try {
   (envMap as any).push(['fillnet.minFillProb', 'FILLNET_MIN_FILL_PROB', (v: string) => Number(v)]);
   (envMap as any).push(['pnl.useUsd', 'PNL_USE_USD', (v: string) => v === 'true']);
   (envMap as any).push(['pnl.includePriorityFee', 'PNL_INCLUDE_PRIORITY_FEE', (v: string) => v === 'true']);
-} catch {}
+} catch (err) {
+  // Ignore optional override registration failures
+}
 
 // Sizing and survival env overrides
 try {
@@ -357,7 +363,9 @@ try {
   (envMap as any).push(['leaderWallets.scoreHalfLifeDays', 'LEADER_WALLETS_SCORE_HALFLIFE_DAYS', (v: string) => Number(v)]);
   (envMap as any).push(['leaderWallets.rankBoost', 'LEADER_WALLETS_RANK_BOOST', (v: string) => Number(v)]);
   (envMap as any).push(['leaderWallets.sizeTierBoost', 'LEADER_WALLETS_SIZE_TIER_BOOST', (v: string) => Number(v)]);
-} catch {}
+} catch (err) {
+  // Ignore optional override registration failures
+}
 
 function setPath(target: Record<string, any>, dottedKey: string, value: unknown): void {
   const segments = dottedKey.split('.');

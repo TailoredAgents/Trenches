@@ -96,7 +96,9 @@ async function terminate(child: ChildProcess | null | undefined): Promise<void> 
   // Send SIGINT first for graceful shutdown
   try { 
     child.kill('SIGINT');
-  } catch {}
+  } catch (err) {
+    // ignore errors when process is already gone
+  }
   
   // Give process 2 seconds to exit gracefully
   await sleep(2000);
@@ -124,7 +126,9 @@ async function terminate(child: ChildProcess | null | undefined): Promise<void> 
       // Unix: send SIGKILL
       try { 
         child.kill('SIGKILL');
-      } catch {}
+      } catch (err) {
+        // ignore errors when process already gone
+      }
     }
   }
 }
@@ -137,7 +141,11 @@ async function ensurePlans(): P {
   });
   const t0 = Date.now();
   while (Date.now() - t0 < 10000) {
-    try { if (fs.existsSync(PLAN_FILE) && fs.statSync(PLAN_FILE).size > 0) return; } catch {}
+    try {
+      if (fs.existsSync(PLAN_FILE) && fs.statSync(PLAN_FILE).size > 0) return;
+    } catch (err) {
+      // transient fs error; retry until timeout
+    }
     await sleep(200);
   }
   throw new Error('plan file not found');
@@ -167,7 +175,7 @@ async function startInlineReplay(lines: string[]): Promise<{ port: number; close
   if (!address || typeof address === 'string') throw new Error('failed to bind inline replay');
   const port = address.port;
   console.log(`serving (inline) port=${port} lines=${lines.length}`);
-  return { port, close: () => { try { server.close(); } catch {} } };
+  return { port, close: () => { try { server.close(); } catch (err) { /* server already closed */ } } };
 }
 
 function count(db: Database.Database){

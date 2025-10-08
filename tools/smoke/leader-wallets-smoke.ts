@@ -68,7 +68,6 @@ async function main() {
   };
 
   const leaderInfo = computeLeaderBoostInfo(candidate, leaderCfg, now);
-  const baseScore = candidate.;
   const baseSize = 2;
   const boostedSize = applyLeaderSizeBoost(baseSize, candidate, walletSnapshot, leaderCfg, leaderInfo, {
     perNameCapFraction: config.wallet.perNameCapFraction,
@@ -89,4 +88,3 @@ main().catch((err) => {
   console.error('leader-smoke failed', err);
   process.exit(1);
 });
-

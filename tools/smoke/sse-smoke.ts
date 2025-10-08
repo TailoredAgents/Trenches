@@ -23,7 +23,9 @@ function start() {
       try {
         const m = JSON.parse(e.data) as Migration;
         recent.set(m.mint, m.ts);
-      } catch {}
+      } catch (err) {
+        // ignore malformed migration payloads
+      }
     }
   });
   const handleCand = (data: string, id?: string) => {
@@ -39,7 +41,9 @@ function start() {
           console.log('p50', quantileFloor(lags, 0.5), 'ms p95', quantileFloor(lags, 0.95), 'ms');
         }
       }
-    } catch {}
+    } catch (err) {
+      // ignore malformed candidate payloads
+    }
   };
   const srcC = createSSEClient(candidatesUrl, {
     lastEventIdStore: storeC,
@@ -58,5 +62,4 @@ function start() {
 }
 
 start();
-
 

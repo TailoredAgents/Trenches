@@ -55,7 +55,7 @@ async function bootstrap() {
   const hasAccount = account.length > 0;
   const shouldStart = enabled && !offline && hasAccount;
 
-  let connection: ReturnType<typeof createRpcConnection> | null = shouldStart
+  const connection: ReturnType<typeof createRpcConnection> | null = shouldStart
     ? createRpcConnection(config.rpc, { commitment: 'confirmed' })
     : null;
   let loopActive = false;

@@ -36,7 +36,7 @@ function estimateIPS(rows: Array<{ ts:number; ctx_json:string }>): number {
       const reward = typeof ctx.pFill === 'number' ? ctx.pFill : 1;
       num += (1 / Math.max(1e-6, p)) * reward;
       den += 1;
-    } catch {}
+    } catch (err) { /* ignore invalid JSON context */ }
   }
   return den ? num / den : 0;
 }
@@ -53,7 +53,7 @@ function combineWeights(rows: Array<{ ctx_json:string }>, rewardKey: 'pFill'|'re
       const probs = ctx.probs as number[]|undefined; const ai = ctx.armIndex as number|undefined;
       p = probs && ai!=null ? probs[ai] : 1;
       const raw = ctx[rewardKey]; reward = typeof raw === 'number' ? raw : 1;
-    } catch {}
+    } catch (err) { /* ignore invalid JSON context */ }
     w = 1/Math.max(1e-6, p);
     ipsNum += w*reward; ipsDen += 1;
     wisSamples.push({ w, r: reward });

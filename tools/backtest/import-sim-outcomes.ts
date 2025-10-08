@@ -44,7 +44,7 @@ rl.on('line', (line) => {
     const o = JSON.parse(line);
     ins.run(o);
     n += 1;
-  } catch {}
+  } catch (err) { /* skip malformed lines */ }
 });
 rl.on('close', () => {
   db.exec('COMMIT');

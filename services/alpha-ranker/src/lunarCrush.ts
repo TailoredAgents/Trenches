@@ -238,7 +238,7 @@ export class LunarCrushStream {
 
     const headers: Record<string, string> = { Accept: 'text/event-stream' };
     if (this.apiKey && !this.handshakeUrl.includes('key=')) {
-      headers.Authorization = Bearer ;
+      headers.Authorization = `Bearer ${this.apiKey}`;
     }
 
     this.handshake = new EventSource(this.handshakeUrl, { headers });
@@ -289,9 +289,9 @@ export class LunarCrushStream {
         return;
       }
       if (trimmed.startsWith('/')) {
-        target = ${this.origin};
+        target = `${this.origin}${trimmed}`;
       } else {
-        target = ${this.origin}/;
+        target = `${this.origin}/${trimmed}`;
       }
     }
     try {
@@ -319,7 +319,7 @@ export class LunarCrushStream {
 
     const headers: Record<string, string> = { Accept: 'text/event-stream' };
     if (this.apiKey && !url.includes('key=')) {
-      headers.Authorization = Bearer ;
+      headers.Authorization = `Bearer ${this.apiKey}`;
     }
 
     this.stream = new EventSource(url, { headers });

@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 
 function findUp(startDir: string, filename: string): string | null {
   let dir = startDir;
-  while (true) {
+  while (dir.length > 0) {
     const candidate = path.resolve(dir, filename);
     if (fs.existsSync(candidate)) return candidate;
     const parent = path.dirname(dir);
@@ -18,4 +18,3 @@ const envPath = process.env.DOTENV_CONFIG_PATH || findUp(process.cwd(), '.env');
 if (envPath) {
   dotenv.config({ path: envPath });
 }
-

@@ -1,8 +1,14 @@
-﻿{
+{
   "extends": ["next/core-web-vitals"],
   "parser": "@typescript-eslint/parser",
   "parserOptions": {
     "project": null
   },
-  "rules": {}
+  "rules": {},
+  "settings": {
+    "next": {
+      "rootDir": ["apps/ui-gateway"]
+    }
+  }
 }
+

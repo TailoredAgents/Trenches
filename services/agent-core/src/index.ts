@@ -476,12 +476,12 @@ async function bootstrap() {
     let execution = { landedRate: 0, avgSlipBps: 0, p50Ttl: 0, p95Ttl: 0 };
     let riskBudget = { dailyLossCapUsd: 0, usedUsd: 0, remainingUsd: 0 };
     let sizingDist: Array<{ arm: string; share: number }> = [];
-    let survival = { avgHazard: 0, forcedFlattens: 0 };
-    let backtest = { lastRunId: 0, lastOverallNetPnl: 0, landedRate: 0, avgSlipBps: 0, p50Ttl: 0, p95Ttl: 0 };
-    let shadow: any = { feeDisagreePct: 0, sizingDisagreePct: 0 };
+    const survival = { avgHazard: 0, forcedFlattens: 0 };
+    const backtest = { lastRunId: 0, lastOverallNetPnl: 0, landedRate: 0, avgSlipBps: 0, p50Ttl: 0, p95Ttl: 0 };
+    const shadow: any = { feeDisagreePct: 0, sizingDisagreePct: 0 };
     let pnlSummary = { netUsd: 0, grossUsd: 0, feeUsd: 0, slipUsd: 0 };
-    let routes: Array<{ route: string; penalty: number }> = [];
-    let leaders: Array<{ pool: string; hits: number }> = [];
+    const routes: Array<{ route: string; penalty: number }> = [];
+    const leaders: Array<{ pool: string; hits: number }> = [];
     let providersBlock: any = undefined;
     try {
       const { getExecSummary, getRiskBudget, getSizingDistribution } = await import('@trenches/persistence');
@@ -743,7 +743,6 @@ async function bootstrap() {
 bootstrap().catch((err) => {
   logger.error({ err }, 'agent core failed to start');
 });
-
 
 
 
