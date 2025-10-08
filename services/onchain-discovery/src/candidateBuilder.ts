@@ -52,7 +52,11 @@ export async function buildCandidate(ctx: CandidateContext): Promise<TokenCandid
     spreadBps,
     safety: { ok: false, reasons: ['pending_safety_review'] },
     topicId: undefined,
-    matchScore: undefined
+    matchScore: undefined,
+    lpMint: pool.lpMint ?? undefined,
+    poolAddress: pool.pool ?? pair.pairAddress ?? undefined,
+    poolCoinAccount: pool.poolCoinAccount ?? undefined,
+    poolPcAccount: pool.poolPcAccount ?? undefined
   };
 }
 
@@ -104,4 +108,3 @@ function toNumber(value: unknown): number {
   }
   return 0;
 }
-

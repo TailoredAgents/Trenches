@@ -238,6 +238,16 @@ async function evaluateCandidate(
       fastReasons.push('lp_insufficient');
     }
     
+    // Mint / freeze authority check (parity with full evaluation)
+    const tokenResultFast = await checkTokenSafety(connection, candidate.mint);
+    if (!tokenResultFast.ok) {
+      for (const reason of tokenResultFast.reasons) {
+        if (!fastReasons.includes(reason)) {
+          fastReasons.push(reason);
+        }
+      }
+    }
+    
     // Minimum unique traders check  
     if (candidate.uniques60 < fastEntryConfig.minimumChecks.uniquesMin) {
       fastReasons.push('uniques_low');
@@ -274,9 +284,28 @@ async function evaluateCandidate(
       try {
         const verdict = await classify(candidate.mint, candidateToFeatures(candidate), { connection });
         rugProb = verdict.rugProb;
+        insertRugVerdict({ ts: verdict.ts, mint: verdict.mint, rugProb: verdict.rugProb, reasons: verdict.reasons ?? [] });
         if (rugProb > fastEntryConfig.minimumChecks.maxRugProb) {
           fastReasons.push('rug_probability_high');
         }
+        if (Array.isArray(verdict.reasons)) {
+          for (const reason of verdict.reasons) {
+            if (!fastReasons.includes(reason)) {
+              fastReasons.push(reason);
+            }
+          }
+          const prevAuthority = (authorityPassRatio as any)._last || { pass: 0, total: 0 };
+          const pass = verdict.reasons.includes('mint_or_freeze_active') ? 0 : 1;
+          const total = prevAuthority.total + 1;
+          const passes = prevAuthority.pass + pass;
+          (authorityPassRatio as any)._last = { pass: passes, total };
+          authorityPassRatio.set(total > 0 ? passes / total : 0);
+        }
+        const prevAvg = (avgRugProb as any)._last || { sum: 0, n: 0 };
+        const sum = prevAvg.sum + rugProb;
+        const n = prevAvg.n + 1;
+        (avgRugProb as any)._last = { sum, n };
+        avgRugProb.set(sum / Math.max(1, n));
       } catch (err) {
         logger.warn({ err }, 'fast-entry rug probability check failed');
       }
