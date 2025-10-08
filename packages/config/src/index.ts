@@ -44,6 +44,7 @@ const baseConfig: TrenchesConfig = configSchema.parse({
     onchainDiscovery: { port: 4013 },
     safetyEngine: { port: 4014 },
     policyEngine: { port: 4015 },
+    alphaRanker: { port: 4021 },
     positionManager: { port: 4016 },
     narrativeMiner: { port: 4017 },
     migrationWatcher: { port: 4018 },

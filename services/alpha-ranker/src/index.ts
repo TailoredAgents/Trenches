@@ -15,6 +15,7 @@ type CandidateScore = { ts: number; mint: string; horizon: '10m' | '60m' | '24h'
 
 const logger = createLogger('alpha-ranker');
 const offline = process.env.NO_RPC === '1';
+const SCORE_BUFFER_LIMIT = 512;
 
 function extractAlphaKeywords(candidate: Candidate): string[] {
   const keywords = new Set<string>();
@@ -95,6 +96,9 @@ async function bootstrap() {
         for (const h of horizons) {
           const row: CandidateScore = { ts, mint: candidate.mint, horizon: h as any, score: result.score, features: result.features };
           last.push(row);
+          if (last.length > SCORE_BUFFER_LIMIT) {
+            last.splice(0, last.length - SCORE_BUFFER_LIMIT);
+          }
           try {
             insertScore(row);
           } catch (err) {
@@ -176,8 +180,9 @@ async function bootstrap() {
     const status = cfg.lunarcrush?.enabled === false || lunarStatus.status !== 'degraded' ? baseStatus : 'degraded';
     return { status, offline, alpha: cfg.alpha, lunarcrush: lunarStatus };
   });
-  const address = await app.listen({ host: '0.0.0.0', port: 0 });
-  logger.info({ address }, 'alpha-ranker listening');
+  const listenPort = cfg.services.alphaRanker?.port ?? 0;
+  const address = await app.listen({ host: '0.0.0.0', port: listenPort });
+  logger.info({ address, port: listenPort }, 'alpha-ranker listening');
 
   if (!offline) {
     startSafetyStream();

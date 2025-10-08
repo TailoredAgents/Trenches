@@ -29,6 +29,7 @@ const logger = createLogger('policy-engine');
 const PLAN_FEATURE_DIM = 7;
 const WALLET_REFRESH_MS = 5_000;
 const CONGESTION_REFRESH_MS = 3_000;
+const ALPHA_ENTRY_TTL_MS = 5 * 60_000;
 
 const lastWalletGaugeRefresh = registerGauge({
   name: 'policy_wallet_last_refresh_epoch',
@@ -192,112 +193,118 @@ async function bootstrap() {
   const safeFeedUrl = config.policy.safeFeedUrl ?? `http://127.0.0.1:${config.services.safetyEngine.port}/events/safe`;
   const alphaTopK = (config as any).alpha?.topK ?? 12;
   const alphaMin = (config as any).alpha?.minScore ?? 0.52;
-  const alphaMap = new Map<string, number>();
+  const alphaMap = new Map<string, { score: number; updatedAt: number }>();
   let disposeStream: StreamDisposer | null = null;
   if (!offline) {
     disposeStream = startCandidateStream(safeFeedUrl, async (candidate) => {
-    const now = Date.now();
-    const leaderInfo = computeLeaderBoostInfo(candidate, leaderConfig, now);
-    try {
-      if ((config as any).features?.alphaRanker) {
-        const baseScore = alphaClient.getLatestScore(candidate.mint, '10m');
-        if (baseScore === undefined) {
-          alphaMap.delete(candidate.mint);
-        } else {
-          let sc = baseScore;
-          if (leaderInfo.applied) {
-            sc += leaderConfig.rankBoost;
-          }
-          alphaMap.set(candidate.mint, sc);
-          if (sc < alphaMin) {
-            plansSuppressed.inc({ reason: 'alpha_below_min' });
-            return;
-          }
-          const arr = Array.from(alphaMap.entries())
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, alphaTopK)
-            .map(([m]) => m);
-          if (!arr.includes(candidate.mint)) {
-            plansSuppressed.inc({ reason: 'alpha_not_topk' });
-            return;
-          }
+      const now = Date.now();
+      for (const [mint, entry] of alphaMap.entries()) {
+        if (now - entry.updatedAt > ALPHA_ENTRY_TTL_MS) {
+          alphaMap.delete(mint);
         }
       }
-    } catch (err) {
-      logger.error({ err, mint: candidate.mint }, 'failed to evaluate alpha gating');
-    }
-    if (typeof (candidate as any).rugProb === 'number') {
-      const rugProb = (candidate as any).rugProb as number;
-      // Aggressive RugGuard threshold: Only block obvious rugs (80%)
-      const rugThreshold = 0.8;
-      if (rugProb > rugThreshold) {
-        plansSuppressed.inc({ reason: 'rugprob_high' });
-        logger.debug({ rugProb, rugThreshold, mint: candidate.mint }, 'rejected by rugguard');
+      const leaderInfo = computeLeaderBoostInfo(candidate, leaderConfig, now);
+      try {
+        if ((config as any).features?.alphaRanker) {
+          const baseScore = alphaClient.getLatestScore(candidate.mint, '10m');
+          if (baseScore === undefined) {
+            alphaMap.delete(candidate.mint);
+          } else {
+            let sc = baseScore;
+            if (leaderInfo.applied) {
+              sc += leaderConfig.rankBoost;
+            }
+            alphaMap.set(candidate.mint, { score: sc, updatedAt: now });
+            if (sc < alphaMin) {
+              plansSuppressed.inc({ reason: 'alpha_below_min' });
+              return;
+            }
+            const topAlpha = Array.from(alphaMap.entries())
+              .map(([mint, entry]) => ({ mint, score: entry.score }))
+              .sort((a, b) => b.score - a.score)
+              .slice(0, alphaTopK);
+            if (!topAlpha.some((entry) => entry.mint === candidate.mint)) {
+              plansSuppressed.inc({ reason: 'alpha_not_topk' });
+              return;
+            }
+          }
+        }
+      } catch (err) {
+        logger.error({ err, mint: candidate.mint }, 'failed to evaluate alpha gating');
+      }
+
+      if (typeof (candidate as any).rugProb === 'number') {
+        const rugProb = (candidate as any).rugProb as number;
+        // Aggressive RugGuard threshold: Only block obvious rugs (80%)
+        const rugThreshold = 0.8;
+        if (rugProb > rugThreshold) {
+          plansSuppressed.inc({ reason: 'rugprob_high' });
+          logger.debug({ rugProb, rugThreshold, mint: candidate.mint }, 'rejected by rugguard');
+          return;
+        }
+      }
+      if (!candidate.safety?.ok) {
+        plansSuppressed.inc({ reason: 'safety_not_ok' });
         return;
       }
-    }
-    if (!candidate.safety?.ok) {
-      plansSuppressed.inc({ reason: 'safety_not_ok' });
-      return;
-    }
-    // Legacy score gating removed; RugGuard is the sole gate
+      // Legacy score gating removed; RugGuard is the sole gate
 
-    if (!walletReady) {
-      plansSuppressed.inc({ reason: 'wallet_unavailable' });
-      return;
-    }
+      if (!walletReady) {
+        plansSuppressed.inc({ reason: 'wallet_unavailable' });
+        return;
+      }
 
-    const walletSnapshot = await refreshWallet();
-    const minFreeSol = config.sizing?.minFreeSol;
-    if (typeof minFreeSol === 'number' && !Number.isNaN(minFreeSol) && walletSnapshot.free < minFreeSol) {
-      logger.debug({ freeSol: walletSnapshot.free, minFreeSol }, 'skipping plan: wallet free SOL below minimum');
-      plansSuppressed.inc({ reason: 'min_free_sol' });
-      return;
-    }
+      const walletSnapshot = await refreshWallet();
+      const minFreeSol = config.sizing?.minFreeSol;
+      if (typeof minFreeSol === 'number' && !Number.isNaN(minFreeSol) && walletSnapshot.free < minFreeSol) {
+        logger.debug({ freeSol: walletSnapshot.free, minFreeSol }, 'skipping plan: wallet free SOL below minimum');
+        plansSuppressed.inc({ reason: 'min_free_sol' });
+        return;
+      }
 
-    if (walletSnapshot.spendRemaining <= 0) {
-      plansSuppressed.inc({ reason: 'daily_cap_exhausted' });
-      return;
-    }
+      if (walletSnapshot.spendRemaining <= 0) {
+        plansSuppressed.inc({ reason: 'daily_cap_exhausted' });
+        return;
+      }
 
-    const sinceMidnight = new Date();
-    sinceMidnight.setUTCHours(0, 0, 0, 0);
-    const realizedPnl = getDailyRealizedPnlSince(sinceMidnight.toISOString());
-    if (realizedPnl < 0 && Math.abs(realizedPnl) >= config.policy.dailyLossCapPct * walletSnapshot.equity) {
-      plansSuppressed.inc({ reason: 'daily_loss_cap' });
-      return;
-    }
+      const sinceMidnight = new Date();
+      sinceMidnight.setUTCHours(0, 0, 0, 0);
+      const realizedPnl = getDailyRealizedPnlSince(sinceMidnight.toISOString());
+      if (realizedPnl < 0 && Math.abs(realizedPnl) >= config.policy.dailyLossCapPct * walletSnapshot.equity) {
+        plansSuppressed.inc({ reason: 'daily_loss_cap' });
+        return;
+      }
 
-    const { level: congestionLevel, score: congestionScore } = await refreshCongestion();
-    const contextVector = buildContext(candidate, {
-      congestionScore,
-      walletEquity: walletSnapshot.equity
-    });
+      const { level: congestionLevel, score: congestionScore } = await refreshCongestion();
+      const contextVector = buildContext(candidate, {
+        congestionScore,
+        walletEquity: walletSnapshot.equity
+      });
 
-    const selection = bandit.select(contextVector);
-    const sizingStart = Date.now();
-    const perNameFractionCap = config.wallet.perNameCapFraction ?? 1;
-    const perNameMaxSol = config.wallet.perNameCapMaxSol ?? Infinity;
-    const dailyCapTotalSol = (() => {
-      const total = walletSnapshot.spendUsed + walletSnapshot.spendRemaining;
-      return Number.isFinite(total) ? total : config.wallet.dailySpendCapSol ?? Infinity;
-    })();
-    const sizing = (config.features?.constrainedSizing
-      ? (() => {
-          const dec = chooseSize({
-            candidate,
-            walletEquity: walletSnapshot.equity,
-            walletFree: walletSnapshot.free,
-            dailySpendUsed: walletSnapshot.spendUsed,
-            caps: {
-              perNameFraction: perNameFractionCap,
-              perNameMaxSol,
-              dailySpendCapSol: dailyCapTotalSol
-            }
-          });
-          return { size: dec.notional, reason: dec.riskNote } as { size: number; reason: string };
-        })()
-      : computeSizing(candidate, walletSnapshot, selection.action.sizeMultiplier));
+      const selection = bandit.select(contextVector);
+      const sizingStart = Date.now();
+      const perNameFractionCap = config.wallet.perNameCapFraction ?? 1;
+      const perNameMaxSol = config.wallet.perNameCapMaxSol ?? Infinity;
+      const dailyCapTotalSol = (() => {
+        const total = walletSnapshot.spendUsed + walletSnapshot.spendRemaining;
+        return Number.isFinite(total) ? total : config.wallet.dailySpendCapSol ?? Infinity;
+      })();
+      const sizing = (config.features?.constrainedSizing
+        ? (() => {
+            const dec = chooseSize({
+              candidate,
+              walletEquity: walletSnapshot.equity,
+              walletFree: walletSnapshot.free,
+              dailySpendUsed: walletSnapshot.spendUsed,
+              caps: {
+                perNameFraction: perNameFractionCap,
+                perNameMaxSol,
+                dailySpendCapSol: dailyCapTotalSol
+              }
+            });
+            return { size: dec.notional, reason: dec.riskNote } as { size: number; reason: string };
+          })()
+        : computeSizing(candidate, walletSnapshot, selection.action.sizeMultiplier));
 
     const boostedSize = applyLeaderSizeBoost(sizing.size, candidate, walletSnapshot, leaderConfig, leaderInfo, leaderCapsConfig);
     if (boostedSize > sizing.size) {
@@ -465,5 +472,3 @@ function congestionToScore(level: string): number {
 bootstrap().catch((err) => {
   logger.error({ err }, 'policy engine failed to start');
 });
-
-

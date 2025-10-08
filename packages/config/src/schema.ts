@@ -72,6 +72,7 @@ export const configSchema = z.object({
     onchainDiscovery: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4013 }),
     safetyEngine: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4014 }),
     policyEngine: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4015 }),
+    alphaRanker: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4021 }),
     positionManager: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4016 }),
     narrativeMiner: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4017 }),
     migrationWatcher: z.object({ port: z.number().int().min(1).max(65535) }).default({ port: 4018 }),
@@ -515,4 +516,3 @@ export const configSchema = z.object({
 });
 
 export type TrenchesConfig = z.infer<typeof configSchema>;
-

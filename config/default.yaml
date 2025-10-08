@@ -17,6 +17,8 @@ services:
     port: 4014
   policyEngine:
     port: 4015
+  alphaRanker:
+    port: 4021
   positionManager:
     port: 4016
   narrativeMiner:

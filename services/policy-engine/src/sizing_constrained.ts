@@ -56,9 +56,17 @@ export function chooseSize(ctx: SizingContext & { rugProb?: number; pFill?: numb
     capCandidates.length > 0 ? capCandidates[0] : { reason: 'arm_cap', value: notionalRaw }
   );
   const notional = Number(notionalRaw.toFixed(4));
-  const reason = notional <= 0 ? limiting.reason ?? 'no_available_size' : limiting.reason ?? 'ok';
+  const limitingReason = limiting.reason ?? 'arm_cap';
+  const riskNote =
+    notional <= 0
+      ? limitingReason === 'arm_cap'
+        ? 'no_available_size'
+        : limitingReason
+      : limitingReason === 'arm_cap'
+        ? 'ok'
+        : limitingReason;
 
-  const dec: SizeDecision = { ts, mint: ctx.candidate.mint, arm: best.arm, notional, riskNote: reason };
+  const dec: SizeDecision = { ts, mint: ctx.candidate.mint, arm: best.arm, notional, riskNote };
   // Propensities (softmax over notional as a simple proxy)
   try {
     const scores = candidates.map((c) => c.notional);
