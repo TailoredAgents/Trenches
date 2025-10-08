@@ -44,7 +44,7 @@ export async function checkHolderSkew(
   const topTenShare = totalSupply === 0 ? 1 : topTenAmount / totalSupply;
   const ok = topTenShare <= holderTopCap;
   const reasons = ok ? [] : ['holder_top_concentration'];
-  const whaleFlag = ok;
+  const whaleFlag = !ok;
 
   return { ok, reasons, topTenShare, whaleFlag };
 }

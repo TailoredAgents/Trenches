@@ -200,23 +200,27 @@ async function bootstrap() {
     const leaderInfo = computeLeaderBoostInfo(candidate, leaderConfig, now);
     try {
       if ((config as any).features?.alphaRanker) {
-        const baseScore = alphaClient.getLatestScore(candidate.mint, '10m') ?? 0;
-        let sc = baseScore;
-        if (leaderInfo.applied) {
-          sc += leaderConfig.rankBoost;
-        }
-        alphaMap.set(candidate.mint, sc);
-        if (sc < alphaMin) {
-          plansSuppressed.inc({ reason: 'alpha_below_min' });
-          return;
-        }
-        const arr = Array.from(alphaMap.entries())
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, alphaTopK)
-          .map(([m]) => m);
-        if (!arr.includes(candidate.mint)) {
-          plansSuppressed.inc({ reason: 'alpha_not_topk' });
-          return;
+        const baseScore = alphaClient.getLatestScore(candidate.mint, '10m');
+        if (baseScore === undefined) {
+          alphaMap.delete(candidate.mint);
+        } else {
+          let sc = baseScore;
+          if (leaderInfo.applied) {
+            sc += leaderConfig.rankBoost;
+          }
+          alphaMap.set(candidate.mint, sc);
+          if (sc < alphaMin) {
+            plansSuppressed.inc({ reason: 'alpha_below_min' });
+            return;
+          }
+          const arr = Array.from(alphaMap.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, alphaTopK)
+            .map(([m]) => m);
+          if (!arr.includes(candidate.mint)) {
+            plansSuppressed.inc({ reason: 'alpha_not_topk' });
+            return;
+          }
         }
       }
     } catch (err) {
@@ -446,7 +450,6 @@ function congestionToScore(level: string): number {
 bootstrap().catch((err) => {
   logger.error({ err }, 'policy engine failed to start');
 });
-
 
 
 

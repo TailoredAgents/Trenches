@@ -280,7 +280,6 @@ const envMap: EnvMapping[] = [
   ['social.reddit.subreddits', 'REDDIT_SUBREDDITS', parseStringList],
   ['social.reddit.pollIntervalSec', 'REDDIT_POLL_SEC', (v) => Number(v)],
   ['social.reddit.appType', 'REDDIT_APP_TYPE', (v) => (String(v).toLowerCase() === 'web' ? 'web' : 'installed')],
-  ['social.reddit.appType', 'REDDIT_APP_TYPE', (v) => (v.toLowerCase() === 'web' ? 'web' : 'installed')],
   ['social.telegram.channels', 'TELEGRAM_CHANNELS', parseStringList],
   ['social.telegram.downloadDir', 'TELEGRAM_TDLIB_DB_PATH', (v) => v],
   ['social.telegram.pollIntervalSec', 'TELEGRAM_POLL_SEC', (v) => Number(v)],

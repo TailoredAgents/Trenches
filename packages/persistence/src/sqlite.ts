@@ -789,6 +789,7 @@ const BOOTSTRAP_COLUMN_ADDITIONS = [
   { table: 'exec_outcomes', column: 'fee_lamports_total', type: 'INTEGER' },
   { table: 'exec_outcomes', column: 'order_id', type: 'TEXT' },
   { table: 'exec_outcomes', column: 'mint', type: 'TEXT' },
+  { table: 'exec_outcomes', column: 'side', type: 'TEXT' },
   { table: 'positions', column: 'mae_bps', type: 'REAL NOT NULL DEFAULT 0' }
 ] as const;
 
@@ -876,7 +877,7 @@ export function bootstrapDb(
     safeRun(() => ensureIndex(database, index.name, index.ddl), { idx: index.name, ddl: index.ddl });
   }
 
-  // Best-effort backfill for exec_outcomes.order_id and exec_outcomes.mint
+  // Best-effort backfill for exec_outcomes.order_id, mint, and side
   try {
     database.exec('BEGIN');
     // Backfill order_id by nearest orders (within 5s) and same route if present
@@ -902,6 +903,17 @@ export function bootstrapDb(
       WHERE eo.mint IS NULL AND eo.order_id IS NOT NULL;
     `);
     stmt2.run();
+
+    // Backfill side from orders when available, defaulting to 'buy'
+    const stmt3 = database.prepare(`
+      UPDATE exec_outcomes AS eo
+      SET side = (
+        SELECT o.side FROM orders o WHERE o.id = eo.order_id LIMIT 1
+      )
+      WHERE eo.side IS NULL AND eo.order_id IS NOT NULL;
+    `);
+    stmt3.run();
+    database.prepare(`UPDATE exec_outcomes SET side = 'buy' WHERE side IS NULL`).run();
 
     database.exec('COMMIT');
   } catch (err) {
@@ -1958,11 +1970,12 @@ function safeParseArray(value: unknown): string[] {
   }
   return [];
 }
-export function recordOrderPlan(order: { id: string; mint: string; gate: string; sizeSol: number; slippageBps: number; jitoTipLamports: number; computeUnitPrice?: number; route: string; status: string; side?: 'buy' | 'sell'; tokenAmount?: number | null; expectedSol?: number | null }): void {
+export function recordOrderPlan(order: { id: string; mint: string; gate: string; sizeSol: number; slippageBps: number; jitoTipLamports: number; computeUnitPrice?: number; route: string; status: string; side?: 'buy' | 'sell'; tokenAmount?: number | null; expectedSol?: number | null; createdTs?: number }): void {
   const database = getDb();
+  const createdTs = order.createdTs ?? Date.now();
   database
-    .prepare(`INSERT INTO orders (id, mint, gate, size_sol, slippage_bps, jito_tip_lamports, compute_unit_price, route, status, side, token_amount, expected_sol)
-       VALUES (@id, @mint, @gate, @sizeSol, @slippageBps, @jitoTipLamports, @computeUnitPrice, @route, @status, @side, @tokenAmount, @expectedSol)
+    .prepare(`INSERT INTO orders (id, mint, gate, size_sol, slippage_bps, jito_tip_lamports, compute_unit_price, route, status, side, token_amount, expected_sol, created_ts)
+       VALUES (@id, @mint, @gate, @sizeSol, @slippageBps, @jitoTipLamports, @computeUnitPrice, @route, @status, @side, @tokenAmount, @expectedSol, @createdTs)
        ON CONFLICT(id) DO UPDATE SET
          mint = excluded.mint,
          gate = excluded.gate,
@@ -1988,7 +2001,8 @@ export function recordOrderPlan(order: { id: string; mint: string; gate: string;
       status: order.status,
       side: order.side ?? 'buy',
       tokenAmount: order.tokenAmount ?? null,
-      expectedSol: order.expectedSol ?? null
+      expectedSol: order.expectedSol ?? null,
+      createdTs
     });
 }
 
@@ -2184,12 +2198,17 @@ export function insertFeeDecision(dec: { ts: number; cuPrice: number; cuLimit: n
     .run({ ...dec, ctx: JSON.stringify(ctx) });
 }
 
-export function insertExecOutcome(row: { ts: number; quotePrice: number; execPrice?: number | null; filled: number; route?: string | null; cuPrice?: number | null; slippageReq?: number | null; slippageReal?: number | null; timeToLandMs?: number | null; errorCode?: string | null; notes?: string | null; priorityFeeLamports?: number | null; amountIn?: number | null; amountOut?: number | null; feeLamportsTotal?: number | null }): void {
+export function insertExecOutcome(row: { ts: number; quotePrice: number; execPrice?: number | null; filled: number; route?: string | null; cuPrice?: number | null; slippageReq?: number | null; slippageReal?: number | null; timeToLandMs?: number | null; errorCode?: string | null; notes?: string | null; priorityFeeLamports?: number | null; amountIn?: number | null; amountOut?: number | null; feeLamportsTotal?: number | null; orderId?: string | null; mint?: string | null; side?: string | null }): void {
   const database = getDb();
   database
-    .prepare(`INSERT INTO exec_outcomes (ts, quote_price, exec_price, filled, route, cu_price, slippage_bps_req, slippage_bps_real, time_to_land_ms, error_code, notes, priority_fee_lamports, amount_in, amount_out, fee_lamports_total)
-              VALUES (@ts, @quotePrice, @execPrice, @filled, @route, @cuPrice, @slippageReq, @slippageReal, @timeToLandMs, @errorCode, @notes, @priorityFeeLamports, @amountIn, @amountOut, @feeLamportsTotal)`)
-    .run({ ...row });
+    .prepare(`INSERT INTO exec_outcomes (ts, quote_price, exec_price, filled, route, cu_price, slippage_bps_req, slippage_bps_real, time_to_land_ms, error_code, notes, priority_fee_lamports, amount_in, amount_out, fee_lamports_total, order_id, mint, side)
+              VALUES (@ts, @quotePrice, @execPrice, @filled, @route, @cuPrice, @slippageReq, @slippageReal, @timeToLandMs, @errorCode, @notes, @priorityFeeLamports, @amountIn, @amountOut, @feeLamportsTotal, @orderId, @mint, @side)`)
+    .run({
+      ...row,
+      orderId: row.orderId ?? null,
+      mint: row.mint ?? null,
+      side: row.side ?? 'buy'
+    });
 }
 
 export type LunarScoreSummary = {
@@ -2382,7 +2401,7 @@ export function countNewPositionsToday(): number {
     const since = new Date();
     since.setUTCHours(0, 0, 0, 0);
     const row = database
-      .prepare(`SELECT COUNT(*) AS n FROM exec_outcomes WHERE filled = 1 AND mint IS NOT NULL AND ts >= @since`)
+      .prepare(`SELECT COUNT(*) AS n FROM exec_outcomes WHERE filled = 1 AND mint IS NOT NULL AND side = 'buy' AND ts >= @since`)
       .get({ since: since.getTime() }) as { n?: number } | undefined;
     return Number(row?.n ?? 0);
   } catch {

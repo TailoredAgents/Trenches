@@ -4,7 +4,7 @@ import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import fastifySse from 'fastify-sse-v2';
-import { Connection } from '@solana/web3.js';
+import { Connection, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
 import { getRegistry } from '@trenches/metrics';
@@ -26,6 +26,26 @@ const offline = process.env.NO_RPC === '1';
 const providersOff = process.env.DISABLE_PROVIDERS === '1';
 const enableShadowOutcomes = process.env.ENABLE_SHADOW_OUTCOMES === '1';
 const shadowMode = process.env.EXECUTOR_SHADOW_MODE === '1';
+const tokenDecimalsCache = new Map<string, number>();
+
+async function getTokenDecimals(connection: Connection, mint: string): Promise<number> {
+  const cached = tokenDecimalsCache.get(mint);
+  if (cached !== undefined) {
+    return cached;
+  }
+  try {
+    const info = await connection.getParsedAccountInfo(new PublicKey(mint));
+    const decimals = Number((info.value as any)?.data?.parsed?.info?.decimals);
+    if (Number.isFinite(decimals)) {
+      tokenDecimalsCache.set(mint, decimals);
+      return decimals;
+    }
+  } catch (err) {
+    logger.warn({ err, mint }, 'failed to fetch token decimals; defaulting to 9');
+  }
+  tokenDecimalsCache.set(mint, 9);
+  return 9;
+}
 // Replay controls (used only for selecting plan feed in shadow/replay runs)
 const useReplay = process.env.USE_REPLAY === '1';
 const replayUrl = process.env.SOAK_REPLAY_URL || '';
@@ -311,7 +331,8 @@ async function executePlan(opts: {
   const { payload, wallet, jupiter, sender, bus, connection } = opts;
   const plan = payload.plan;
   const candidate = payload.context.candidate;
-  const orderId = `${candidate.mint}-${Date.now()}`;
+  const orderCreatedTs = Date.now();
+  const orderId = `${candidate.mint}-${orderCreatedTs}`;
 
   recordOrderPlan({
     id: orderId,
@@ -325,7 +346,8 @@ async function executePlan(opts: {
     status: 'PENDING',
     side: plan.side ?? 'buy',
     tokenAmount: plan.tokenAmountLamports ?? null,
-    expectedSol: plan.expectedSol ?? null
+    expectedSol: plan.expectedSol ?? null,
+    createdTs: orderCreatedTs
   });
 
   const isBuy = (plan.side ?? 'buy') === 'buy';
@@ -446,11 +468,12 @@ async function executePlan(opts: {
     wallet.publicKey.toBase58()
   );
 
+  const tokenDecimals = await getTokenDecimals(connection, candidate.mint);
+  const quoteOutRaw = Number(quote.outAmount);
   const quotePrice = computeExecutionPrice({
-    isBuy,
-    sizeSol: plan.sizeSol,
-    quoteOutAmount: quote.outAmount,
-    amountIn: amountLamports
+    tokenDecimals,
+    solAmountLamports: isBuy ? amountLamports : quoteOutRaw,
+    tokenAmountRaw: isBuy ? quoteOutRaw : amountLamports
   });
 
   // In shadow mode, record synthetic outcome and skip real execution
@@ -472,12 +495,12 @@ async function executePlan(opts: {
         timeToLandMs: ttlShadow,
         cu_price: cuPriceToUse,
         amountIn: amountLamports,
-        amountOut: Number(quote.outAmount),
+        amountOut: quoteOutRaw,
         source: 'shadow'
       });
       shadowOutcomesTotal.inc({ result: 'ok' });
       // Mark plan as observed in logs and return without sending
-      logger.info({ mint: candidate.mint, route: plan.route, amountLamports, quoteOut: quote.outAmount }, 'shadow outcome recorded; skipping execution');
+      logger.info({ mint: candidate.mint, route: plan.route, amountLamports, quoteOut: quoteOutRaw }, 'shadow outcome recorded; skipping execution');
       return;
     }
   } catch (err) {
@@ -504,9 +527,9 @@ async function executePlan(opts: {
         label: orderId
       });
 
-      let quantityRaw = isBuy ? Number(quote.outAmount) : amountLamports;
+      let quantityRaw = isBuy ? quoteOutRaw : amountLamports;
       let amountInUsed = amountLamports;
-      let amountOutUsed = isBuy ? quantityRaw : Number(quote.outAmount);
+      let amountOutUsed = isBuy ? quantityRaw : quoteOutRaw;
       let execPrice = quotePrice;
       let slipReal = 0;
 
@@ -519,7 +542,11 @@ async function executePlan(opts: {
             if (tokenDelta.delta > 0) {
               quantityRaw = tokenDelta.delta;
               amountOutUsed = tokenDelta.delta;
-              execPrice = computeExecutionPrice({ isBuy, sizeSol: plan.sizeSol, quoteOutAmount: String(amountOutUsed), amountIn: amountInUsed });
+              execPrice = computeExecutionPrice({
+                tokenDecimals,
+                solAmountLamports: amountInUsed,
+                tokenAmountRaw: amountOutUsed
+              });
             }
           } else {
             if (tokenDelta.delta !== 0) {
@@ -529,7 +556,11 @@ async function executePlan(opts: {
             const solDelta = diffSolBalance(txResult.meta);
             if (solDelta > 0) {
               amountOutUsed = solDelta;
-              execPrice = computeExecutionPrice({ isBuy, sizeSol: plan.sizeSol, quoteOutAmount: String(amountOutUsed), amountIn: amountInUsed });
+              execPrice = computeExecutionPrice({
+                tokenDecimals,
+                solAmountLamports: amountOutUsed,
+                tokenAmountRaw: amountInUsed
+              });
             }
           }
         }
@@ -545,7 +576,7 @@ async function executePlan(opts: {
         slipReal = 0;
       }
       if (!Number.isFinite(amountOutUsed) || amountOutUsed < 0) {
-        amountOutUsed = isBuy ? quantityRaw : Number(quote.outAmount);
+        amountOutUsed = isBuy ? quantityRaw : quoteOutRaw;
       }
       if (!Number.isFinite(amountInUsed) || amountInUsed <= 0) {
         amountInUsed = amountLamports;
@@ -592,7 +623,10 @@ async function executePlan(opts: {
         priorityFeeLamports: prioritizationFeeLamports ?? 0,
         amountIn,
         amountOut,
-        feeLamportsTotal
+        feeLamportsTotal,
+        orderId,
+        mint: candidate.mint,
+        side: plan.side ?? 'buy'
       });
       bus.emitTrade(fillEvent);
       recordOrderPlan({
@@ -607,7 +641,8 @@ async function executePlan(opts: {
         status: 'FILLED',
         side: plan.side ?? 'buy',
         tokenAmount: plan.tokenAmountLamports ?? null,
-        expectedSol: plan.expectedSol ?? null
+        expectedSol: plan.expectedSol ?? null,
+        createdTs: orderCreatedTs
       });
       try {
         landedRateGauge.set(1);
@@ -674,9 +709,25 @@ async function executePlan(opts: {
     status: 'FAILED',
     side: plan.side ?? 'buy',
     tokenAmount: plan.tokenAmountLamports ?? null,
-    expectedSol: plan.expectedSol ?? null
+    expectedSol: plan.expectedSol ?? null,
+    createdTs: orderCreatedTs
   });
-  insertExecOutcome({ ts: Date.now(), quotePrice: 0, execPrice: null, filled: 0, route: plan.route, cuPrice: cuPriceToUse, slippageReq: slippageToUse, slippageReal: null, timeToLandMs: null, errorCode: (lastError as any)?.message ?? 'unknown', notes: 'failed' });
+  insertExecOutcome({
+    ts: Date.now(),
+    quotePrice: 0,
+    execPrice: null,
+    filled: 0,
+    route: plan.route,
+    cuPrice: cuPriceToUse,
+    slippageReq: slippageToUse,
+    slippageReal: null,
+    timeToLandMs: null,
+    errorCode: (lastError as any)?.message ?? 'unknown',
+    notes: 'failed',
+    orderId,
+    mint: candidate.mint,
+    side: plan.side ?? 'buy'
+  });
   throw lastError instanceof Error ? lastError : new Error('execution failed');
 }
 
@@ -699,16 +750,17 @@ function diffSolBalance(meta: any): number {
   return post - pre;
 }
 
-function computeExecutionPrice(params: { isBuy: boolean; sizeSol: number; quoteOutAmount: string; amountIn: number }): number {
-  const { isBuy, sizeSol, quoteOutAmount, amountIn } = params;
-  const outAmount = Number(quoteOutAmount);
-  if (isBuy) {
-    return outAmount > 0 ? sizeSol / (outAmount / 1_000_000_000) : 0;
+function computeExecutionPrice(params: { tokenDecimals: number; solAmountLamports: number; tokenAmountRaw: number }): number {
+  const { tokenDecimals, solAmountLamports, tokenAmountRaw } = params;
+  const solAmount = solAmountLamports / LAMPORTS_PER_SOL;
+  const tokenDivisor = 10 ** tokenDecimals;
+  const tokenAmount = tokenDivisor > 0 ? tokenAmountRaw / tokenDivisor : 0;
+  if (solAmount <= 0 || tokenAmount <= 0) {
+    return 0;
   }
-  return amountIn > 0 ? (outAmount / 1_000_000_000) / (amountIn / 1_000_000_000) : 0;
+  return solAmount / tokenAmount;
 }
 
 bootstrap().catch((err) => {
   logger.error({ err }, 'executor failed to start');
 });
-
