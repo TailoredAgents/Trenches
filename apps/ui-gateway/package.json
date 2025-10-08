@@ -1,24 +1,24 @@
 {
-  "name": "@trenches/ui-gateway",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "next dev --turbo",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
-  },
-  "dependencies": {
-    "next": "14.2.5",
-    "react": "18.3.1",
-    "react-dom": "18.3.1"
-  },
-  "devDependencies": {
-    "@types/node": "20.12.7",
-    "@types/react": "18.2.66",
-    "@types/react-dom": "18.2.21",
-    "eslint": "^8.57.0",
-    "eslint-config-next": "^15.5.4",
-    "typescript": "5.4.5"
-  }
+    "name":  "@trenches/ui-gateway",
+    "private":  true,
+    "type":  "module",
+    "scripts":  {
+                    "dev":  "next dev --turbo -H 127.0.0.1 -p 3000",
+                    "build":  "next build",
+                    "start":  "next start -H 127.0.0.1 -p 3000",
+                    "lint":  "next lint"
+                },
+    "dependencies":  {
+                         "next":  "14.2.5",
+                         "react":  "18.3.1",
+                         "react-dom":  "18.3.1"
+                     },
+    "devDependencies":  {
+                            "@types/node":  "20.12.7",
+                            "@types/react":  "18.2.66",
+                            "@types/react-dom":  "18.2.21",
+                            "eslint":  "^8.57.0",
+                            "eslint-config-next":  "^15.5.4",
+                            "typescript":  "5.4.5"
+                        }
 }
