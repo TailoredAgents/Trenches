@@ -45,6 +45,7 @@ export async function checkLpSafety(
   const lockerPrograms = new Set(lockers.map((addr) => addr.toLowerCase()));
   let lockerRatio = incineratorRatio;
   let lockerDetected = false;
+  let lookupErrors = 0;
 
   for (const entry of largestAccounts.value.slice(0, 10)) {
     const entryAddress = resolveAddress(entry.address);
@@ -66,8 +67,13 @@ export async function checkLpSafety(
         }
       }
     } catch (err) {
-      return { ok: false, reasons: ['lp_locker_lookup_failed'], lockedRatio: incineratorRatio };
+      lookupErrors += 1;
+      continue;
     }
+  }
+
+  if (lookupErrors >= 3 && !lockerDetected) {
+    return { ok: false, reasons: ['lp_locker_lookup_failed'], lockedRatio: incineratorRatio };
   }
 
   if (lockerDetected) {
