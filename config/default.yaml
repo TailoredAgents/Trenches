@@ -30,7 +30,6 @@ services:
   metrics:
     port: 8090
 gating:
-  sssMin: 0.6
   lpMinSol: 15                   # Balanced: Higher manipulation cost (was 8, originally 20)
   buysSellRatioMin: 1.5          # Keep: Good volatility tolerance (was 2.2)
   uniquesMin: 10                 # Balanced: Harder to game (was 6, originally 12)
@@ -321,4 +320,3 @@ priceUpdater:
   intervalMs: 60000
   staleWarnSec: 300
   pythSolUsdPriceAccount: ""
-

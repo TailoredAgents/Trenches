@@ -52,7 +52,6 @@ const baseConfig: TrenchesConfig = configSchema.parse({
     metrics: { port: 8090 }
   },
   gating: {
-    sssMin: 0.6,
     lpMinSol: 20,
     buysSellRatioMin: 2.2,
     uniquesMin: 12,
@@ -434,4 +433,3 @@ export function getConfig(): TrenchesConfig {
   }
   return cachedConfig;
 }
-

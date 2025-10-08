@@ -284,6 +284,26 @@ export const configSchema = z.object({
     killSwitchToken: z.string().optional(),
     allowRemoteKillSwitch: z.boolean().default(false)
   }).default({ allowRemoteKillSwitch: false }),
+  positionManager: z
+    .object({
+      tipRangeLamports: z
+        .object({
+          min: z.number().int().nonnegative().default(1_500_000),
+          max: z.number().int().nonnegative().default(2_500_000)
+        })
+        .default({ min: 1_500_000, max: 2_500_000 }),
+      autokill: z
+        .object({
+          flowRatioThreshold: z.number().min(0).max(1).default(0.6),
+          uniquesDropThreshold: z.number().int().nonnegative().default(1),
+          safetyReasons: z.array(z.string()).default([])
+        })
+        .default({ flowRatioThreshold: 0.6, uniquesDropThreshold: 1, safetyReasons: [] })
+    })
+    .default({
+      tipRangeLamports: { min: 1_500_000, max: 2_500_000 },
+      autokill: { flowRatioThreshold: 0.6, uniquesDropThreshold: 1, safetyReasons: [] }
+    }),
   social: socialConfigSchema
   ,
   lunarcrush: z
@@ -495,5 +515,4 @@ export const configSchema = z.object({
 });
 
 export type TrenchesConfig = z.infer<typeof configSchema>;
-
 
