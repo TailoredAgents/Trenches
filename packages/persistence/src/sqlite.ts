@@ -1772,6 +1772,20 @@ export function getDailySizingSpendSince(isoTimestamp: string): number {
   return row?.total ?? 0;
 }
 
+export function getDailyExecutedSpendSince(isoTimestamp: string): number {
+  const database = getDb();
+  const { millis } = normalizeTimestampForSqlite(isoTimestamp);
+  const row = database
+    .prepare(
+      `SELECT COALESCE(SUM(amount_in), 0) AS lamports
+         FROM exec_outcomes
+         WHERE filled = 1 AND side = 'buy' AND amount_in IS NOT NULL AND ts >= @since`
+    )
+    .get({ since: millis }) as { lamports?: number };
+  const lamports = Number(row?.lamports ?? 0);
+  return lamports / 1_000_000_000;
+}
+
 export function getDailyRealizedPnlSince(isoTimestamp: string): number {
   const database = getDb();
   const { sqlite } = normalizeTimestampForSqlite(isoTimestamp);

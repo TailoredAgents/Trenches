@@ -30,7 +30,7 @@ const logger = createLogger('leader-wallets');
 const offline = process.env.NO_RPC === '1';
 const providersOff = process.env.DISABLE_PROVIDERS === '1';
 const leaderHitsTotal = registerCounter({ name: 'leader_hits_total', help: 'Total leader wallet swap hits captured' });
-const leaderTopGauge = registerGauge({ name: 'leader_wallets_top', help: 'Top leader wallet scores', labelNames: ['rank', 'wallet'] });
+const leaderTopGauge = registerGauge({ name: 'leader_wallets_top', help: 'Top leader wallet scores', labelNames: ['rank'] });
 
 interface LeaderPoolSubscription {
   subId: number;
@@ -151,9 +151,21 @@ async function bootstrap(): Promise<void> {
     const forwardStmt = db.prepare(
       `SELECT amount_in AS amountIn, amount_out AS amountOut, exec_price AS execPrice, quote_price AS quotePrice
          FROM exec_outcomes
-         WHERE route = @pool AND filled = 1 AND ts BETWEEN @start AND @end
+         WHERE mint = @mint AND filled = 1 AND side = 'buy' AND ts BETWEEN @start AND @end
          LIMIT 50`
     );
+    const resolveMintStmt = db.prepare('SELECT mint FROM migration_events WHERE pool = ? ORDER BY ts DESC LIMIT 1');
+    const poolMintCache = new Map<string, string | null>();
+    const resolveMintForPool = (pool: string): string | null => {
+      if (!pool) return null;
+      if (poolMintCache.has(pool)) {
+        return poolMintCache.get(pool) ?? null;
+      }
+      const result = resolveMintStmt.get(pool) as { mint?: string } | undefined;
+      const mint = result?.mint ?? null;
+      poolMintCache.set(pool, mint);
+      return mint;
+    };
 
     for (const { wallet } of walletRows) {
       const hitRows = hitsStmt.all(wallet) as Array<{ pool: string; ts: number }>;
@@ -165,8 +177,12 @@ async function bootstrap(): Promise<void> {
       for (const hit of hitRows) {
         if (!hit.pool) continue;
         mostRecent = Math.max(mostRecent, hit.ts);
+        const mint = resolveMintForPool(hit.pool);
+        if (!mint) {
+          continue;
+        }
         const forwardRows = forwardStmt.all({
-          pool: hit.pool,
+          mint,
           start: hit.ts + FORWARD_RETURN_MIN_OFFSET_MS,
           end: hit.ts + FORWARD_RETURN_MAX_OFFSET_MS
         }) as Array<{ amountIn: number | null; amountOut: number | null; execPrice: number | null; quotePrice: number | null }>;
@@ -196,7 +212,7 @@ async function bootstrap(): Promise<void> {
     const top = getTopLeaderWallets(5);
     leaderTopGauge.reset();
     top.forEach((row, idx) => {
-      leaderTopGauge.set({ rank: String(idx + 1), wallet: row.wallet }, row.score ?? 0);
+      leaderTopGauge.set({ rank: String(idx + 1) }, row.score ?? 0);
     });
     lastScoreUpdate = Date.now();
   }

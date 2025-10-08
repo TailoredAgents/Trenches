@@ -33,6 +33,7 @@ const ALPHA_ENTRY_TTL_MS = 5 * 60_000;
 const EXEC_POLL_INTERVAL_MS = 2_000;
 const PENDING_TIMEOUT_MS = 60_000;
 const FAILED_REWARD = -0.5;
+const MIN_ORDER_SIZE_SOL = 0.001;
 
 type PendingSelection = {
   actionId: string;
@@ -49,8 +50,7 @@ const lastWalletGaugeRefresh = registerGauge({
 
 const leaderBoostCounter = registerCounter({
   name: 'policy_leader_boost_total',
-  help: 'Plans that received leader wallet boost',
-  labelNames: ['mint']
+  help: 'Plans that received leader wallet boost'
 });
 
 const offline = process.env.NO_RPC === '1';
@@ -421,10 +421,12 @@ async function bootstrap() {
           })()
         : computeSizing(candidate, walletSnapshot, selection.action.sizeMultiplier));
 
-    const boostedSize = applyLeaderSizeBoost(sizing.size, candidate, walletSnapshot, leaderConfig, leaderInfo, leaderCapsConfig);
-    if (boostedSize > sizing.size) {
-      sizing.size = Number(boostedSize.toFixed(4));
+    let finalSize = sizing.size;
+    const boostedSize = applyLeaderSizeBoost(finalSize, candidate, walletSnapshot, leaderConfig, leaderInfo, leaderCapsConfig);
+    if (boostedSize > finalSize) {
+      finalSize = boostedSize;
     }
+    sizing.size = finalSize;
 
     // Shadow sizing policy (offline)
     try {
@@ -440,12 +442,18 @@ async function bootstrap() {
     }
     sizingDurationMs.set(Date.now() - sizingStart);
 
-    if (sizing.size <= 0) {
+    if (finalSize <= 0) {
       plansSuppressed.inc({ reason: sizing.reason });
       return;
     }
 
     if (!withinTradingCaps()) {
+      return;
+    }
+
+    const roundedSizeSol = Number(finalSize.toFixed(4));
+    if (roundedSizeSol < MIN_ORDER_SIZE_SOL) {
+      plansSuppressed.inc({ reason: 'min_order_size' });
       return;
     }
 
@@ -456,7 +464,7 @@ async function bootstrap() {
       mint: candidate.mint,
       gate: selection.action.gate,
       route: 'jupiter',
-      sizeSol: Number(sizing.size.toFixed(4)),
+      sizeSol: roundedSizeSol,
       slippageBps,
       jitoTipLamports: tipLamports,
       side: 'buy' as const
@@ -478,7 +486,7 @@ async function bootstrap() {
     };
 
     if (leaderInfo.applied) {
-      leaderBoostCounter.inc({ mint: candidate.mint });
+      leaderBoostCounter.inc();
     }
 
     plansEmitted.inc();

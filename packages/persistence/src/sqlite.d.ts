@@ -71,6 +71,7 @@ export declare function closeDb(): void;
 export declare function storeSocialPost(post: SocialPost): void;
 export declare function getOpenPositionsCount(): number;
 export declare function getDailySizingSpendSince(isoTimestamp: string): number;
+export declare function getDailyExecutedSpendSince(isoTimestamp: string): number;
 export declare function getDailyRealizedPnlSince(isoTimestamp: string): number;
 export declare function recordPolicyAction(input: {
     actionId: string;

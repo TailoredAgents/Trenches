@@ -1,7 +1,7 @@
 import { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
-import { getDailySizingSpendSince, getOpenPositionsCount } from '@trenches/persistence';
+import { getDailyExecutedSpendSince, getOpenPositionsCount } from '@trenches/persistence';
 import { loadWalletKeystore } from '@trenches/util/wallet';
 import { WalletSnapshot } from './types';
 
@@ -71,7 +71,7 @@ export class WalletManager {
     const reserves = config.wallet.reservesSol;
     const dailySpendWindowStart = new Date();
     dailySpendWindowStart.setUTCHours(0, 0, 0, 0);
-    const dailySpend = getDailySizingSpendSince(dailySpendWindowStart.toISOString());
+    const dailySpend = getDailyExecutedSpendSince(dailySpendWindowStart.toISOString());
     const openPositions = getOpenPositionsCount();
 
     const free = Math.max(equitySol - reserves, 0);
