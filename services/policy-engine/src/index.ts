@@ -276,11 +276,26 @@ async function bootstrap() {
 
     const selection = bandit.select(contextVector);
     const sizingStart = Date.now();
-    const spendCap = (walletSnapshot as any).spendCap ?? walletSnapshot.equity;
+    const perNameFractionCap = config.wallet.perNameCapFraction ?? 1;
+    const perNameMaxSol = config.wallet.perNameCapMaxSol ?? Infinity;
+    const dailyCapTotalSol = (() => {
+      const total = walletSnapshot.spendUsed + walletSnapshot.spendRemaining;
+      return Number.isFinite(total) ? total : config.wallet.dailySpendCapSol ?? Infinity;
+    })();
     const sizing = (config.features?.constrainedSizing
       ? (() => {
-          const dec = chooseSize({ candidate, walletEquity: walletSnapshot.equity, walletFree: walletSnapshot.free, dailySpendUsed: walletSnapshot.spendUsed, caps: { perNameFraction: 0.3, perNameMaxSol: 5, dailySpendCapSol: spendCap } });
-          return { size: dec.notional, reason: 'ok' } as { size: number; reason: string };
+          const dec = chooseSize({
+            candidate,
+            walletEquity: walletSnapshot.equity,
+            walletFree: walletSnapshot.free,
+            dailySpendUsed: walletSnapshot.spendUsed,
+            caps: {
+              perNameFraction: perNameFractionCap,
+              perNameMaxSol,
+              dailySpendCapSol: dailyCapTotalSol
+            }
+          });
+          return { size: dec.notional, reason: dec.riskNote } as { size: number; reason: string };
         })()
       : computeSizing(candidate, walletSnapshot, selection.action.sizeMultiplier));
 
@@ -450,6 +465,5 @@ function congestionToScore(level: string): number {
 bootstrap().catch((err) => {
   logger.error({ err }, 'policy engine failed to start');
 });
-
 
 
