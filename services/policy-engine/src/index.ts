@@ -34,6 +34,8 @@ const EXEC_POLL_INTERVAL_MS = 2_000;
 const PENDING_TIMEOUT_MS = 60_000;
 const FAILED_REWARD = -0.5;
 const MIN_ORDER_SIZE_SOL = 0.001;
+const FEATURE_ALPHA_MULTI_HORIZON = process.env.FEATURE_ALPHA_MULTI_HORIZON === '1';
+const FEATURE_DYNAMIC_WALLET_READY = process.env.FEATURE_DYNAMIC_WALLET_READY === '1';
 
 type PendingSelection = {
   actionId: string;
@@ -105,8 +107,17 @@ async function bootstrap() {
     logger.warn('NO_RPC=1; policy engine running without RPC connection');
   }
   const walletManager = connection ? new WalletManager(connection) : null;
-  const walletStatus = walletManager?.status ?? { ready: false, reason: 'missing_keystore' };
-  const walletReady = walletStatus.ready;
+  const initialWalletStatus = walletManager?.status ?? { ready: false, reason: 'missing_keystore' };
+  const getWalletStatus = (): { ready: boolean; reason?: string } => {
+    if (!walletManager) {
+      return initialWalletStatus;
+    }
+    if (FEATURE_DYNAMIC_WALLET_READY) {
+      return walletManager.status;
+    }
+    return initialWalletStatus;
+  };
+  const isWalletReady = (): boolean => getWalletStatus().ready;
   const bandit = new LinUCBBandit(PLAN_FEATURE_DIM);
   const pendingSelections = new Map<string, PendingSelection[]>();
   let lastExecOutcomeTs = Date.now();
@@ -263,16 +274,20 @@ async function bootstrap() {
     return { level, score: cachedCongestionScore };
   };
 
-  app.get('/healthz', async () => ({
-    status: offline || !walletReady ? 'degraded' : 'ok',
-    detail: offline ? 'rpc_missing' : walletReady ? 'ready' : 'awaiting_credentials',
-    offline,
-    providersOff,
-    rpc: config.rpc.primaryUrl,
-    wallet: walletStatus,
-    walletPubkey: walletReady && walletManager ? walletManager.publicKey.toBase58() : undefined,
-    safeFeed: config.policy.safeFeedUrl ?? safetyFeedUrl
-  }));
+  app.get('/healthz', async () => {
+    const walletStatus = getWalletStatus();
+    const walletReady = walletStatus.ready;
+    return {
+      status: offline || !walletReady ? 'degraded' : 'ok',
+      detail: offline ? 'rpc_missing' : walletReady ? 'ready' : (walletStatus.reason ?? 'awaiting_credentials'),
+      offline,
+      providersOff,
+      rpc: config.rpc.primaryUrl,
+      wallet: walletStatus,
+      walletPubkey: walletReady && walletManager ? walletManager.publicKey.toBase58() : undefined,
+      safeFeed: config.policy.safeFeedUrl ?? safetyFeedUrl
+    };
+  });
 
   app.get('/metrics', async (_, reply) => {
     const registry = getRegistry();
@@ -315,21 +330,41 @@ async function bootstrap() {
       const leaderInfo = computeLeaderBoostInfo(candidate, leaderConfig, now);
       try {
         if ((config as any).features?.alphaRanker) {
-          const scoreEntry = alphaClient.getLatestScore(candidate.mint, '10m');
-          if (scoreEntry === undefined) {
+          const configuredHorizonsRaw = (config as any).alpha?.horizons;
+          const configuredHorizons =
+            FEATURE_ALPHA_MULTI_HORIZON && Array.isArray(configuredHorizonsRaw) && configuredHorizonsRaw.length > 0
+              ? configuredHorizonsRaw
+              : ['10m'];
+          let bestScoreEntry: { score: number; ts: number } | undefined;
+          let bestScoreTs = 0;
+          let sawStaleEntry = false;
+          for (const horizon of configuredHorizons) {
+            const entry = alphaClient.getLatestScore(candidate.mint, horizon as '10m' | '60m' | '24h');
+            if (!entry) {
+              continue;
+            }
+            const entryTs = entry.ts;
+            if (now - entryTs > ALPHA_ENTRY_TTL_MS) {
+              sawStaleEntry = true;
+              continue;
+            }
+            if (!bestScoreEntry || entry.score > bestScoreEntry.score) {
+              bestScoreEntry = entry;
+              bestScoreTs = entryTs;
+            }
+          }
+          if (!bestScoreEntry) {
             alphaMap.delete(candidate.mint);
-          } else {
-            const sourceTs = scoreEntry.ts;
-            if (now - sourceTs > ALPHA_ENTRY_TTL_MS) {
-              alphaMap.delete(candidate.mint);
+            if (sawStaleEntry) {
               plansSuppressed.inc({ reason: 'alpha_stale' });
               return;
             }
-            let sc = scoreEntry.score;
+          } else {
+            let sc = bestScoreEntry.score;
             if (leaderInfo.applied) {
               sc += leaderConfig.rankBoost;
             }
-            alphaMap.set(candidate.mint, { score: sc, updatedAt: sourceTs });
+            alphaMap.set(candidate.mint, { score: sc, updatedAt: bestScoreTs });
             if (sc < alphaMin) {
               plansSuppressed.inc({ reason: 'alpha_below_min' });
               return;
@@ -364,7 +399,7 @@ async function bootstrap() {
       }
       // Legacy score gating removed; RugGuard is the sole gate
 
-      if (!walletReady) {
+      if (!isWalletReady()) {
         plansSuppressed.inc({ reason: 'wallet_unavailable' });
         return;
       }

@@ -19,9 +19,13 @@ const logger = createLogger('position-manager');
 const offline = process.env.NO_RPC === '1';
 const providersOff = process.env.DISABLE_PROVIDERS === '1';
 const PRICE_REFRESH_MS = 7_000;
-const POSITION_GAUGE_REFRESH = registerGauge({
+const POSITION_COUNT_GAUGE = registerGauge({
   name: 'position_manager_positions',
   help: 'Number of open positions'
+});
+const POSITION_REFRESH_EPOCH = registerGauge({
+  name: 'position_manager_positions_last_refresh_epoch',
+  help: 'Unix timestamp of last position count refresh'
 });
 
 async function bootstrap() {
@@ -612,7 +616,8 @@ async function refreshExposureMetrics(positions: Map<string, { state: PositionSt
     }
   }
   positionSizeGauge.set(exposure);
-  POSITION_GAUGE_REFRESH.set(Date.now());
+  POSITION_COUNT_GAUGE.set(count);
+  POSITION_REFRESH_EPOCH.set(Math.floor(Date.now() / 1000));
 }
 
 bootstrap().catch((err) => {
