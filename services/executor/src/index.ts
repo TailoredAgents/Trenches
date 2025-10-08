@@ -9,7 +9,7 @@ import { loadConfig } from '@trenches/config';
 import { createLogger } from '@trenches/logger';
 import { getRegistry } from '@trenches/metrics';
 import { logTradeEvent, recordOrderPlan, recordFill, insertExecOutcome, insertSimOutcome } from '@trenches/persistence';
-import { TokenCandidate, OrderPlan, TradeEvent } from '@trenches/shared';
+import { TokenCandidate, OrderPlan, TradeEvent, CongestionLevel } from '@trenches/shared';
 import { WalletProvider } from './wallet';
 import { JupiterClient } from './jupiter';
 import { TransactionSender } from './sender';
@@ -27,6 +27,29 @@ const providersOff = process.env.DISABLE_PROVIDERS === '1';
 const enableShadowOutcomes = process.env.ENABLE_SHADOW_OUTCOMES === '1';
 const shadowMode = process.env.EXECUTOR_SHADOW_MODE === '1';
 const tokenDecimalsCache = new Map<string, number>();
+
+type PolicyPlanContext = {
+  candidate?: TokenCandidate;
+  congestion?: CongestionLevel | string;
+  walletEquity?: number;
+  walletFree?: number;
+  dailySpendUsed?: number;
+  leaderWalletBoost?: unknown;
+  parsedCtx?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+type ExecutorPlanContext = {
+  candidate: TokenCandidate;
+  congestionLevel?: CongestionLevel | string;
+  congestionScore: number;
+  walletEquity?: number;
+  walletFree?: number;
+  dailySpendUsed?: number;
+};
+
+const DEFAULT_CONGESTION_SCORE = 0.7;
+const LAMPORTS_PER_SOL_BIGINT = BigInt(LAMPORTS_PER_SOL);
 
 async function getTokenDecimals(connection: Connection, mint: string): Promise<number> {
   const cached = tokenDecimalsCache.get(mint);
@@ -254,10 +277,10 @@ async function bootstrap() {
 function startPlanStream(
   url: string,
   bus: ExecutorEventBus,
-  handler: (payload: { plan: OrderPlan; context: { candidate: TokenCandidate } }) => Promise<void>
+  handler: (payload: { plan: OrderPlan; context: PolicyPlanContext }) => Promise<void>
 ): () => void {
   const lastEventIdStore = createInMemoryLastEventIdStore();
-  const client = subscribeJsonStream<{ plan: OrderPlan; context: { candidate: TokenCandidate } }>(url, {
+  const client = subscribeJsonStream<{ plan: OrderPlan; context: PolicyPlanContext }>(url, {
     lastEventIdStore,
     eventSourceFactory: (target, init) => new EventSource(target, { headers: init?.headers }) as any,
     onOpen: () => {
@@ -293,9 +316,63 @@ function startPlanStream(
   return () => client.dispose();
 }
 
-function recordReplayShadowOutcome(payload: { plan: OrderPlan; context: { candidate: TokenCandidate } }) {
+function coerceNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function congestionLevelToScore(level: CongestionLevel | string | undefined, fallback = DEFAULT_CONGESTION_SCORE, explicitScore?: number): number {
+  if (typeof explicitScore === 'number' && Number.isFinite(explicitScore)) {
+    return explicitScore;
+  }
+  switch (level) {
+    case 'p25':
+      return 1;
+    case 'p50':
+      return 0.7;
+    case 'p75':
+      return 0.4;
+    case 'p90':
+      return 0.2;
+    default: {
+      const numeric = coerceNumber(level);
+      return numeric !== undefined ? numeric : fallback;
+    }
+  }
+}
+
+function normalizePlanContext(raw: PolicyPlanContext): ExecutorPlanContext {
+  const parsed = raw?.parsedCtx && typeof raw.parsedCtx === 'object' ? (raw.parsedCtx as Record<string, unknown>) : {};
+  const candidate =
+    (raw.candidate as TokenCandidate | undefined) ?? (parsed.candidate as TokenCandidate | undefined) ?? ({} as TokenCandidate);
+  const congestionLevel =
+    (raw.congestion as CongestionLevel | string | undefined) ?? (parsed.congestion as CongestionLevel | string | undefined);
+  const congestionScore = congestionLevelToScore(
+    congestionLevel,
+    DEFAULT_CONGESTION_SCORE,
+    coerceNumber(parsed.congestionScore ?? (raw as Record<string, unknown>)?.congestionScore)
+  );
+  const walletEquity = coerceNumber(raw.walletEquity ?? parsed.walletEquity ?? parsed.wallet_equity);
+  const walletFree = coerceNumber(raw.walletFree ?? parsed.walletFree ?? parsed.wallet_free);
+  const dailySpendUsed = coerceNumber(raw.dailySpendUsed ?? parsed.dailySpendUsed ?? parsed.daily_spend_used);
+  return {
+    candidate,
+    congestionLevel,
+    congestionScore,
+    walletEquity,
+    walletFree,
+    dailySpendUsed
+  };
+}
+
+function recordReplayShadowOutcome(payload: { plan: OrderPlan; context: PolicyPlanContext }) {
   const { plan, context } = payload;
-  const candidate = context?.candidate ?? ({} as TokenCandidate);
+  const normalized = normalizePlanContext(context);
+  const candidate = normalized.candidate ?? ({} as TokenCandidate);
   const now = Date.now();
   const amountIn = typeof (plan as any).inAmount === 'number'
     ? Number((plan as any).inAmount)
@@ -323,7 +400,7 @@ function recordReplayShadowOutcome(payload: { plan: OrderPlan; context: { candid
 }
 
 async function executePlan(opts: {
-  payload: { plan: OrderPlan; context: { candidate: TokenCandidate } };
+  payload: { plan: OrderPlan; context: PolicyPlanContext };
   connection: Connection;
   wallet: WalletProvider;
   jupiter: JupiterClient;
@@ -332,7 +409,11 @@ async function executePlan(opts: {
 }): Promise<void> {
   const { payload, wallet, jupiter, sender, bus, connection } = opts;
   const plan = payload.plan;
-  const candidate = payload.context.candidate;
+  const planContext = normalizePlanContext(payload.context ?? {});
+  const candidate = planContext.candidate;
+  if (!candidate?.mint) {
+    throw new Error('missing candidate in plan context');
+  }
   const orderCreatedTs = Date.now();
   const orderId = `${candidate.mint}-${orderCreatedTs}`;
 
@@ -381,6 +462,7 @@ async function executePlan(opts: {
   const routeStatsMap = loadRouteStats(rqConfig, windowStartTs);
   const excludedRoutes = new Set<string>();
   const eligible = [] as Array<{ cuPrice: number; slippageBps: number; pred: { pFill: number; expSlipBps: number; expTimeMs: number }; penalty: number }>;
+  const congestionScore = planContext.congestionScore ?? DEFAULT_CONGESTION_SCORE;
   for (const arm of arms) {
     const currentStats = routeStatsMap.get(routeKey);
     if (currentStats?.excluded) {
@@ -398,7 +480,7 @@ async function executePlan(opts: {
       route: routeKey,
       amountLamports,
       slippageBps: arm.slippageBps,
-      congestionScore: 0.7,
+      congestionScore,
       lpSol: candidate.lpSol,
       spreadBps: candidate.spreadBps,
       volatilityBps: candidate.spreadBps,
@@ -417,7 +499,15 @@ async function executePlan(opts: {
     throw new Error(`route ${routeKey} quarantined`);
   }
   const chosen = eligible.sort((a, b) => (b.pred.pFill - b.penalty) - (a.pred.pFill - a.penalty))[0];
-  const feeDecision = cfg.features.feeBandit ? decideFees({ congestionScore: 0.7, sizeSol: plan.sizeSol, equity: plan.sizeSol * 10, lpSol: candidate.lpSol, spreadBps: candidate.spreadBps }) : { ts: Date.now(), cuPrice: chosen.cuPrice, cuLimit: 1_200_000, slippageBps: chosen.slippageBps, rationale: 'static' };
+  const feeDecision = cfg.features.feeBandit
+    ? decideFees({
+        congestionScore,
+        sizeSol: plan.sizeSol,
+        equity: planContext.walletEquity ?? Math.max(plan.sizeSol, 0) * 10,
+        lpSol: candidate.lpSol,
+        spreadBps: candidate.spreadBps
+      })
+    : { ts: Date.now(), cuPrice: chosen.cuPrice, cuLimit: 1_200_000, slippageBps: chosen.slippageBps, rationale: 'static' };
   // Shadow fee policy (offline only)
   try {
     if ((cfg as any).features?.offlinePolicyShadow) {
@@ -427,7 +517,20 @@ async function executePlan(opts: {
       const shadowIndex = 0;
       const shadowArm = arms[shadowIndex] ?? arms[0];
       const pChosen = chosen.pred?.pFill ?? 1;
-      const shadowPred = await predictFill({ route: 'jupiter', amountLamports, slippageBps: shadowArm.slippageBps, congestionScore: 0.7, lpSol: candidate.lpSol, spreadBps: candidate.spreadBps, volatilityBps: candidate.spreadBps, ageSec: candidate.ageSec, rugProb: (candidate as any).rugProb }, { mint: candidate.mint, arm: shadowArm });
+      const shadowPred = await predictFill(
+        {
+          route: 'jupiter',
+          amountLamports,
+          slippageBps: shadowArm.slippageBps,
+          congestionScore,
+          lpSol: candidate.lpSol,
+          spreadBps: candidate.spreadBps,
+          volatilityBps: candidate.spreadBps,
+          ageSec: candidate.ageSec,
+          rugProb: (candidate as any).rugProb
+        },
+        { mint: candidate.mint, arm: shadowArm }
+      );
       const delta = (shadowPred.pFill ?? 0) - (pChosen ?? 0);
       const { insertShadowFeeDecision } = await import('@trenches/persistence');
       insertShadowFeeDecision({ ts: Date.now(), mint: candidate.mint, chosenArm: shadowIndex, baselineArm: baselineIndex, deltaRewardEst: delta }, { baseline: { cuPrice: feeDecision.cuPrice, slippageBps: feeDecision.slippageBps }, shadow: shadowArm });
@@ -471,12 +574,12 @@ async function executePlan(opts: {
   );
 
   const tokenDecimals = await getTokenDecimals(connection, candidate.mint);
-  const quoteOutRaw = Number(quote.outAmount);
-  const quotePrice = computeExecutionPrice({
-    tokenDecimals,
-    solAmountLamports: isBuy ? amountLamports : quoteOutRaw,
-    tokenAmountRaw: isBuy ? quoteOutRaw : amountLamports
-  });
+  const amountLamportsBig = BigInt(Math.round(amountLamports));
+  const quoteOutRawBig = parseLamportString(quote.outAmount, 'quote.outAmount');
+  const solLamportsForPrice = isBuy ? amountLamportsBig : quoteOutRawBig;
+  const tokenRawForPrice = isBuy ? quoteOutRawBig : amountLamportsBig;
+  const quotePrice = computePriceFromAmounts(tokenDecimals, solLamportsForPrice, tokenRawForPrice);
+  const quoteOutRaw = bigIntToDecimal(quoteOutRawBig, 0);
 
   // In shadow mode, record synthetic outcome and skip real execution
   try {
@@ -684,7 +787,14 @@ async function executePlan(opts: {
       const feeBps = feeBaseLamports > 0 ? (feeLamportsTotal / feeBaseLamports) * 10_000 : 0;
       try {
         updateArm(
-          { congestionScore: 0.7, sizeSol: plan.sizeSol, equity: plan.sizeSol * 10, lpSol: candidate.lpSol, spreadBps: candidate.spreadBps },
+          {
+            congestionScore,
+            sizeSol: plan.sizeSol,
+            equity: planContext.walletEquity ?? Math.max(plan.sizeSol, 0) * 10,
+            lpSol: candidate.lpSol,
+            spreadBps: candidate.spreadBps,
+            volatilityBps: candidate.spreadBps
+          },
           { cuPrice: cuPriceToUse, slippageBps: slippageToUse },
           { filled: true, realizedSlipBps: slipReal, feeBps }
         );
@@ -777,6 +887,48 @@ function diffSolBalance(meta: any): number {
   const pre = preBalances.length > 0 ? preBalances[0] ?? 0 : 0;
   const post = postBalances.length > 0 ? postBalances[0] ?? 0 : 0;
   return post - pre;
+}
+
+function parseLamportString(value: string, label: string): bigint {
+  try {
+    return BigInt(value);
+  } catch (err) {
+    throw new Error(`invalid ${label}: ${value}`);
+  }
+}
+
+function bigIntToDecimal(raw: bigint, decimals: number): number {
+  if (raw === 0n) {
+    return 0;
+  }
+  if (decimals <= 0) {
+    const asNumber = Number(raw);
+    if (Number.isSafeInteger(asNumber)) {
+      return asNumber;
+    }
+    return Number.parseFloat(raw.toString());
+  }
+  const rawStr = raw.toString();
+  if (rawStr.length <= decimals) {
+    const padded = rawStr.padStart(decimals + 1, '0');
+    const intPart = padded.slice(0, padded.length - decimals);
+    const fracPart = padded.slice(-decimals).replace(/0+$/, '');
+    const decimalStr = fracPart.length > 0 ? `${intPart}.${fracPart}` : intPart;
+    return Number.parseFloat(decimalStr);
+  }
+  const integerPart = rawStr.slice(0, rawStr.length - decimals);
+  const fractionalPart = rawStr.slice(rawStr.length - decimals).replace(/0+$/, '');
+  const decimalStr = fractionalPart.length > 0 ? `${integerPart}.${fractionalPart}` : integerPart;
+  return Number.parseFloat(decimalStr);
+}
+
+function computePriceFromAmounts(tokenDecimals: number, solLamports: bigint, tokenRaw: bigint): number {
+  const solAmount = bigIntToDecimal(solLamports, 9);
+  const tokenAmount = bigIntToDecimal(tokenRaw, tokenDecimals);
+  if (solAmount <= 0 || tokenAmount <= 0) {
+    return 0;
+  }
+  return solAmount / tokenAmount;
 }
 
 function computeExecutionPrice(params: { tokenDecimals: number; solAmountLamports: number; tokenAmountRaw: number }): number {
