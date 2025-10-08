@@ -66,8 +66,28 @@ export function chooseSize(ctx: SizingContext & { rugProb?: number; pFill?: numb
         ? 'ok'
         : limitingReason;
 
+  const capsSnapshot = {
+    perNameFractionCap,
+    perNameMaxCap,
+    dailyCapRemaining: dailyRemaining,
+    perMintCapFromUsd,
+    walletFree
+  };
   const dec: SizeDecision = { ts, mint: ctx.candidate.mint, arm: best.arm, notional, riskNote };
+  const persistencePayload = {
+    ts,
+    mint: ctx.candidate.mint,
+    arm: best.arm,
+    notional,
+    finalSize: notional,
+    reason: riskNote,
+    equity,
+    free: walletFree,
+    tier: 'constrained',
+    caps: capsSnapshot
+  };
   // Propensities (softmax over notional as a simple proxy)
+  const baseCtx = { ctx };
   try {
     const scores = candidates.map((c) => c.notional);
     const max = Math.max(...scores);
@@ -76,22 +96,16 @@ export function chooseSize(ctx: SizingContext & { rugProb?: number; pFill?: numb
     const probs = exps.map((e: number) => e / sum);
     const armIndex = candidates.findIndex((c: { arm: string; notional: number }) => c.arm === best.arm);
     const ctxHash = Math.abs(JSON.stringify({ ts, mint: ctx.candidate.mint }).split('').reduce((a: number, ch: string) => ((a << 5) - a + ch.charCodeAt(0)) | 0, 0));
-    insertSizingDecision(dec, {
+    insertSizingDecision(persistencePayload, {
       ctx,
       armIndex,
       scores,
       probs,
-      caps: {
-        perNameFractionCap,
-        perNameMaxCap,
-        dailyCapRemaining: dailyRemaining,
-        perMintCapFromUsd,
-        walletFree
-      },
+      caps: capsSnapshot,
       ctx_hash: ctxHash
     });
   } catch {
-    insertSizingDecision(dec, { ctx });
+    insertSizingDecision(persistencePayload, baseCtx);
   }
   return dec;
 }

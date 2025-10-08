@@ -1610,13 +1610,17 @@ export function recordSizingDecision(input: { mint?: string; equity: number; fre
 
   const database = getDb();
 
+  const ts = Date.now();
+
   database
 
-    .prepare(`INSERT INTO sizing_decisions (mint, equity, free, tier, caps, final_size, reason)
+    .prepare(`INSERT INTO sizing_decisions (ts, mint, equity, free, tier, caps, final_size, reason)
 
-              VALUES (@mint, @equity, @free, @tier, @caps, @finalSize, @reason)`)
+              VALUES (@ts, @mint, @equity, @free, @tier, @caps, @finalSize, @reason)`)
 
     .run({
+
+      ts,
 
       mint: input.mint ?? null,
 
@@ -1732,19 +1736,35 @@ export function getOpenPositionsCount(): number {
   return row?.cnt ?? 0;
 }
 
+function normalizeTimestampForSqlite(isoTimestamp: string): { millis: number; sqlite: string } {
+  const parsed = Date.parse(isoTimestamp);
+  const millis = Number.isFinite(parsed) ? parsed : Date.now();
+  const date = new Date(millis);
+  const pad = (value: number) => value.toString().padStart(2, '0');
+  const sqlite = `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`;
+  return { millis, sqlite };
+}
+
 export function getDailySizingSpendSince(isoTimestamp: string): number {
   const database = getDb();
+  const { millis, sqlite } = normalizeTimestampForSqlite(isoTimestamp);
   const row = database
-    .prepare('SELECT COALESCE(SUM(final_size), 0) AS total FROM sizing_decisions WHERE created_at >= ?')
-    .get(isoTimestamp) as { total?: number };
+    .prepare(
+      `SELECT COALESCE(SUM(final_size), 0) AS total
+       FROM sizing_decisions
+       WHERE (ts IS NOT NULL AND ts >= @sinceMs)
+          OR (ts IS NULL AND datetime(created_at) >= datetime(@sinceSql))`
+    )
+    .get({ sinceMs: millis, sinceSql: sqlite }) as { total?: number };
   return row?.total ?? 0;
 }
 
 export function getDailyRealizedPnlSince(isoTimestamp: string): number {
   const database = getDb();
+  const { sqlite } = normalizeTimestampForSqlite(isoTimestamp);
   const rows = database
-    .prepare("SELECT payload FROM events WHERE event_type = 'exit' AND created_at >= ?")
-    .all(isoTimestamp) as Array<{ payload: string }>;
+    .prepare("SELECT payload FROM events WHERE event_type = 'exit' AND datetime(created_at) >= datetime(?)")
+    .all(sqlite) as Array<{ payload: string }>;
   let total = 0;
   for (const row of rows) {
     try {
@@ -2517,11 +2537,42 @@ export function insertHazardState(h: { ts: number; mint: string; hazard: number;
     .run({ ts: h.ts, mint: h.mint, hazard: h.hazard, trailBps: h.trailBps, ladder: JSON.stringify(h.ladder) });
 }
 
-export function insertSizingDecision(dec: { ts: number; mint: string; arm: string; notional: number }, ctx: Record<string, unknown>): void {
+export function insertSizingDecision(
+  dec: {
+    ts: number;
+    mint: string;
+    arm: string;
+    notional: number;
+    finalSize: number;
+    reason: string;
+    equity: number;
+    free: number;
+    tier?: string;
+    caps?: Record<string, number>;
+  },
+  ctx: Record<string, unknown>
+): void {
   const database = getDb();
+  const tier = dec.tier ?? 'constrained';
+  const capsJson = JSON.stringify(dec.caps ?? {});
   database
-    .prepare(`INSERT INTO sizing_decisions (ts, mint, arm, notional, ctx_json) VALUES (@ts, @mint, @arm, @notional, @ctx)`)
-    .run({ ...dec, ctx: JSON.stringify(ctx) });
+    .prepare(
+      `INSERT INTO sizing_decisions (ts, mint, arm, notional, final_size, reason, equity, free, tier, caps, ctx_json)
+       VALUES (@ts, @mint, @arm, @notional, @finalSize, @reason, @equity, @free, @tier, @caps, @ctx)`
+    )
+    .run({
+      ts: dec.ts,
+      mint: dec.mint,
+      arm: dec.arm,
+      notional: dec.notional,
+      finalSize: dec.finalSize,
+      reason: dec.reason,
+      equity: dec.equity,
+      free: dec.free,
+      tier,
+      caps: capsJson,
+      ctx: JSON.stringify(ctx)
+    });
 }
 
 export function insertSizingOutcome(row: { ts: number; mint: string; notional: number; pnlUsd: number; maeBps: number; closed: number }): void {
