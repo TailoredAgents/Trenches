@@ -25,6 +25,8 @@ const logger = createLogger('executor');
 const offline = process.env.NO_RPC === '1';
 const providersOff = process.env.DISABLE_PROVIDERS === '1';
 const enableShadowOutcomes = process.env.ENABLE_SHADOW_OUTCOMES === '1';
+const featureRefreshQuote = process.env.FEATURE_EXECUTOR_REFRESH_QUOTE === '1';
+const featurePersistFinalExecParams = process.env.FEATURE_PERSIST_FINAL_EXEC_PARAMS === '1';
 const shadowMode = process.env.EXECUTOR_SHADOW_MODE === '1';
 const tokenDecimalsCache = new Map<string, number>();
 
@@ -569,7 +571,7 @@ async function executePlan(opts: {
   cuPriceToUse = presetResult.cuPrice;
   slippageToUse = presetResult.slippageBps;
   slipExpForStats = Math.max(slipExpForStats, slippageToUse);
-  const quote = await jupiter.fetchQuote(
+  let quote = await jupiter.fetchQuote(
     {
       inputMint,
       outputMint,
@@ -581,11 +583,12 @@ async function executePlan(opts: {
 
   const tokenDecimals = await getTokenDecimals(connection, candidate.mint);
   const amountLamportsBig = BigInt(Math.round(amountLamports));
-  const quoteOutRawBig = parseLamportString(quote.outAmount, 'quote.outAmount');
-  const solLamportsForPrice = isBuy ? amountLamportsBig : quoteOutRawBig;
-  const tokenRawForPrice = isBuy ? quoteOutRawBig : amountLamportsBig;
-  const quotePrice = computePriceFromAmounts(tokenDecimals, solLamportsForPrice, tokenRawForPrice);
-  const quoteOutRaw = bigIntToDecimal(quoteOutRawBig, 0);
+  let quoteOutRawBig = parseLamportString(quote.outAmount, 'quote.outAmount');
+  let solLamportsForPrice = isBuy ? amountLamportsBig : quoteOutRawBig;
+  let tokenRawForPrice = isBuy ? quoteOutRawBig : amountLamportsBig;
+  let quotePrice = computePriceFromAmounts(tokenDecimals, solLamportsForPrice, tokenRawForPrice);
+  let quoteOutRaw = bigIntToDecimal(quoteOutRawBig, 0);
+  let lastQuoteAt = Date.now();
 
   // In shadow mode, record synthetic outcome and skip real execution
   try {
@@ -621,6 +624,88 @@ async function executePlan(opts: {
 
   let lastError: unknown = null;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
+    // Optionally refresh quote and recompute fee decision on retries
+    if (attempt > 0 && featureRefreshQuote) {
+      const now = Date.now();
+      const stale = now - lastQuoteAt > (cfg.execution as any)?.blockhashStaleMs;
+      try {
+        // Re-evaluate arms and fee decision
+        const recomputeEligible = [] as Array<{ cuPrice: number; slippageBps: number; pred: { pFill: number; expSlipBps: number; expTimeMs: number }; penalty: number }>;
+        const currentStats = routeStatsMap.get(routeKey);
+        if (!currentStats?.excluded) {
+          for (const arm of arms) {
+            if (!cfg.features.feeBandit || !cfg.features.fillNet) {
+              recomputeEligible.push({ cuPrice: arm.cuPrice, slippageBps: arm.slippageBps, pred: { pFill: 1, expSlipBps: arm.slippageBps, expTimeMs: 500 }, penalty: currentStats?.penalty ?? 0 });
+              continue;
+            }
+            const pred = await predictFill(
+              {
+                route: routeKey,
+                amountLamports,
+                slippageBps: arm.slippageBps,
+                congestionScore,
+                lpSol: candidate.lpSol,
+                spreadBps: candidate.spreadBps,
+                volatilityBps: candidate.spreadBps,
+                ageSec: candidate.ageSec,
+                rugProb: (candidate as any).rugProb
+              },
+              { mint: candidate.mint, arm }
+            );
+            if (pred.pFill >= cfg.execution.minFillProb && arm.slippageBps <= cfg.execution.maxSlipBps) {
+              recomputeEligible.push({ cuPrice: arm.cuPrice, slippageBps: arm.slippageBps, pred, penalty: currentStats?.penalty ?? 0 });
+            }
+          }
+          if (recomputeEligible.length > 0) {
+            const rescored = recomputeEligible
+              .map((entry) => {
+                const normPenalty = Math.min(1, Math.max(0, entry.penalty / 100));
+                const score = 0.8 * entry.pred.pFill - 0.2 * normPenalty;
+                return { ...entry, normPenalty, score };
+              })
+              .sort((a, b) => b.score - a.score);
+            const reChosen = rescored[0];
+            const reFeeDecision = cfg.features.feeBandit
+              ? decideFees({
+                  congestionScore,
+                  sizeSol: plan.sizeSol,
+                  equity: planContext.walletEquity ?? Math.max(plan.sizeSol, 0) * 10,
+                  lpSol: candidate.lpSol,
+                  spreadBps: candidate.spreadBps
+                })
+              : { ts: Date.now(), cuPrice: reChosen.cuPrice, cuLimit: 1_200_000, slippageBps: reChosen.slippageBps, rationale: 'static' } as any;
+
+            let newCuPrice = reFeeDecision.cuPrice;
+            let newSlip = reFeeDecision.slippageBps;
+            const presetResultRetry = applyMigrationPresetAdjustment({
+              preset: ((cfg as any).execution?.migrationPreset),
+              mint: candidate.mint,
+              pool: candidate.poolAddress ?? candidate.lpMint ?? null,
+              route: plan.route,
+              baseCuPrice: newCuPrice,
+              baseSlippageBps: newSlip
+            });
+            cuPriceToUse = presetResultRetry.cuPrice;
+            slippageToUse = presetResultRetry.slippageBps;
+            slipExpForStats = Math.max(reChosen.pred?.expSlipBps ?? slippageToUse, slippageToUse);
+          }
+        }
+        try {
+          // refresh quote (retry-time refresh)
+          quote = await jupiter.fetchQuote(
+            { inputMint, outputMint, amount: amountLamports, slippageBps: slippageToUse },
+            wallet.publicKey.toBase58()
+          );
+          quoteOutRawBig = parseLamportString(quote.outAmount, 'quote.outAmount');
+          solLamportsForPrice = isBuy ? amountLamportsBig : quoteOutRawBig;
+          tokenRawForPrice = isBuy ? quoteOutRawBig : amountLamportsBig;
+          quotePrice = computePriceFromAmounts(tokenDecimals, solLamportsForPrice, tokenRawForPrice);
+          quoteOutRaw = bigIntToDecimal(quoteOutRawBig, 0);
+          lastQuoteAt = Date.now();
+        } catch (e) {
+          logger.warn({ err: e }, 'failed to refresh quote/fees on retry');
+        }
+    }
     try {
       const { transaction, prioritizationFeeLamports, lastValidBlockHeight } = await jupiter.buildSwapTx({
         quoteResponse: quote,
@@ -662,7 +747,7 @@ async function executePlan(opts: {
         transaction,
         jitoTipLamports: plan.jitoTipLamports,
         jitoTipTxBase64: tipTxBase64,
-        computeUnitPriceMicroLamports: plan.computeUnitPriceMicroLamports,
+        computeUnitPriceMicroLamports: cuPriceToUse,
         label: orderId,
         lastValidBlockHeight,
         recentBlockhash
@@ -775,9 +860,9 @@ async function executePlan(opts: {
         mint: candidate.mint,
         gate: plan.gate,
         sizeSol: plan.sizeSol,
-        slippageBps: plan.slippageBps,
+        slippageBps: featurePersistFinalExecParams ? slippageToUse : (plan.slippageBps as any),
         jitoTipLamports: plan.jitoTipLamports,
-        computeUnitPrice: plan.computeUnitPriceMicroLamports,
+        computeUnitPrice: featurePersistFinalExecParams ? cuPriceToUse : (plan.computeUnitPriceMicroLamports as any),
         route: plan.route,
         status: 'FILLED',
         side: plan.side ?? 'buy',
@@ -850,9 +935,9 @@ async function executePlan(opts: {
     mint: candidate.mint,
     gate: plan.gate,
     sizeSol: plan.sizeSol,
-    slippageBps: plan.slippageBps,
+    slippageBps: featurePersistFinalExecParams ? slippageToUse : (plan.slippageBps as any),
     jitoTipLamports: plan.jitoTipLamports,
-    computeUnitPrice: plan.computeUnitPriceMicroLamports,
+    computeUnitPrice: featurePersistFinalExecParams ? cuPriceToUse : (plan.computeUnitPriceMicroLamports as any),
     route: plan.route,
     status: 'FAILED',
     side: plan.side ?? 'buy',

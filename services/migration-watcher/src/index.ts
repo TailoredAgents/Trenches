@@ -15,6 +15,7 @@ type MigrationEvent = { ts: number; mint: string; pool: string; source: 'pumpfun
 const logger = createLogger('migration-watcher');
 const offline = process.env.NO_RPC === '1';
 const providersOff = process.env.DISABLE_PROVIDERS === '1';
+const featureMigrationPoolFix = process.env.FEATURE_MIGRATION_POOL_FIX === '1';
 
 async function bootstrap() {
   const config = loadConfig();
@@ -116,28 +117,107 @@ async function bootstrap() {
   const writer = createWriteQueue('migration');
 
   // Subscribe helpers
+  function extractAccountKeysForTx(tx: any): string[] {
+    const accounts: string[] = [];
+    const message = tx?.transaction?.message as any;
+    if (message && Array.isArray(message?.accountKeys)) {
+      for (const key of message.accountKeys) accounts.push(key.toBase58());
+      return accounts;
+    }
+    if (message && typeof message.getAccountKeys === 'function') {
+      try {
+        const keys = message.getAccountKeys({ accountKeysFromLookups: tx.meta?.loadedAddresses });
+        for (const k of keys.staticAccountKeys) accounts.push(k.toBase58());
+        const lu = keys.accountKeysFromLookups;
+        if (lu) { for (const k of lu.writable) accounts.push(k.toBase58()); for (const k of lu.readonly) accounts.push(k.toBase58()); }
+      } catch (err) {
+        logger.error({ err }, 'failed to extract account keys from message');
+      }
+    }
+    return accounts;
+  }
+
+  function firstNonEmptyMint(postBals: any[]): string {
+    for (const b of postBals) { if (b?.mint) { return b.mint as string; } }
+    return '';
+  }
+
+  function isPlausibleBase58(address: string | undefined): boolean {
+    if (!address || typeof address !== 'string') return false;
+    return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
+  }
+
   function normalizeMigrationEvent(tx: any, sig: string, source: MigrationEvent['source']): MigrationEvent | null {
     try {
-      const accounts: string[] = [];
-      const message = tx.transaction?.message as any;
-      if (message && Array.isArray(message.accountKeys)) {
-        for (const key of message.accountKeys) accounts.push(key.toBase58());
-      } else if (message && typeof message.getAccountKeys === 'function') {
-        try {
-          const keys = message.getAccountKeys({ accountKeysFromLookups: tx.meta?.loadedAddresses });
-          for (const k of keys.staticAccountKeys) accounts.push(k.toBase58());
-          const lu = keys.accountKeysFromLookups;
-          if (lu) { for (const k of lu.writable) accounts.push(k.toBase58()); for (const k of lu.readonly) accounts.push(k.toBase58()); }
-        } catch (err) {
-          logger.error({ err }, 'failed to extract account keys from message');
+      const accounts = extractAccountKeysForTx(tx);
+      const postBals = Array.isArray(tx?.meta?.postTokenBalances) ? tx.meta.postTokenBalances : [];
+
+      // Program-aware extraction (opt-in)
+      if (featureMigrationPoolFix) {
+        if (source === 'raydium') {
+          // Reuse index-based approach similar to onchain-discovery RpcRaydiumWatcher
+          const pool = accounts[0] ?? '';
+          const poolCoinAccount = accounts[5];
+          const poolPcAccount = accounts[6];
+          if (!isPlausibleBase58(pool)) {
+            // if missing key indexes, fall back to legacy handling below
+          } else {
+            const resolveMint = (account: string | undefined): string | undefined => {
+              if (!account) return undefined;
+              for (const bal of postBals) {
+                const ai = (bal?.accountIndex ?? -1) as number;
+                const acct = accounts[ai] ?? '';
+                if (acct === account && bal?.mint) {
+                  return String(bal.mint);
+                }
+              }
+              return undefined;
+            };
+            const baseMint = resolveMint(poolCoinAccount);
+            const quoteMint = resolveMint(poolPcAccount);
+            const pickMint = baseMint || quoteMint || firstNonEmptyMint(postBals);
+            const timestampMs = (tx.blockTime ?? Math.floor(Date.now() / 1000)) * 1000;
+            if (isPlausibleBase58(pool)) {
+              return { ts: timestampMs, mint: pickMint ?? '', pool, source, initSig: sig };
+            }
+          }
+        } else {
+          // Conservative heuristic for pumpfun/pumpswap
+          const mintSet = new Set<string>();
+          const ownerCounts = new Map<string, number>();
+          for (const b of postBals) {
+            const m = b?.mint as string | undefined;
+            if (m) mintSet.add(m);
+            const owner = (b && typeof b === 'object') ? (b.owner || (b.uiTokenAmount as any)?.owner) : '';
+            if (isPlausibleBase58(owner)) {
+              ownerCounts.set(owner, (ownerCounts.get(owner) ?? 0) + 1);
+            }
+          }
+          // Require two distinct mints
+          if (mintSet.size >= 2) {
+            // Find an owner that appears at least twice across token balances
+            let poolCandidate = '';
+            for (const [o, c] of ownerCounts.entries()) {
+              if (c >= 2 && (!poolCandidate || c > (ownerCounts.get(poolCandidate) ?? 0))) {
+                poolCandidate = o;
+              }
+            }
+            if (isPlausibleBase58(poolCandidate)) {
+              // Choose a mint that is not SOL wrapper if present
+              const SOL_MINT = 'So11111111111111111111111111111111111111112';
+              const nonSolMint = Array.from(mintSet).find((m) => m !== SOL_MINT) ?? Array.from(mintSet)[0] ?? '';
+              const timestampMs = (tx.blockTime ?? Math.floor(Date.now() / 1000)) * 1000;
+              return { ts: timestampMs, mint: nonSolMint, pool: poolCandidate, source, initSig: sig };
+            }
+          }
+          // If we can't confidently infer, skip
+          return null;
         }
       }
-      // Pool heuristic: first writable account beyond program index
+
+      // Legacy heuristic (flag off): first account as pool, first mint from post balances
       const pool = accounts[0] ?? '';
-      // Token mint heuristic: prefer postTokenBalances with owner == poolCoin/pc or non-empty mint
-      const postBals = tx.meta?.postTokenBalances ?? [];
-      let mint = '';
-      for (const b of postBals) { if (b?.mint) { mint = b.mint; break; } }
+      const mint = firstNonEmptyMint(postBals);
       const timestampMs = (tx.blockTime ?? Math.floor(Date.now() / 1000)) * 1000;
       return { ts: timestampMs, mint, pool, source, initSig: sig };
     } catch (err) {

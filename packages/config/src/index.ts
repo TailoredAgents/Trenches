@@ -4,14 +4,42 @@ import YAML from 'yaml';
 import { configSchema, TrenchesConfig } from './schema';
 import { deepMerge } from '@trenches/util';
 const env = process.env as Record<string, string | undefined>;
-const sqlitePath = env.SQLITE_DB_PATH || env.PERSISTENCE_SQLITE_PATH || './data/trenches.db';
+
+function findRepoRoot(startDir: string): string {
+  try {
+    let current = path.resolve(startDir);
+    let lastWithPkgJson: string | null = null;
+    // Walk up until filesystem root
+    while (true) {
+      const workspaceFile = path.join(current, 'pnpm-workspace.yaml');
+      const pkgJson = path.join(current, 'package.json');
+      if (fs.existsSync(workspaceFile)) {
+        return current;
+      }
+      if (fs.existsSync(pkgJson)) {
+        lastWithPkgJson = current;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) {
+        break;
+      }
+      current = parent;
+    }
+    return lastWithPkgJson ?? path.resolve(startDir);
+  } catch {
+    return path.resolve(startDir);
+  }
+}
+
+const REPO_ROOT = findRepoRoot(process.cwd());
+const sqlitePath = env.SQLITE_DB_PATH || env.PERSISTENCE_SQLITE_PATH || path.join(REPO_ROOT, 'data', 'trenches.db');
 
 
 export type { TrenchesConfig } from './schema';
 
 let cachedConfig: TrenchesConfig | null = null;
 
-const DEFAULT_CONFIG_PATH = path.resolve(process.cwd(), 'config', 'default.yaml');
+const DEFAULT_CONFIG_PATH = path.resolve(REPO_ROOT, 'config', 'default.yaml');
 
 type EnvCaster = (value: string) => unknown;
 
@@ -409,6 +437,10 @@ function loadFileConfig(customPath?: string): Record<string, unknown> {
     if (pathToUse !== DEFAULT_CONFIG_PATH) {
       throw new Error(`Config file not found at ${pathToUse}`);
     }
+    // Default missing: emit info so operators know baked defaults are used
+    try {
+      console.info(`[config] default config not found at ${DEFAULT_CONFIG_PATH}; using baked defaults`);
+    } catch {}
     return {};
   }
   const raw = fs.readFileSync(pathToUse, 'utf-8');
