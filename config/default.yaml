@@ -68,11 +68,11 @@ endpoints:
   metrics:
     baseUrl: http://127.0.0.1:8090
 gating:
-  lpMinSol: 15                   # Balanced: Higher manipulation cost (was 8, originally 20)
-  buysSellRatioMin: 1.5          # Keep: Good volatility tolerance (was 2.2)
-  uniquesMin: 10                 # Balanced: Harder to game (was 6, originally 12)
-  minPoolAgeSec: 15              # Keep: Good speed (was 30)
-  maxSpreadBps: 300              # Keep: Allows early liquidity (was 150)
+  lpMinSol: 18                   # Require deeper pools before safety (retrained rugguard guidance)
+  buysSellRatioMin: 1.7          # Stricter flow balance to cut wash-trading entries
+  uniquesMin: 12                 # Restore higher trader diversity minimum
+  minPoolAgeSec: 20              # Small bump to let authority changes propagate
+  maxSpreadBps: 220              # Tighter spread gate based on updated slip calibration
 watchWindows:
   durationSec: 1200
   refreshIntervalSec: 5
@@ -235,11 +235,11 @@ safety:
     sssThreshold: 6.0              # Raised from 5.0 - higher bar for fast-entry
     velocityThreshold: 2.5         # Raised from 2.0 - require stronger momentum  
     minimumChecks:
-      lpMinSol: 12                 # Always require 12+ SOL even in fast mode
-      uniquesMin: 8                # Always require 8+ traders even in fast mode
+      lpMinSol: 14                 # Fast mode still enforces deeper pools post-rugguard retrain
+      uniquesMin: 10               # Keep diversity floor close to mainline gate
       lpBurnThreshold: 0.6         # Always require 60%+ LP burn even in fast mode
-      maxRugProb: 0.9              # Still check rug probability (90% threshold)
-      holderTopCap: 0.4            # Allow higher whale concentration in fast mode
+      maxRugProb: 0.85             # Reject fast entries with high rug likelihood
+      holderTopCap: 0.35           # Slightly lower whale concentration allowance
 
 policy:
   safeFeedUrl: null
