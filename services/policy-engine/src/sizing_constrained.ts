@@ -87,36 +87,38 @@ export function chooseSize(ctx: SizingContext & { rugProb?: number; pFill?: numb
     riskNote = 'usd_cap_suspended';
   }
 
+  const riskScalingEnabled = cfg.features?.constrainedRiskScaling !== false;
   let riskMultiplier = 1;
   const riskFactors: Record<string, number> = {};
-  if (typeof ctx.rugProb === 'number' && Number.isFinite(ctx.rugProb)) {
-    const rug = clamp01(ctx.rugProb);
-    const scale = clamp(1 - 0.8 * rug, 0.2, 1);
-    riskMultiplier *= scale;
-    if (scale < 0.999) {
-      riskFactors.rugProb = rug;
+  if (riskScalingEnabled) {
+    if (typeof ctx.rugProb === 'number' && Number.isFinite(ctx.rugProb)) {
+      const rug = clamp01(ctx.rugProb);
+      const scale = clamp(1 - 0.8 * rug, 0.2, 1);
+      riskMultiplier *= scale;
+      if (scale < 0.999) {
+        riskFactors.rugProb = rug;
+      }
     }
-  }
-  if (typeof ctx.pFill === 'number' && Number.isFinite(ctx.pFill)) {
-    const pf = clamp01(ctx.pFill);
-    const scale = clamp(pf / 0.9, 0.25, 1);
-    riskMultiplier *= scale;
-    if (scale < 0.999) {
-      riskFactors.pFill = pf;
+    if (typeof ctx.pFill === 'number' && Number.isFinite(ctx.pFill)) {
+      const pf = clamp01(ctx.pFill);
+      const scale = clamp(pf / 0.9, 0.25, 1);
+      riskMultiplier *= scale;
+      if (scale < 0.999) {
+        riskFactors.pFill = pf;
+      }
     }
-  }
-  if (typeof ctx.expSlipBps === 'number' && Number.isFinite(ctx.expSlipBps) && ctx.expSlipBps > 0) {
-    const slip = clamp(ctx.expSlipBps, 1, 5_000);
-    const scale = slip <= 150 ? 1 : clamp(150 / slip, 0.2, 1);
-    riskMultiplier *= scale;
-    if (scale < 0.999) {
-      riskFactors.expSlipBps = slip;
+    if (typeof ctx.expSlipBps === 'number' && Number.isFinite(ctx.expSlipBps) && ctx.expSlipBps > 0) {
+      const slip = clamp(ctx.expSlipBps, 1, 5_000);
+      const scale = slip <= 150 ? 1 : clamp(150 / slip, 0.2, 1);
+      riskMultiplier *= scale;
+      if (scale < 0.999) {
+        riskFactors.expSlipBps = slip;
+      }
     }
   }
   riskMultiplier = clamp(riskMultiplier, 0, 1);
-
   sizingRiskMultiplierGauge.set(riskMultiplier);
-  if (riskMultiplier < 0.999) {
+  if (riskScalingEnabled && riskMultiplier < 0.999) {
     const adjusted = Number(Math.max(0, notional * riskMultiplier).toFixed(4));
     notional = adjusted;
     if (notional <= 0) {

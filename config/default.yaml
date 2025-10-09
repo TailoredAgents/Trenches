@@ -352,6 +352,9 @@ features:
   offlinePolicyShadow: true
   jitoEnabled: false
   parquetExport: false
+  flowCapRewrite: true
+  constrainedRiskScaling: true
+  orderIdRewardMatching: true
   
 pyth:
   solUsdAccount: ''

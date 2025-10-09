@@ -342,6 +342,9 @@ const envMap: EnvMapping[] = [
   ['topics.test.seed', 'NARRATIVE_TEST_SEED', (v) => Number(v)],
   ['topics.test.vectorizerModule', 'NARRATIVE_TEST_VECTORIZER_MODULE', (v) => v]
   ,
+  ['features.flowCapRewrite', 'FEATURE_FLOW_CAP_REWRITE', (v) => v === 'true'],
+  ['features.constrainedRiskScaling', 'FEATURE_CONSTRAINED_RISK_SCALING', (v) => v === 'true'],
+  ['features.orderIdRewardMatching', 'FEATURE_ORDER_ID_REWARD_MATCHING', (v) => v === 'true'],
   ['execution.minFillProb', 'EXEC_MIN_FILL_PROB', (v) => Number(v)],
   ['execution.maxSlipBps', 'EXEC_MAX_SLIP_BPS', (v) => Number(v)],
   ['execution.routeRetryMs', 'EXEC_ROUTE_RETRY_MS', (v) => Number(v)],

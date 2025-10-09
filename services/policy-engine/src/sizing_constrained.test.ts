@@ -20,6 +20,12 @@ const metricMocks = vi.hoisted(() => ({
 
 vi.mock('./metrics', () => metricMocks);
 
+const defaultFeatures = {
+  constrainedRiskScaling: true,
+  flowCapRewrite: true,
+  orderIdRewardMatching: true
+};
+
 const defaultConfig = {
   sizing: { arms: [{ type: 'equity_frac', value: 0.5 }] },
   wallet: {
@@ -29,7 +35,8 @@ const defaultConfig = {
     flowCapFraction: 1,
     flowTradesPer5m: 60,
     flowCapMinSol: 0
-  }
+  },
+  features: defaultFeatures
 } as unknown as ReturnType<typeof loadConfig>;
 
 const baseCtx = (): SizingContext => ({
@@ -83,6 +90,18 @@ describe('chooseSize', () => {
     expect(metricMocks.sizingRiskScaledTotal.inc).toHaveBeenCalledWith({ factor: 'rugProb' });
     expect(metricMocks.sizingRiskScaledTotal.inc).toHaveBeenCalledWith({ factor: 'pFill' });
     expect(metricMocks.sizingRiskScaledTotal.inc).toHaveBeenCalledWith({ factor: 'expSlipBps' });
+  });
+
+  it('respects constrainedRiskScaling feature toggle', () => {
+    vi.mocked(loadConfig).mockReturnValue({
+      ...defaultConfig,
+      features: { ...defaultFeatures, constrainedRiskScaling: false }
+    } as ReturnType<typeof loadConfig>);
+    const ctx = baseCtx();
+    const result = chooseSize({ ...ctx, rugProb: 0.9, pFill: 0.1, expSlipBps: 500 });
+    expect(result.notional).toBeCloseTo(5, 5);
+    expect(metricMocks.sizingRiskMultiplierGauge.set).toHaveBeenCalledWith(1);
+    expect(metricMocks.sizingRiskScaledTotal.inc).not.toHaveBeenCalled();
   });
 
   it('applies combined risk multiplier deterministically', () => {

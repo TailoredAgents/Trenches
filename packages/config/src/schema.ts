@@ -398,7 +398,10 @@ export const configSchema = z.object({
       survivalStops: z.boolean().default(true),
       offlinePolicyShadow: z.boolean().default(true),
       jitoEnabled: z.boolean().default(false),
-      parquetExport: z.boolean().default(false)
+      parquetExport: z.boolean().default(false),
+      flowCapRewrite: z.boolean().default(true),
+      constrainedRiskScaling: z.boolean().default(true),
+      orderIdRewardMatching: z.boolean().default(true)
     })
     .default({
       migrationWatcher: true,
@@ -410,7 +413,10 @@ export const configSchema = z.object({
       survivalStops: true,
       offlinePolicyShadow: true,
       jitoEnabled: false,
-      parquetExport: false
+      parquetExport: false,
+      flowCapRewrite: true,
+      constrainedRiskScaling: true,
+      orderIdRewardMatching: true
     }),
   addresses: z
     .object({

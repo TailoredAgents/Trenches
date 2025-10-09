@@ -11,6 +11,10 @@ vi.mock('@trenches/persistence', () => ({
   recordSizingDecision: vi.fn()
 }));
 
+const baseFeatures = {
+  flowCapRewrite: true
+};
+
 const baseConfig = {
   wallet: {
     equityTiers: [{ minEquity: 0, maxEquity: null, riskFraction: 0.5 }],
@@ -25,7 +29,8 @@ const baseConfig = {
     dailySpendCapPct: undefined,
     dailySpendCapSol: undefined,
     reservesSol: 0
-  }
+  },
+  features: baseFeatures
 } as unknown as ReturnType<typeof loadConfig>;
 
 const defaultCandidate = {
@@ -54,7 +59,7 @@ const walletSnapshot = {
 
 describe('computeSizing flow cap behaviour', () => {
   beforeEach(() => {
-    vi.mocked(loadConfig).mockReturnValue(baseConfig);
+    vi.mocked(loadConfig).mockReturnValue({ ...baseConfig, features: { ...baseFeatures } } as ReturnType<typeof loadConfig>);
     vi.mocked(recordSizingDecision).mockClear();
   });
 
@@ -66,6 +71,16 @@ describe('computeSizing flow cap behaviour', () => {
 
   it('allows sizing when flow meets reference volume', () => {
     const candidate = { ...defaultCandidate, buys60: 120, sells60: 120 };
+    const result = computeSizing(candidate, walletSnapshot, 1);
+    expect(result.size).toBeCloseTo(5, 5);
+  });
+
+  it('can disable flow cap rewrite via feature flag', () => {
+    vi.mocked(loadConfig).mockReturnValue({
+      ...baseConfig,
+      features: { ...baseFeatures, flowCapRewrite: false }
+    } as ReturnType<typeof loadConfig>);
+    const candidate = { ...defaultCandidate, buys60: 0, sells60: 0 };
     const result = computeSizing(candidate, walletSnapshot, 1);
     expect(result.size).toBeCloseTo(5, 5);
   });

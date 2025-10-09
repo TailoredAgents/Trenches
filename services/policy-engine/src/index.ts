@@ -116,6 +116,7 @@ async function bootstrap() {
   const isWalletReady = (): boolean => getWalletStatus().ready;
   const bandit = new LinUCBBandit(PLAN_FEATURE_DIM);
   const pendingSelections = new PendingSelectionQueue(PENDING_TIMEOUT_MS, 5_000);
+  const rewardMatchingEnabled = config.features?.orderIdRewardMatching !== false;
   let lastExecOutcomeTs = Date.now();
   const rewardSmoothingInput = typeof config.policy.rewardSmoothing === 'number' ? config.policy.rewardSmoothing : 0;
   const rewardSmoothing = Math.max(0, Math.min(1, rewardSmoothingInput));
@@ -147,7 +148,7 @@ async function bootstrap() {
       }
       for (const outcome of outcomes) {
         lastExecOutcomeTs = Math.max(lastExecOutcomeTs, outcome.ts);
-        const entryById = pendingSelections.takeById(outcome.orderId);
+        const entryById = rewardMatchingEnabled ? pendingSelections.takeById(outcome.orderId) : undefined;
         const entry = entryById ?? pendingSelections.shiftByMint(outcome.mint ?? null, outcome.ts);
         if (!entry) {
           logger.debug({ mint: outcome.mint, orderId: outcome.orderId, ts: outcome.ts }, 'no pending selection matched exec outcome');

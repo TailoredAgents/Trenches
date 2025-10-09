@@ -57,15 +57,20 @@ export function computeSizing(
   caps.perName = perNameCap;
 
   const lpSol = Math.max(candidate.lpSol ?? 0, 0);
-  const tradesPer5m = Math.max((candidate.buys60 ?? 0) + (candidate.sells60 ?? 0), 0);
-  const flowRef = Math.max(config.wallet.flowTradesPer5m ?? 60, 1);
-  const flowScale = Math.min(1, tradesPer5m / flowRef);
-  const flowCapacitySol = Math.max(lpSol * flowScale, config.wallet.flowCapMinSol ?? 0);
-
   const impactCap = config.wallet.lpImpactCapFraction * lpSol;
   caps.lpImpact = impactCap;
 
-  const flowCap = config.wallet.flowCapFraction * flowCapacitySol;
+  const flowRewriteEnabled = config.features?.flowCapRewrite !== false;
+  let flowCap: number;
+  if (flowRewriteEnabled) {
+    const tradesPer5m = Math.max((candidate.buys60 ?? 0) + (candidate.sells60 ?? 0), 0);
+    const flowRef = Math.max(config.wallet.flowTradesPer5m ?? 60, 1);
+    const flowScale = Math.min(1, tradesPer5m / flowRef);
+    const flowCapacitySol = Math.max(lpSol * flowScale, config.wallet.flowCapMinSol ?? 0);
+    flowCap = config.wallet.flowCapFraction * flowCapacitySol;
+  } else {
+    flowCap = config.wallet.flowCapFraction * lpSol;
+  }
   caps.flow = flowCap;
 
   const resolveDailyCap = (): number => {
