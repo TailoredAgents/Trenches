@@ -1,4 +1,6 @@
 import 'dotenv/config';
+import fs from 'fs';
+import path from 'path';
 import EventSource from 'eventsource';
 import { createInMemoryLastEventIdStore, subscribeJsonStream, sseQueue, sseRoute, resolveServiceUrl } from '@trenches/util';
 import Fastify from 'fastify';
@@ -12,6 +14,127 @@ import { LunarCrushStream } from './lunarCrush';
 import type { LunarFeatures } from './lunarCrush';
 type Candidate = { mint: string; name?: string; symbol?: string; buys60?: number; sells60?: number; uniques60?: number; lpSol?: number; spreadBps?: number; ageSec?: number; rugProb?: number };
 type CandidateScore = { ts: number; mint: string; horizon: '10m' | '60m' | '24h'; score: number; features: Record<string, number> };
+
+type Horizon = '10m' | '60m' | '24h';
+
+const ALPHA_FEATURES: string[] = [
+  'bias',
+  'flow_norm',
+  'lp_norm',
+  'uniques_norm',
+  'spread_inv',
+  'age_inv',
+  'rug_inv',
+  'author_quality_mean',
+  'author_quality_top',
+  'author_mentions_norm',
+  'lunar_boost'
+];
+
+type AlphaModelPayload = {
+  status?: string;
+  features?: string[];
+  models?: Record<string, { weights?: number[]; status?: string; metrics?: Record<string, number>; train_size?: number; holdout_size?: number }>;
+};
+
+let alphaWeights: { features: string[]; weights: Record<string, number[]>; status: string } | null = null;
+
+function ensureAlphaModel(): void {
+  if (alphaWeights !== null) return;
+  try {
+    const modelPath = path.join('models', 'alpha_ranker_v1.json');
+    if (!fs.existsSync(modelPath)) {
+      logger.warn({ modelPath }, 'alpha model file missing; using heuristic scoring');
+      alphaWeights = null;
+      return;
+    }
+    const raw = JSON.parse(fs.readFileSync(modelPath, 'utf-8')) as AlphaModelPayload;
+    const features = Array.isArray(raw.features) && raw.features.length > 0 ? raw.features : ALPHA_FEATURES;
+    const weights: Record<string, number[]> = {};
+    const models = raw.models ?? {};
+    for (const [key, value] of Object.entries(models)) {
+      if (Array.isArray(value?.weights) && value.weights.length === features.length) {
+        weights[key] = value.weights;
+      }
+    }
+    alphaWeights = {
+      features,
+      weights,
+      status: raw.status ?? 'unknown'
+    };
+    logger.info({ status: alphaWeights.status, horizons: Object.keys(weights) }, 'alpha model loaded');
+  } catch (err) {
+    logger.error({ err }, 'failed to load alpha model; falling back to heuristics');
+    alphaWeights = null;
+  }
+}
+
+function selectWeightsForHorizon(horizon: Horizon): number[] | undefined {
+  if (!alphaWeights) return undefined;
+  const direct = alphaWeights.weights[horizon];
+  if (Array.isArray(direct)) return direct;
+  if (horizon === '24h') {
+    return alphaWeights.weights['60m'] ?? alphaWeights.weights['10m'];
+  }
+  return undefined;
+}
+
+function computeFeatureRecord(
+  c: Candidate,
+  extras: { authorQualityMean: number; authorQualityTop: number; authorMentions: number; lunar: LunarFeatures }
+): Record<string, number> {
+  const buys = c.buys60 ?? 0;
+  const sells = c.sells60 ?? 0;
+  const flow = sells > 0 ? buys / Math.max(1, sells) : buys;
+  const uniq = c.uniques60 ?? 0;
+  const lp = c.lpSol ?? 0;
+  const spread = Math.max(0, c.spreadBps ?? 0);
+  const age = Math.max(0, c.ageSec ?? 0);
+  const rug = typeof c.rugProb === 'number' ? Math.min(Math.max(c.rugProb, 0), 1) : 0.5;
+  const authorMean = Math.min(Math.max(extras.authorQualityMean, 0), 1);
+  const authorTop = Math.min(Math.max(extras.authorQualityTop, 0), 1);
+  const authorMentionsNorm = Math.min(1, Math.max(0, extras.authorMentions) / 20);
+  const lunarBoost = Math.min(0.2, Math.max(0, extras.lunar.boost));
+
+  const record: Record<string, number> = {
+    bias: 1,
+    flow_norm: Math.min(1, flow / 4),
+    lp_norm: Math.min(1, lp / 50),
+    uniques_norm: Math.min(1, uniq / 25),
+    spread_inv: 1 - Math.min(1, spread / 200),
+    age_inv: 1 - Math.min(1, age / 1800),
+    rug_inv: 1 - rug,
+    author_quality_mean: authorMean,
+    author_quality_top: authorTop,
+    author_mentions_norm: authorMentionsNorm,
+    lunar_boost: lunarBoost
+  };
+  return record;
+}
+
+function logisticScore(weights: number[], vector: number[]): number {
+  const z = weights.reduce((acc, w, idx) => acc + w * (vector[idx] ?? 0), 0);
+  return 1 / (1 + Math.exp(-z));
+}
+
+function computeFeaturesAndFallback(
+  c: Candidate,
+  extras: { authorQualityMean: number; authorQualityTop: number; authorMentions: number; lunar: LunarFeatures }
+): { features: Record<string, number>; fallbackScore: number } {
+  const features = computeFeatureRecord(c, extras);
+  const qualityBoost = Math.min(0.15, extras.authorQualityMean * 0.1 + extras.authorQualityTop * 0.05);
+  const baseLinear =
+    1.4 * features.flow_norm +
+    1.2 * features.uniques_norm +
+    1.0 * features.lp_norm +
+    0.6 * features.spread_inv +
+    0.5 * features.age_inv +
+    0.6 * features.rug_inv -
+    1.8;
+  const baseScore = 1 / (1 + Math.exp(-baseLinear));
+  const fallback = Math.min(0.99, Math.max(0.01, baseScore + qualityBoost + features.lunar_boost));
+  return { features, fallbackScore: fallback };
+}
 
 const logger = createLogger('alpha-ranker');
 const offline = process.env.NO_RPC === '1';
@@ -94,9 +217,23 @@ async function bootstrap() {
           authorQualityMean = Math.min(1, Math.log1p(authorMentions) / Math.log1p(50)) * 0.4;
         }
         const lunarFeatures = lunar.evaluate(keywords);
-        const result = scoreCandidate(candidate, { authorQualityMean, authorQualityTop, authorMentions, lunar: lunarFeatures });
-        for (const h of horizons) {
-          const row: CandidateScore = { ts, mint: candidate.mint, horizon: h as any, score: result.score, features: result.features };
+        ensureAlphaModel();
+        const { features, fallbackScore } = computeFeaturesAndFallback(candidate, {
+          authorQualityMean,
+          authorQualityTop,
+          authorMentions,
+          lunar: lunarFeatures
+        });
+        const featureNames = alphaWeights?.features ?? ALPHA_FEATURES;
+        for (const horizon of horizons) {
+          const weights = selectWeightsForHorizon(horizon as Horizon);
+          let score = fallbackScore;
+          if (weights && weights.length === featureNames.length) {
+            const vector = featureNames.map((name) => features[name] ?? 0);
+            score = logisticScore(weights, vector);
+          }
+          const clampedScore = Math.min(0.99, Math.max(0.01, score));
+          const row: CandidateScore = { ts, mint: candidate.mint, horizon: horizon as Horizon, score: clampedScore, features };
           last.push(row);
           if (last.length > SCORE_BUFFER_LIMIT) {
             last.splice(0, last.length - SCORE_BUFFER_LIMIT);
@@ -110,52 +247,6 @@ async function bootstrap() {
       }
     });
   };
-
-  function scoreCandidate(
-    c: Candidate,
-    extras: { authorQualityMean: number; authorQualityTop: number; authorMentions: number; lunar: LunarFeatures }
-  ): { score: number; features: Record<string, number> } {
-    const buys = c.buys60 ?? 0;
-    const sells = c.sells60 ?? 0;
-    const flow = sells > 0 ? buys / sells : buys;
-    const uniq = c.uniques60 ?? 0;
-    const lp = c.lpSol ?? 0;
-    const spr = c.spreadBps ?? 0;
-    const age = c.ageSec ?? 0;
-    const rug = c.rugProb ?? 0.5;
-    const sFlow = Math.min(1, flow / 4);
-    const sUniq = Math.min(1, uniq / 25);
-    const sLp = Math.min(1, lp / 40);
-    const sSpread = 1 - Math.min(1, spr / 200);
-    const sAge = 1 - Math.min(1, age / 1800);
-    const sRug = 1 - rug;
-    const z = 1.4 * sFlow + 1.2 * sUniq + 1.0 * sLp + 0.6 * sSpread + 0.5 * sAge + 0.6 * sRug - 1.8;
-    const baseScore = 1 / (1 + Math.exp(-z));
-    const qualityBoost = Math.min(0.15, extras.authorQualityMean * 0.1 + extras.authorQualityTop * 0.05);
-    const lunarBoost = extras.lunar.boost;
-    const finalScore = Math.min(0.99, Math.max(0.01, baseScore + qualityBoost + lunarBoost));
-    return {
-      score: finalScore,
-      features: {
-        flow_ratio: sFlow,
-        uniques_norm: sUniq,
-        lp_norm: sLp,
-        spread_norm: sSpread,
-        age_norm: sAge,
-        rug_inverse: sRug,
-        author_quality_mean: extras.authorQualityMean,
-        author_quality_topk: extras.authorQualityTop,
-        author_mentions: extras.authorMentions,
-        lunar_galaxy_norm: extras.lunar.metrics.lunar_galaxy_norm,
-        lunar_dominance_norm: extras.lunar.metrics.lunar_dominance_norm,
-        lunar_interactions_log: extras.lunar.metrics.lunar_interactions_log,
-        lunar_alt_rank_norm: extras.lunar.metrics.lunar_alt_rank_norm,
-        lunar_recency_weight: extras.lunar.metrics.lunar_recency_weight,
-        lunar_boost: extras.lunar.metrics.lunar_boost,
-        lunar_matched: extras.lunar.matched ? 1 : 0
-      }
-    };
-  }
   process.on('SIGINT', () => { safetyClient?.dispose(); lunar.stop(); });
   process.on('SIGTERM', () => { safetyClient?.dispose(); lunar.stop(); });
 

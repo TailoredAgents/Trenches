@@ -24,7 +24,7 @@
     "retrain:weekly:gpu": "pnpm train:fillnet:gpu && pnpm train:alpha:gpu && pnpm train:rugguard && pnpm train:survival",
     "promote:gate": "python training_py/promote_gpu.py",
     "train:fillnet:gpu": "python training_py/fillnet_train_xgb.py",
-    "train:alpha:gpu": "python training_py/alpha_ranker_train_xgb.py",
+    "train:alpha:gpu": "python training_py/alpha_ranker_train.py",
     "train:rugguard": "python training_py/rugguard_train.py",
     "train:survival": "python training_py/survival_train.py",
     "sample:plans:n": "tsx tools/replay/sample_plans.ts --n 5000 --mints 200 --routes 4 --out ./tmp/plans.ndjson",
