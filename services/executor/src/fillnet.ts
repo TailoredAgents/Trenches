@@ -27,7 +27,9 @@ const calibBucket = registerCounter({ name: 'fillnet_calib_bucket', help: 'FillN
 const fillnetInsertPredErrors = registerCounter({ name: 'fillnet_insert_pred_errors_total', help: 'FillNet prediction persist errors' });
 const brierGauge = registerGauge({ name: 'fillnet_calib_brier', help: 'Approximate Brier score (expected)' });
 
-let model: { wFill?: number[]; wSlip?: number[]; wTime?: number[] } | null = null;
+type FillnetModel = { wFill?: number[]; wSlip?: number[]; wTime?: number[] };
+let model: FillnetModel | null = null;
+let modelMeta: Record<string, unknown> | null = null;
 function ensureModel(): void {
   if (model !== null) return;
   try {
@@ -35,7 +37,18 @@ function ensureModel(): void {
     const modelPath = (cfg as any).fillnet?.modelPath ?? path.join('models', 'fillnet_v2.json');
     if (fs.existsSync(modelPath)) {
       const raw = JSON.parse(fs.readFileSync(modelPath, 'utf-8'));
-      model = raw;
+      model = { wFill: raw?.wFill, wSlip: raw?.wSlip, wTime: raw?.wTime };
+      modelMeta = raw;
+      logger.info(
+        {
+          status: raw?.status ?? 'unknown',
+          created: raw?.created,
+          metrics: raw?.metrics ?? {},
+          train_size: raw?.train_size,
+          holdout_size: raw?.holdout_size
+        },
+        'fillnet model loaded'
+      );
     } else {
       model = {};
     }
