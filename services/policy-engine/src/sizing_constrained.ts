@@ -16,6 +16,8 @@ export function chooseSize(ctx: SizingContext & { rugProb?: number; pFill?: numb
   const arms = (cfg as any).sizing?.arms ?? [{ type: 'equity_frac', value: 0.005 }];
   const equity = ctx.walletEquity;
   const walletFree = Math.max(0, ctx.walletFree);
+  const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
+  const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
   const perNameFraction = Number.isFinite(ctx.caps.perNameFraction) ? ctx.caps.perNameFraction : cfg.wallet.perNameCapFraction ?? 1;
   const perNameFractionCap = Number.isFinite(perNameFraction) ? equity * perNameFraction : Infinity;
@@ -68,7 +70,7 @@ export function chooseSize(ctx: SizingContext & { rugProb?: number; pFill?: numb
     (acc, item) => (item.value < acc.value ? item : acc),
     capCandidates.length > 0 ? capCandidates[0] : { reason: 'arm_cap', value: notionalRaw }
   );
-  const notional = Number(notionalRaw.toFixed(4));
+  let notional = Number(notionalRaw.toFixed(4));
   const limitingReason = limiting.reason ?? 'arm_cap';
   let riskNote =
     notional <= 0
@@ -80,6 +82,38 @@ export function chooseSize(ctx: SizingContext & { rugProb?: number; pFill?: numb
         : limitingReason;
   if (riskNote === 'ok' && perMintCapUsd && perMintCapUsd > 0 && !usdCapActive) {
     riskNote = 'usd_cap_suspended';
+  }
+
+  let riskMultiplier = 1;
+  const riskFactors: Record<string, number> = {};
+  if (typeof ctx.rugProb === 'number' && Number.isFinite(ctx.rugProb)) {
+    const rug = clamp01(ctx.rugProb);
+    const scale = clamp(1 - 0.8 * rug, 0.2, 1);
+    riskMultiplier *= scale;
+    riskFactors.rugProb = rug;
+  }
+  if (typeof ctx.pFill === 'number' && Number.isFinite(ctx.pFill)) {
+    const pf = clamp01(ctx.pFill);
+    const scale = clamp(pf / 0.9, 0.25, 1);
+    riskMultiplier *= scale;
+    riskFactors.pFill = pf;
+  }
+  if (typeof ctx.expSlipBps === 'number' && Number.isFinite(ctx.expSlipBps) && ctx.expSlipBps > 0) {
+    const slip = clamp(ctx.expSlipBps, 1, 5_000);
+    const scale = slip <= 150 ? 1 : clamp(150 / slip, 0.2, 1);
+    riskMultiplier *= scale;
+    riskFactors.expSlipBps = slip;
+  }
+  riskMultiplier = clamp(riskMultiplier, 0, 1);
+
+  if (riskMultiplier < 0.999) {
+    const adjusted = Number(Math.max(0, notional * riskMultiplier).toFixed(4));
+    notional = adjusted;
+    if (notional <= 0) {
+      riskNote = 'risk_scaled_zero';
+    } else if (riskNote === 'ok' || riskNote === 'usd_cap_suspended') {
+      riskNote = 'risk_scaled';
+    }
   }
 
   const perMintCapSnapshot = usdCapActive && Number.isFinite(perMintCapFromUsd) ? perMintCapFromUsd : 0;
@@ -105,7 +139,7 @@ export function chooseSize(ctx: SizingContext & { rugProb?: number; pFill?: numb
     caps: capsSnapshot
   };
   // Propensities (softmax over notional as a simple proxy)
-  const baseCtx = { ctx };
+  const baseCtx = { ctx, riskMultiplier, riskFactors, sol_price_source: solPriceSource, usd_cap_active: usdCapActive };
   try {
     const scores = candidates.map((c) => c.notional);
     const max = Math.max(...scores);
@@ -122,10 +156,12 @@ export function chooseSize(ctx: SizingContext & { rugProb?: number; pFill?: numb
       caps: capsSnapshot,
       ctx_hash: ctxHash,
       sol_price_source: solPriceSource,
-      usd_cap_active: usdCapActive
+      usd_cap_active: usdCapActive,
+      risk_multiplier: riskMultiplier,
+      risk_factors: riskFactors
     });
   } catch {
-    insertSizingDecision(persistencePayload, { ...baseCtx, sol_price_source: solPriceSource, usd_cap_active: usdCapActive });
+    insertSizingDecision(persistencePayload, baseCtx);
   }
   return dec;
 }
