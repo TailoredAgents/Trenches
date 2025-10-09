@@ -628,7 +628,6 @@ async function executePlan(opts: {
     if (attempt > 0 && featureRefreshQuote) {
       const now = Date.now();
       const stale = now - lastQuoteAt > (cfg.execution as any)?.blockhashStaleMs;
-      try {
         // Re-evaluate arms and fee decision
         const recomputeEligible = [] as Array<{ cuPrice: number; slippageBps: number; pred: { pFill: number; expSlipBps: number; expTimeMs: number }; penalty: number }>;
         const currentStats = routeStatsMap.get(routeKey);
