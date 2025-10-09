@@ -373,6 +373,19 @@ features:
   flowCapRewrite: false
   constrainedRiskScaling: false
   orderIdRewardMatching: false
+
+rollouts:
+  ope:
+    sampleMin: 250                 # Require 250+ logged decisions before trusting metrics
+    minEss: 120                    # Effective sample size floor for stable WIS/DR estimates
+    fee:
+      minIps: -0.01                # Guard: IPS must not degrade by more than 1%
+      minWis: -0.015               # Guard: WIS must not degrade by more than 1.5%
+      minDr: -0.015                # Guard: DR must not degrade by more than 1.5%
+    sizing:
+      minIps: -0.005
+      minWis: -0.01
+      minDr: -0.01
   
 pyth:
   solUsdAccount: ''

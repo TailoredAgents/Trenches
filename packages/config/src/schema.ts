@@ -387,6 +387,30 @@ export const configSchema = z.object({
       minPostsPerAuthor: z.number().int().positive().default(5)
     })
     .default({ enabled: true, intervalMs: 86_400_000, embedder: 'bge-small-en', lookbackHours: 24, minPostsPerAuthor: 5 }),
+  rollouts: z
+    .object({
+      ope: z
+        .object({
+          sampleMin: z.number().int().nonnegative().default(200),
+          minEss: z.number().int().nonnegative().default(100),
+          fee: z
+            .object({
+              minIps: z.number().default(-0.01),
+              minWis: z.number().default(-0.02),
+              minDr: z.number().default(-0.02)
+            })
+            .default({ minIps: -0.01, minWis: -0.02, minDr: -0.02 }),
+          sizing: z
+            .object({
+              minIps: z.number().default(-0.01),
+              minWis: z.number().default(-0.02),
+              minDr: z.number().default(-0.02)
+            })
+            .default({ minIps: -0.01, minWis: -0.02, minDr: -0.02 })
+        })
+        .default({ sampleMin: 200, minEss: 100, fee: { minIps: -0.01, minWis: -0.02, minDr: -0.02 }, sizing: { minIps: -0.01, minWis: -0.02, minDr: -0.02 } })
+    })
+    .default({ ope: { sampleMin: 200, minEss: 100, fee: { minIps: -0.01, minWis: -0.02, minDr: -0.02 }, sizing: { minIps: -0.01, minWis: -0.02, minDr: -0.02 } } }),
   features: z
     .object({
       migrationWatcher: z.boolean().default(true),
