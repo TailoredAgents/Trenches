@@ -185,7 +185,7 @@ wallet:
     - minEquity: 100
       maxEquity: null
       riskFraction: 0.08             # 8% of account per position (whale accounts)
-  concurrencyCap: 6                  # 6 concurrent positions max
+  concurrencyCap: 4                  # Baseline: tighten to 4 concurrent positions while hardening
   concurrencyScaler:
     base: 1
     max: 1.4
@@ -246,7 +246,7 @@ policy:
   blockedFeedUrl: null
   contextWindowSec: 900
   minConfidence: 0.4
-  dailyLossCapPct: 0.2             # Aggressive: Higher loss tolerance (was 0.1)
+  dailyLossCapPct: 0.1             # Baseline: revert to conservative 10% daily loss cap
   rewardSmoothing: 0.2
 
 caching:
@@ -352,9 +352,9 @@ features:
   offlinePolicyShadow: true
   jitoEnabled: false
   parquetExport: false
-  flowCapRewrite: true
-  constrainedRiskScaling: true
-  orderIdRewardMatching: true
+  flowCapRewrite: false
+  constrainedRiskScaling: false
+  orderIdRewardMatching: false
   
 pyth:
   solUsdAccount: ''

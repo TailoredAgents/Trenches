@@ -32,6 +32,23 @@ export const banditRewardGauge: Gauge<string> = registerGauge({
   help: 'Latest reward fed back to bandit'
 });
 
+export const rewardMatchTotal: Counter<string> = registerCounter({
+  name: 'policy_reward_match_total',
+  help: 'Exec outcomes matched to pending selections',
+  labelNames: ['mode']
+});
+
+export const rewardMatchMissTotal: Counter<string> = registerCounter({
+  name: 'policy_reward_match_miss_total',
+  help: 'Exec outcomes that failed to match pending selections',
+  labelNames: ['reason']
+});
+
+export const pendingSelectionsGauge: Gauge<string> = registerGauge({
+  name: 'policy_pending_selections',
+  help: 'Number of pending selections awaiting reward'
+});
+
 export const fastSoakEmittedTotal: Counter<string> = registerCounter({
   name: 'policy_fast_soak_emitted_total',
   help: 'Plans emitted under FAST_SOAK mode (shadow-only)'

@@ -598,7 +598,7 @@ async function executePlan(opts: {
     if (enableShadowOutcomes && shadowMode) {
       const isBuyShadow = isBuy;
       const execPriceShadow = quotePrice > 0 ? quotePrice : 0;
-      const slipRealShadow = 0; // without simulation/realized, default 0
+      const slipRealShadow = slippageToUse; // fallback to requested slip budget in shadow mode
       const ttlShadow = chosen.pred?.expTimeMs ?? 1200;
       insertSimOutcome({
         ts: Math.floor(Date.now()),
@@ -759,13 +759,19 @@ async function executePlan(opts: {
       let amountInUsed = amountLamports;
       let amountOutUsed = isBuy ? quantityRaw : quoteOutRaw;
       let execPrice = quotePrice;
-      let slipReal = 0;
+      let slipReal: number | null = null;
 
+      let txMeta: any = null;
       try {
-        const txResult = await connection.getTransaction(signature, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 });
-        if (txResult?.meta) {
+        txMeta = await fetchTransactionMeta(connection, signature);
+      } catch (err) {
+        logger.warn({ err, signature }, 'failed to fetch transaction meta for realized slip');
+      }
+
+      if (txMeta?.meta) {
+        try {
           const walletAddress = wallet.publicKey.toBase58();
-          const tokenDelta = diffTokenBalance(txResult.meta, candidate.mint, walletAddress);
+          const tokenDelta = diffTokenBalance(txMeta.meta, candidate.mint, walletAddress);
           if (isBuy) {
             if (tokenDelta.delta > 0) {
               quantityRaw = tokenDelta.delta;
@@ -781,7 +787,7 @@ async function executePlan(opts: {
               amountInUsed = Math.abs(tokenDelta.delta);
               quantityRaw = amountInUsed;
             }
-            const solDelta = diffSolBalance(txResult.meta);
+            const solDelta = diffSolBalance(txMeta.meta);
             if (solDelta > 0) {
               amountOutUsed = solDelta;
               execPrice = computeExecutionPrice({
@@ -791,23 +797,27 @@ async function executePlan(opts: {
               });
             }
           }
+        } catch (err) {
+          logger.warn({ err, signature }, 'failed to parse transaction meta for realized slip');
         }
-      } catch (err) {
-        logger.warn({ err }, 'failed to compute realized slip');
+      } else {
+        logger.warn({ signature }, 'transaction meta unavailable for realized slip computation');
       }
 
       if (!Number.isFinite(execPrice) || execPrice <= 0) {
         execPrice = quotePrice;
-      }
-      slipReal = quotePrice > 0 ? ((execPrice - quotePrice) / quotePrice) * 10_000 : 0;
-      if (!Number.isFinite(slipReal)) {
-        slipReal = 0;
       }
       if (!Number.isFinite(amountOutUsed) || amountOutUsed < 0) {
         amountOutUsed = isBuy ? quantityRaw : quoteOutRaw;
       }
       if (!Number.isFinite(amountInUsed) || amountInUsed <= 0) {
         amountInUsed = amountLamports;
+      }
+      if (txMeta?.meta) {
+        const computedSlip = quotePrice > 0 ? ((execPrice - quotePrice) / quotePrice) * 10_000 : null;
+        if (computedSlip !== null && Number.isFinite(computedSlip)) {
+          slipReal = computedSlip;
+        }
       }
 
       const t0 = Date.now();
@@ -874,35 +884,42 @@ async function executePlan(opts: {
       });
       try {
         landedRateGauge.set(1);
-        slipAvgGauge.set(slipReal);
+        if (slipReal !== null && Number.isFinite(slipReal)) {
+          slipAvgGauge.set(slipReal);
+        }
         timeToLandHistogram.set(ttl);
       } catch (err) {
         logger.error({ err }, 'failed to set execution gauges');
       }
       const feeBaseLamports = isBuy ? amountInUsed : amountOutUsed;
       const feeBps = feeBaseLamports > 0 ? (feeLamportsTotal / feeBaseLamports) * 10_000 : 0;
-      try {
-        updateArm(
-          {
-            congestionScore,
-            sizeSol: plan.sizeSol,
-            equity: planContext.walletEquity ?? Math.max(plan.sizeSol, 0) * 10,
-            lpSol: candidate.lpSol,
-            spreadBps: candidate.spreadBps,
-            volatilityBps: candidate.spreadBps
-          },
-          { cuPrice: cuPriceToUse, slippageBps: slippageToUse },
-          { filled: true, realizedSlipBps: slipReal, feeBps }
-        );
-      } catch (err) {
-        logger.error({ err }, 'failed to update fee bandit arm');
+      if (slipReal !== null && Number.isFinite(slipReal)) {
+        try {
+          updateArm(
+            {
+              congestionScore,
+              sizeSol: plan.sizeSol,
+              equity: planContext.walletEquity ?? Math.max(plan.sizeSol, 0) * 10,
+              lpSol: candidate.lpSol,
+              spreadBps: candidate.spreadBps,
+              volatilityBps: candidate.spreadBps
+            },
+            { cuPrice: cuPriceToUse, slippageBps: slippageToUse },
+            { filled: true, realizedSlipBps: slipReal, feeBps }
+          );
+        } catch (err) {
+          logger.error({ err }, 'failed to update fee bandit arm');
+        }
+      } else {
+        logger.warn({ orderId, route: plan.route }, 'skipping bandit update; realized slip unavailable');
       }
+      const slipForStats = slipReal !== null && Number.isFinite(slipReal) ? slipReal : slippageToUse;
       const successStats = recordRouteAttempt({
         config: rqConfig,
         route: routeKey,
         windowStartTs,
         success: true,
-        slipRealBps: slipReal,
+        slipRealBps: slipForStats,
         slipExpBps: slipExpForStats
       });
       routeStatsMap.set(routeKey, successStats);
@@ -966,6 +983,31 @@ async function executePlan(opts: {
   throw lastError instanceof Error ? lastError : new Error('execution failed');
 }
 
+
+async function fetchTransactionMeta(connection: Connection, signature: string, attempts = 3, delayMs = 200): Promise<any | null> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const result = await connection.getTransaction(signature, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 });
+      if (result) {
+        return result;
+      }
+    } catch (err) {
+      lastError = err;
+    }
+    if (attempt < attempts - 1) {
+      await sleep(delayMs * (attempt + 1));
+    }
+  }
+  if (lastError) {
+    logger.debug({ err: lastError, signature }, 'transaction meta retries exhausted');
+  }
+  return null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function diffTokenBalance(meta: any, mint: string, owner: string): { delta: number; decimals: number } {
   const findEntry = (list: any[]) => list?.find((entry) => entry?.mint === mint && entry?.owner === owner);

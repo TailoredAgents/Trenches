@@ -39,4 +39,13 @@ describe('PendingSelectionQueue', () => {
     expect(expired).toEqual([entry]);
     expect(queue.takeById('o1')).toBeUndefined();
   });
+
+  it('reports pending size', () => {
+    const queue = new PendingSelectionQueue(60_000, 5_000);
+    expect(queue.size()).toBe(0);
+    queue.enqueue(baseEntry({ orderId: 'o1' }));
+    expect(queue.size()).toBe(1);
+    queue.takeById('o1');
+    expect(queue.size()).toBe(0);
+  });
 });

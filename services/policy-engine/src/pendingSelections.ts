@@ -68,6 +68,10 @@ export class PendingSelectionQueue {
     }
   }
 
+  size(): number {
+    return this.byId.size;
+  }
+
   private remove(entry: PendingSelectionEntry): void {
     this.byId.delete(entry.orderId);
     const queue = this.byMint.get(entry.mint);

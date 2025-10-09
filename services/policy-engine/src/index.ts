@@ -14,7 +14,17 @@ import { getRegistry, registerGauge, registerCounter } from '@trenches/metrics';
 import { logTradeEvent, getDailyRealizedPnlSince, recordPolicyAction, getDb, getDailyPnlUsd, countOpenPositions, countNewPositionsToday, getExecOutcomesSince } from '@trenches/persistence';
 import { TokenCandidate, TradeEvent, CongestionLevel, OrderPlan } from '@trenches/shared';
 import { PolicyEventBus } from './eventBus';
-import { plansEmitted, plansSuppressed, sizingDurationMs, walletEquityGauge, walletFreeGauge, banditRewardGauge } from './metrics';
+import {
+  plansEmitted,
+  plansSuppressed,
+  sizingDurationMs,
+  walletEquityGauge,
+  walletFreeGauge,
+  banditRewardGauge,
+  rewardMatchTotal,
+  rewardMatchMissTotal,
+  pendingSelectionsGauge
+} from './metrics';
 import { pickTipLamports } from './tip';
 import { pickSlippageBps } from './slippage';
 import { getCongestionLevel } from './network';
@@ -117,6 +127,7 @@ async function bootstrap() {
   const bandit = new LinUCBBandit(PLAN_FEATURE_DIM);
   const pendingSelections = new PendingSelectionQueue(PENDING_TIMEOUT_MS, 5_000);
   const rewardMatchingEnabled = config.features?.orderIdRewardMatching !== false;
+  pendingSelectionsGauge.set(0);
   let lastExecOutcomeTs = Date.now();
   const rewardSmoothingInput = typeof config.policy.rewardSmoothing === 'number' ? config.policy.rewardSmoothing : 0;
   const rewardSmoothing = Math.max(0, Math.min(1, rewardSmoothingInput));
@@ -148,15 +159,40 @@ async function bootstrap() {
       }
       for (const outcome of outcomes) {
         lastExecOutcomeTs = Math.max(lastExecOutcomeTs, outcome.ts);
-        const entryById = rewardMatchingEnabled ? pendingSelections.takeById(outcome.orderId) : undefined;
-        const entry = entryById ?? pendingSelections.shiftByMint(outcome.mint ?? null, outcome.ts);
+        let matchMode: string | null = null;
+        let entry: PendingSelectionEntry | undefined;
+        if (rewardMatchingEnabled && outcome.orderId) {
+          const byId = pendingSelections.takeById(outcome.orderId);
+          if (byId) {
+            entry = byId;
+            matchMode = 'order_id';
+          } else {
+            const fallback = pendingSelections.shiftByMint(outcome.mint ?? null, outcome.ts);
+            if (fallback) {
+              entry = fallback;
+              matchMode = 'fallback';
+              logger.warn({ mint: outcome.mint, orderId: outcome.orderId, ts: outcome.ts }, 'order id reward match fell back to mint');
+            }
+          }
+        } else {
+          const fallback = pendingSelections.shiftByMint(outcome.mint ?? null, outcome.ts);
+          if (fallback) {
+            entry = fallback;
+            matchMode = rewardMatchingEnabled ? 'mint_no_order_id' : 'mint';
+          }
+        }
         if (!entry) {
-          logger.debug({ mint: outcome.mint, orderId: outcome.orderId, ts: outcome.ts }, 'no pending selection matched exec outcome');
+          const reason = outcome.orderId ? 'unmatched_order_id' : 'no_pending';
+          rewardMatchMissTotal.inc({ reason });
+          logger.debug({ mint: outcome.mint, orderId: outcome.orderId, ts: outcome.ts, reason }, 'no pending selection matched exec outcome');
           continue;
         }
+        rewardMatchTotal.inc({ mode: matchMode ?? 'unknown' });
         const realized = computeRealizedReward(outcome.filled, outcome.slippageBpsReal);
         applyReward(entry, realized);
+        pendingSelectionsGauge.set(pendingSelections.size());
       }
+      pendingSelectionsGauge.set(pendingSelections.size());
       pruneExpiredSelections(Date.now());
     } catch (err) {
       logger.error({ err }, 'failed to poll exec outcomes');
@@ -164,7 +200,11 @@ async function bootstrap() {
   };
 
   const pruneExpiredSelections = (now: number): void => {
-    pendingSelections.prune(now, (entry) => applyReward(entry, FAILED_REWARD));
+    pendingSelections.prune(now, (entry) => {
+      rewardMatchTotal.inc({ mode: 'expired' });
+      applyReward(entry, FAILED_REWARD);
+    });
+    pendingSelectionsGauge.set(pendingSelections.size());
   };
 
   execOutcomeTimer = setInterval(() => {
@@ -508,6 +548,7 @@ async function bootstrap() {
       mint: candidate.mint,
       orderId: clientOrderId
     });
+    pendingSelectionsGauge.set(pendingSelections.size());
 
     bus.emitPlan(orderPlan);
 
