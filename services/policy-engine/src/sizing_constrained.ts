@@ -1,6 +1,7 @@
 import { SizeDecision, TokenCandidate } from '@trenches/shared';
 import { loadConfig } from '@trenches/config';
 import { insertSizingDecision, getNearestPrice } from '@trenches/persistence';
+import { sizingCapLimitTotal, sizingRiskMultiplierGauge, sizingRiskScaledTotal, sizingSolPriceSourceTotal } from './metrics';
 
 export type SizingContext = {
   candidate: TokenCandidate;
@@ -37,6 +38,7 @@ export function chooseSize(ctx: SizingContext & { rugProb?: number; pFill?: numb
     solPriceUsd = Number(priceHint);
     solPriceSource = 'hint';
   }
+  sizingSolPriceSourceTotal.inc({ source: solPriceSource });
   const perMintCapUsd = typeof (cfg as any).sizing?.perMintCapUsd === 'number' ? (cfg as any).sizing.perMintCapUsd : undefined;
 
   const candidates: Array<{ arm: string; notional: number }> = arms.map((a: any) => {
@@ -72,6 +74,7 @@ export function chooseSize(ctx: SizingContext & { rugProb?: number; pFill?: numb
   );
   let notional = Number(notionalRaw.toFixed(4));
   const limitingReason = limiting.reason ?? 'arm_cap';
+  sizingCapLimitTotal.inc({ cap: limitingReason });
   let riskNote =
     notional <= 0
       ? limitingReason === 'arm_cap'
@@ -90,22 +93,29 @@ export function chooseSize(ctx: SizingContext & { rugProb?: number; pFill?: numb
     const rug = clamp01(ctx.rugProb);
     const scale = clamp(1 - 0.8 * rug, 0.2, 1);
     riskMultiplier *= scale;
-    riskFactors.rugProb = rug;
+    if (scale < 0.999) {
+      riskFactors.rugProb = rug;
+    }
   }
   if (typeof ctx.pFill === 'number' && Number.isFinite(ctx.pFill)) {
     const pf = clamp01(ctx.pFill);
     const scale = clamp(pf / 0.9, 0.25, 1);
     riskMultiplier *= scale;
-    riskFactors.pFill = pf;
+    if (scale < 0.999) {
+      riskFactors.pFill = pf;
+    }
   }
   if (typeof ctx.expSlipBps === 'number' && Number.isFinite(ctx.expSlipBps) && ctx.expSlipBps > 0) {
     const slip = clamp(ctx.expSlipBps, 1, 5_000);
     const scale = slip <= 150 ? 1 : clamp(150 / slip, 0.2, 1);
     riskMultiplier *= scale;
-    riskFactors.expSlipBps = slip;
+    if (scale < 0.999) {
+      riskFactors.expSlipBps = slip;
+    }
   }
   riskMultiplier = clamp(riskMultiplier, 0, 1);
 
+  sizingRiskMultiplierGauge.set(riskMultiplier);
   if (riskMultiplier < 0.999) {
     const adjusted = Number(Math.max(0, notional * riskMultiplier).toFixed(4));
     notional = adjusted;
@@ -113,6 +123,9 @@ export function chooseSize(ctx: SizingContext & { rugProb?: number; pFill?: numb
       riskNote = 'risk_scaled_zero';
     } else if (riskNote === 'ok' || riskNote === 'usd_cap_suspended') {
       riskNote = 'risk_scaled';
+    }
+    for (const factor of Object.keys(riskFactors)) {
+      sizingRiskScaledTotal.inc({ factor });
     }
   }
 

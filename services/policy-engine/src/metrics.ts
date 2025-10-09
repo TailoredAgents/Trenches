@@ -36,3 +36,26 @@ export const fastSoakEmittedTotal: Counter<string> = registerCounter({
   name: 'policy_fast_soak_emitted_total',
   help: 'Plans emitted under FAST_SOAK mode (shadow-only)'
 });
+
+export const sizingCapLimitTotal: Counter<string> = registerCounter({
+  name: 'policy_sizing_cap_limit_total',
+  help: 'Constrained sizing limited by a particular cap',
+  labelNames: ['cap']
+});
+
+export const sizingRiskScaledTotal: Counter<string> = registerCounter({
+  name: 'policy_sizing_risk_scaled_total',
+  help: 'Constrained sizing reduced due to risk signals',
+  labelNames: ['factor']
+});
+
+export const sizingRiskMultiplierGauge: Gauge<string> = registerGauge({
+  name: 'policy_sizing_risk_multiplier',
+  help: 'Most recent constrained sizing risk multiplier'
+});
+
+export const sizingSolPriceSourceTotal: Counter<string> = registerCounter({
+  name: 'policy_sizing_sol_price_source_total',
+  help: 'Source used when fetching SOL price for constrained sizing',
+  labelNames: ['source']
+});
