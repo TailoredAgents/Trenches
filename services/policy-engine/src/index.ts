@@ -25,6 +25,7 @@ import { computeSizing } from './sizing';
 import { chooseSize } from './sizing_constrained';
 import { PlanEnvelope, WalletSnapshot } from './types';
 import { createAlphaClient } from './clients/alphaClient';
+import { PendingSelectionQueue, type PendingSelectionEntry } from './pendingSelections';
 
 const logger = createLogger('policy-engine');
 const PLAN_FEATURE_DIM = 7;
@@ -37,15 +38,6 @@ const FAILED_REWARD = -0.5;
 const MIN_ORDER_SIZE_SOL = 0.001;
 const FEATURE_ALPHA_MULTI_HORIZON = process.env.FEATURE_ALPHA_MULTI_HORIZON === '1';
 const FEATURE_DYNAMIC_WALLET_READY = process.env.FEATURE_DYNAMIC_WALLET_READY === '1';
-
-type PendingSelection = {
-  actionId: string;
-  context: number[];
-  expectedReward: number;
-  createdAt: number;
-  mint: string;
-  orderId: string;
-};
 
 const lastWalletGaugeRefresh = registerGauge({
   name: 'policy_wallet_last_refresh_epoch',
@@ -123,66 +115,14 @@ async function bootstrap() {
   };
   const isWalletReady = (): boolean => getWalletStatus().ready;
   const bandit = new LinUCBBandit(PLAN_FEATURE_DIM);
-  const pendingSelectionsById = new Map<string, PendingSelection>();
-  const pendingSelectionsByMint = new Map<string, PendingSelection[]>();
+  const pendingSelections = new PendingSelectionQueue(PENDING_TIMEOUT_MS, 5_000);
   let lastExecOutcomeTs = Date.now();
   const rewardSmoothingInput = typeof config.policy.rewardSmoothing === 'number' ? config.policy.rewardSmoothing : 0;
   const rewardSmoothing = Math.max(0, Math.min(1, rewardSmoothingInput));
   let execOutcomeTimer: NodeJS.Timeout | null = null;
   let pendingSweepTimer: NodeJS.Timeout | null = null;
 
-  const removePendingSelection = (entry: PendingSelection): void => {
-    pendingSelectionsById.delete(entry.orderId);
-    const queue = pendingSelectionsByMint.get(entry.mint);
-    if (!queue) {
-      return;
-    }
-    const idx = queue.findIndex((item) => item.orderId === entry.orderId);
-    if (idx !== -1) {
-      queue.splice(idx, 1);
-    }
-    if (queue.length === 0) {
-      pendingSelectionsByMint.delete(entry.mint);
-    }
-  };
-
-  const enqueuePendingSelection = (entry: PendingSelection): void => {
-    pendingSelectionsById.set(entry.orderId, entry);
-    const queue = pendingSelectionsByMint.get(entry.mint);
-    if (queue) {
-      queue.push(entry);
-    } else {
-      pendingSelectionsByMint.set(entry.mint, [entry]);
-    }
-  };
-
-  const takePendingSelectionById = (orderId: string): PendingSelection | undefined => {
-    const entry = pendingSelectionsById.get(orderId);
-    if (!entry) {
-      return undefined;
-    }
-    removePendingSelection(entry);
-    return entry;
-  };
-
-  const shiftPendingSelectionByMint = (mint: string, execTs: number): PendingSelection | undefined => {
-    const queue = pendingSelectionsByMint.get(mint);
-    if (!queue || queue.length === 0) {
-      return undefined;
-    }
-    let index = queue.findIndex((item) => item.createdAt <= execTs + 5_000);
-    if (index === -1) {
-      index = 0;
-    }
-    const [entry] = queue.splice(index, 1);
-    if (queue.length === 0) {
-      pendingSelectionsByMint.delete(mint);
-    }
-    pendingSelectionsById.delete(entry.orderId);
-    return entry;
-  };
-
-  const applyReward = (entry: PendingSelection, realizedReward: number): void => {
+  const applyReward = (entry: PendingSelectionEntry, realizedReward: number): void => {
     const blended = rewardSmoothing > 0 && rewardSmoothing < 1
       ? entry.expectedReward * rewardSmoothing + realizedReward * (1 - rewardSmoothing)
       : realizedReward;
@@ -207,13 +147,8 @@ async function bootstrap() {
       }
       for (const outcome of outcomes) {
         lastExecOutcomeTs = Math.max(lastExecOutcomeTs, outcome.ts);
-        let entry: PendingSelection | undefined;
-        if (outcome.orderId) {
-          entry = takePendingSelectionById(outcome.orderId);
-        }
-        if (!entry && outcome.mint) {
-          entry = shiftPendingSelectionByMint(outcome.mint, outcome.ts);
-        }
+        const entryById = pendingSelections.takeById(outcome.orderId);
+        const entry = entryById ?? pendingSelections.shiftByMint(outcome.mint ?? null, outcome.ts);
         if (!entry) {
           logger.debug({ mint: outcome.mint, orderId: outcome.orderId, ts: outcome.ts }, 'no pending selection matched exec outcome');
           continue;
@@ -228,12 +163,7 @@ async function bootstrap() {
   };
 
   const pruneExpiredSelections = (now: number): void => {
-    for (const entry of Array.from(pendingSelectionsById.values())) {
-      if (entry.createdAt <= now - PENDING_TIMEOUT_MS) {
-        removePendingSelection(entry);
-        applyReward(entry, FAILED_REWARD);
-      }
-    }
+    pendingSelections.prune(now, (entry) => applyReward(entry, FAILED_REWARD));
   };
 
   execOutcomeTimer = setInterval(() => {
@@ -569,7 +499,7 @@ async function bootstrap() {
     }
     const expectedReward = selection.expectedReward;
     banditRewardGauge.set(expectedReward);
-    enqueuePendingSelection({
+    pendingSelections.enqueue({
       actionId: selection.action.id,
       context: contextVector,
       expectedReward,
