@@ -50,14 +50,29 @@ export class WalletManager {
 
   async refresh(): Promise<WalletSnapshot> {
     const config = loadConfig();
+    const resolveDailyCap = (equitySol: number): number => {
+      const pct = config.wallet.dailySpendCapPct;
+      if (typeof pct === 'number' && pct > 0) {
+        const cap = equitySol * pct;
+        if (Number.isFinite(cap) && cap > 0) {
+          return cap;
+        }
+      }
+      const absolute = config.wallet.dailySpendCapSol;
+      if (typeof absolute === 'number' && absolute > 0) {
+        return absolute;
+      }
+      return Number.POSITIVE_INFINITY;
+    };
     if (!this.isReady) {
+      const cap = resolveDailyCap(0);
       const snapshot: WalletSnapshot = {
         equity: 0,
         free: 0,
         reserves: config.wallet.reservesSol,
         openPositions: 0,
         spendUsed: 0,
-        spendRemaining: config.wallet.dailySpendCapPct ? 0 * config.wallet.dailySpendCapPct : config.wallet.dailySpendCapSol || 0.3
+        spendRemaining: cap
       };
       this.lastSnapshot = snapshot;
       return snapshot;
@@ -75,11 +90,9 @@ export class WalletManager {
     const openPositions = getOpenPositionsCount();
 
     const free = Math.max(equitySol - reserves, 0);
-    // Use percentage-based daily spending cap
-    const dailySpendCapSol = config.wallet.dailySpendCapPct 
-      ? equitySol * config.wallet.dailySpendCapPct 
-      : config.wallet.dailySpendCapSol || 0.3; // fallback
-    const spendRemaining = Math.max(dailySpendCapSol - dailySpend, 0);
+    const dailyCap = resolveDailyCap(equitySol);
+    const spendRemaining =
+      dailyCap === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : Math.max(dailyCap - dailySpend, 0);
 
     const snapshot: WalletSnapshot = {
       equity: equitySol,

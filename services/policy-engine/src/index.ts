@@ -237,7 +237,14 @@ async function bootstrap() {
   let cachedCongestionLevel: CongestionLevel = 'p50';
   let cachedCongestionScore = 0.5;
 
-  const fallbackSnapshot: WalletSnapshot = { equity: 0, free: 0, reserves: 0, openPositions: 0, spendUsed: 0, spendRemaining: 0 };
+  const fallbackSnapshot: WalletSnapshot = {
+    equity: 0,
+    free: 0,
+    reserves: 0,
+    openPositions: 0,
+    spendUsed: 0,
+    spendRemaining: resolveDailySpendCap(config, 0)
+  };
 
   const refreshWallet = async (): Promise<WalletSnapshot> => {
     if (!walletManager) {
@@ -435,10 +442,7 @@ async function bootstrap() {
       const sizingStart = Date.now();
       const perNameFractionCap = config.wallet.perNameCapFraction ?? 1;
       const perNameMaxSol = config.wallet.perNameCapMaxSol ?? Infinity;
-      const dailyCapTotalSol = (() => {
-        const total = walletSnapshot.spendUsed + walletSnapshot.spendRemaining;
-        return Number.isFinite(total) ? total : config.wallet.dailySpendCapSol ?? Infinity;
-      })();
+      const dailyCapTotalSol = resolveDailySpendCap(config, walletSnapshot.equity);
       const sizing = (config.features?.constrainedSizing
         ? (() => {
             const dec = chooseSize({
@@ -638,6 +642,21 @@ function congestionToScore(level: string): number {
     default:
       return 0.5;
   }
+}
+
+function resolveDailySpendCap(config: ReturnType<typeof loadConfig>, equity: number): number {
+  const pct = config.wallet.dailySpendCapPct;
+  if (typeof pct === 'number' && pct > 0) {
+    const cap = equity * pct;
+    if (Number.isFinite(cap) && cap > 0) {
+      return cap;
+    }
+  }
+  const absolute = config.wallet.dailySpendCapSol;
+  if (typeof absolute === 'number' && absolute > 0) {
+    return absolute;
+  }
+  return Number.POSITIVE_INFINITY;
 }
 
 bootstrap().catch((err) => {

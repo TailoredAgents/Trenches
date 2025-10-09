@@ -22,8 +22,14 @@ export async function buildCandidate(ctx: CandidateContext): Promise<TokenCandid
   const quotePrice = quoteAddr ? birdeye.getPrice(quoteAddr)?.price : undefined;
   const solPrice = birdeye.getPrice(SOL_MINT)?.price ?? 0;
 
-  const createdAt = pair.createdAt ?? pair.pairCreatedAt ?? (pool.timestamp ? Date.parse(pool.timestamp) : now);
-  const ageSec = Math.max(0, Math.floor((now - (createdAt ?? now)) / 1000));
+  const createdAtCandidates = [
+    normalizeTimestamp(pair.createdAt),
+    normalizeTimestamp(pair.pairCreatedAt),
+    normalizeTimestamp(pool.timestamp),
+    now
+  ];
+  const createdAt = createdAtCandidates.find((value): value is number => typeof value === 'number' && Number.isFinite(value)) ?? now;
+  const ageSec = Math.max(0, Math.floor((now - createdAt) / 1000));
 
   const liquiditySol = computeLiquiditySol(pair, quoteAddr, quotePrice, solPrice);
 
@@ -107,4 +113,15 @@ function toNumber(value: unknown): number {
     return Number.isFinite(parsed) ? parsed : 0;
   }
   return 0;
+}
+
+function normalizeTimestamp(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value < 1_000_000_000_000 ? value * 1000 : value;
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
 }

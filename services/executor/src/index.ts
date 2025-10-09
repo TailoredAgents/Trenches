@@ -65,10 +65,10 @@ async function getTokenDecimals(connection: Connection, mint: string): Promise<n
       tokenDecimalsCache.set(mint, decimals);
       return decimals;
     }
+    logger.warn({ mint }, 'token decimals missing in account info; defaulting to 9 temporarily');
   } catch (err) {
-    logger.warn({ err, mint }, 'failed to fetch token decimals; defaulting to 9');
+    logger.warn({ err, mint }, 'failed to fetch token decimals; will retry');
   }
-  tokenDecimalsCache.set(mint, 9);
   return 9;
 }
 // Replay controls (used only for selecting plan feed in shadow/replay runs)
