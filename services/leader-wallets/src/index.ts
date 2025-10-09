@@ -31,6 +31,9 @@ const offline = process.env.NO_RPC === '1';
 const providersOff = process.env.DISABLE_PROVIDERS === '1';
 const leaderHitsTotal = registerCounter({ name: 'leader_hits_total', help: 'Total leader wallet swap hits captured' });
 const leaderTopGauge = registerGauge({ name: 'leader_wallets_top', help: 'Top leader wallet scores', labelNames: ['rank'] });
+const poolsWatchingGauge = registerGauge({ name: 'leader_wallets_pools_watching', help: 'Number of pools currently being watched' });
+const queueDepthGauge = registerGauge({ name: 'leader_wallets_queue_depth', help: 'Length of persistence write queue' });
+const leaderLastHitGauge = registerGauge({ name: 'leader_wallets_last_hit_epoch', help: 'Unix timestamp (seconds) of last leader hit' });
 
 interface LeaderPoolSubscription {
   subId: number;
@@ -94,11 +97,16 @@ async function bootstrap(): Promise<void> {
   const signatureQueue: string[] = [];
   const signatureSet = new Set<string>();
   const writeQueue = createWriteQueue('leader-wallets');
+  const refreshQueueGauge = () => queueDepthGauge.set(writeQueue.size());
+  const refreshPoolsGauge = () => poolsWatchingGauge.set(activePools.size);
+  refreshQueueGauge();
+  refreshPoolsGauge();
 
   let connection: Connection | null = null;
   let scoreDirty = true;
   let lastScoreUpdate = 0;
   let lastHitTs = 0;
+  leaderLastHitGauge.set(0);
   let lastMigrationTs = 0;
   let shuttingDown = false;
   let migrationTimer: NodeJS.Timeout | null = null;
@@ -250,6 +258,8 @@ async function bootstrap(): Promise<void> {
       }
     }
     activePools.clear();
+    refreshPoolsGauge();
+    refreshQueueGauge();
     try {
       await app.close();
     } catch (err) {
@@ -294,10 +304,12 @@ async function bootstrap(): Promise<void> {
         if (inserted) {
           leaderHitsTotal.inc();
           lastHitTs = ts;
+          leaderLastHitGauge.set(Math.floor(ts / 1000));
           scoreDirty = true;
           broadcastHit({ pool, wallet, ts, signature });
         }
       });
+      refreshQueueGauge();
     } catch (err) {
       logger.error({ err }, 'leader-wallets log handler error');
     }
@@ -316,6 +328,7 @@ async function bootstrap(): Promise<void> {
       const pk = new PublicKey(pool);
       const subId = await connection.onLogs(pk, logHandlerForPool(pool), 'confirmed');
       activePools.set(pool, { subId, expiresAt: watchUntil });
+      refreshPoolsGauge();
     } catch (err) {
       logger.error({ err, pool }, 'leader-wallets failed to subscribe pool');
     }
@@ -363,6 +376,7 @@ async function bootstrap(): Promise<void> {
           logger.error({ err, pool, subId: info.subId }, 'failed to remove expired pool listener');
         }
         activePools.delete(pool);
+        refreshPoolsGauge();
       }
     }
   }
@@ -379,6 +393,7 @@ async function bootstrap(): Promise<void> {
         logger.error({ err }, 'leader-wallets score recompute failed');
       }
     });
+    refreshQueueGauge();
   }
 
   app.get('/healthz', async () => ({
