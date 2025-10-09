@@ -169,6 +169,8 @@ wallet:
   perNameCapMaxSol: null             # No hard cap - let percentage govern
   lpImpactCapFraction: 0.03          # 3% of LP pool max impact
   flowCapFraction: 0.6               # 60% of flow capacity
+  flowTradesPer5m: 60                # Reference trade count (5m window) for full flow allowance
+  flowCapMinSol: 0.0                 # Minimum SOL capacity used if flow-based estimate is zero
   # Percentage-based position sizing (% of total account equity)
   equityTiers:
     - minEquity: 0

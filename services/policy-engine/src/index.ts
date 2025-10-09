@@ -1,5 +1,6 @@
-import { computeLeaderBoostInfo, applyLeaderSizeBoost, LeaderWalletConfig } from './leader';
 import 'dotenv/config';
+import { randomUUID } from 'node:crypto';
+import { computeLeaderBoostInfo, applyLeaderSizeBoost, LeaderWalletConfig } from './leader';
 import EventSource from 'eventsource';
 import { createInMemoryLastEventIdStore, sseQueue, sseRoute, subscribeJsonStream, createRpcConnection, resolveServiceUrl } from '@trenches/util';
 import Fastify from 'fastify';
@@ -43,6 +44,7 @@ type PendingSelection = {
   expectedReward: number;
   createdAt: number;
   mint: string;
+  orderId: string;
 };
 
 const lastWalletGaugeRefresh = registerGauge({
@@ -95,7 +97,9 @@ async function bootstrap() {
     perNameCapFraction: config.wallet.perNameCapFraction,
     perNameCapMaxSol: config.wallet.perNameCapMaxSol,
     lpImpactCapFraction: config.wallet.lpImpactCapFraction,
-    flowCapFraction: config.wallet.flowCapFraction
+    flowCapFraction: config.wallet.flowCapFraction,
+    flowTradesPer5m: config.wallet.flowTradesPer5m ?? 60,
+    flowCapMinSol: config.wallet.flowCapMinSol ?? 0
   };
   const app = Fastify({ logger: false });
   const bus = new PolicyEventBus();
@@ -119,24 +123,50 @@ async function bootstrap() {
   };
   const isWalletReady = (): boolean => getWalletStatus().ready;
   const bandit = new LinUCBBandit(PLAN_FEATURE_DIM);
-  const pendingSelections = new Map<string, PendingSelection[]>();
+  const pendingSelectionsById = new Map<string, PendingSelection>();
+  const pendingSelectionsByMint = new Map<string, PendingSelection[]>();
   let lastExecOutcomeTs = Date.now();
   const rewardSmoothingInput = typeof config.policy.rewardSmoothing === 'number' ? config.policy.rewardSmoothing : 0;
   const rewardSmoothing = Math.max(0, Math.min(1, rewardSmoothingInput));
   let execOutcomeTimer: NodeJS.Timeout | null = null;
   let pendingSweepTimer: NodeJS.Timeout | null = null;
 
-  const enqueuePendingSelection = (entry: PendingSelection): void => {
-    const queue = pendingSelections.get(entry.mint);
-    if (queue) {
-      queue.push(entry);
-    } else {
-      pendingSelections.set(entry.mint, [entry]);
+  const removePendingSelection = (entry: PendingSelection): void => {
+    pendingSelectionsById.delete(entry.orderId);
+    const queue = pendingSelectionsByMint.get(entry.mint);
+    if (!queue) {
+      return;
+    }
+    const idx = queue.findIndex((item) => item.orderId === entry.orderId);
+    if (idx !== -1) {
+      queue.splice(idx, 1);
+    }
+    if (queue.length === 0) {
+      pendingSelectionsByMint.delete(entry.mint);
     }
   };
 
-  const shiftPendingSelection = (mint: string, execTs: number): PendingSelection | undefined => {
-    const queue = pendingSelections.get(mint);
+  const enqueuePendingSelection = (entry: PendingSelection): void => {
+    pendingSelectionsById.set(entry.orderId, entry);
+    const queue = pendingSelectionsByMint.get(entry.mint);
+    if (queue) {
+      queue.push(entry);
+    } else {
+      pendingSelectionsByMint.set(entry.mint, [entry]);
+    }
+  };
+
+  const takePendingSelectionById = (orderId: string): PendingSelection | undefined => {
+    const entry = pendingSelectionsById.get(orderId);
+    if (!entry) {
+      return undefined;
+    }
+    removePendingSelection(entry);
+    return entry;
+  };
+
+  const shiftPendingSelectionByMint = (mint: string, execTs: number): PendingSelection | undefined => {
+    const queue = pendingSelectionsByMint.get(mint);
     if (!queue || queue.length === 0) {
       return undefined;
     }
@@ -146,8 +176,9 @@ async function bootstrap() {
     }
     const [entry] = queue.splice(index, 1);
     if (queue.length === 0) {
-      pendingSelections.delete(mint);
+      pendingSelectionsByMint.delete(mint);
     }
+    pendingSelectionsById.delete(entry.orderId);
     return entry;
   };
 
@@ -176,12 +207,15 @@ async function bootstrap() {
       }
       for (const outcome of outcomes) {
         lastExecOutcomeTs = Math.max(lastExecOutcomeTs, outcome.ts);
-        if (!outcome.mint) {
-          continue;
+        let entry: PendingSelection | undefined;
+        if (outcome.orderId) {
+          entry = takePendingSelectionById(outcome.orderId);
         }
-        const entry = shiftPendingSelection(outcome.mint, outcome.ts);
+        if (!entry && outcome.mint) {
+          entry = shiftPendingSelectionByMint(outcome.mint, outcome.ts);
+        }
         if (!entry) {
-          logger.debug({ mint: outcome.mint, ts: outcome.ts }, 'no pending selection matched exec outcome');
+          logger.debug({ mint: outcome.mint, orderId: outcome.orderId, ts: outcome.ts }, 'no pending selection matched exec outcome');
           continue;
         }
         const realized = computeRealizedReward(outcome.filled, outcome.slippageBpsReal);
@@ -194,16 +228,10 @@ async function bootstrap() {
   };
 
   const pruneExpiredSelections = (now: number): void => {
-    for (const [mint, queue] of pendingSelections) {
-      while (queue.length > 0 && queue[0].createdAt <= now - PENDING_TIMEOUT_MS) {
-        const entry = queue.shift();
-        if (!entry) {
-          continue;
-        }
+    for (const entry of Array.from(pendingSelectionsById.values())) {
+      if (entry.createdAt <= now - PENDING_TIMEOUT_MS) {
+        removePendingSelection(entry);
         applyReward(entry, FAILED_REWARD);
-      }
-      if (queue.length === 0) {
-        pendingSelections.delete(mint);
       }
     }
   };
@@ -498,6 +526,7 @@ async function bootstrap() {
 
     const slippageBps = pickSlippageBps(candidate.ageSec, selection.action.slippageBps);
     const tipLamports = pickTipLamports(selection.action.tipPercentile);
+    const clientOrderId = randomUUID();
 
     const plan: OrderPlan = {
       mint: candidate.mint,
@@ -506,7 +535,8 @@ async function bootstrap() {
       sizeSol: roundedSizeSol,
       slippageBps,
       jitoTipLamports: tipLamports,
-      side: 'buy' as const
+      side: 'buy' as const,
+      clientOrderId
     };
 
     const orderPlan: PlanEnvelope = {
@@ -544,7 +574,8 @@ async function bootstrap() {
       context: contextVector,
       expectedReward,
       createdAt: Date.now(),
-      mint: candidate.mint
+      mint: candidate.mint,
+      orderId: clientOrderId
     });
 
     bus.emitPlan(orderPlan);

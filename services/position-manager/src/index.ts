@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { randomUUID } from 'node:crypto';
 import EventSource from 'eventsource';
 import { createSSEClient, createInMemoryLastEventIdStore, TtlCache, createRpcConnection, resolveServiceUrl } from '@trenches/util';
 import Fastify from 'fastify';
@@ -537,7 +538,8 @@ async function triggerExit(params: {
     jitoTipLamports: pickExitTip(config),
     side: 'sell',
     tokenAmountLamports,
-    expectedSol
+    expectedSol,
+    clientOrderId: randomUUID()
   };
 
   pendingCache.set(key, true);

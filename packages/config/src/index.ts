@@ -179,6 +179,8 @@ const baseConfig: TrenchesConfig = configSchema.parse({
     perNameCapMaxSol: 5,
     lpImpactCapFraction: 0.015,
     flowCapFraction: 0.4,
+    flowTradesPer5m: 60,
+    flowCapMinSol: 0,
     equityTiers: [
       { minEquity: 0, maxEquity: 3, riskFraction: 0.12 },
       { minEquity: 3, maxEquity: 10, riskFraction: 0.12 },

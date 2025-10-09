@@ -56,10 +56,16 @@ export function computeSizing(
   const perNameCap = Math.min(config.wallet.perNameCapFraction * totalEquity, config.wallet.perNameCapMaxSol ?? Infinity);
   caps.perName = perNameCap;
 
-  const impactCap = config.wallet.lpImpactCapFraction * Math.max(candidate.lpSol, 0);
+  const lpSol = Math.max(candidate.lpSol ?? 0, 0);
+  const tradesPer5m = Math.max((candidate.buys60 ?? 0) + (candidate.sells60 ?? 0), 0);
+  const flowRef = Math.max(config.wallet.flowTradesPer5m ?? 60, 1);
+  const flowScale = Math.min(1, tradesPer5m / flowRef);
+  const flowCapacitySol = Math.max(lpSol * flowScale, config.wallet.flowCapMinSol ?? 0);
+
+  const impactCap = config.wallet.lpImpactCapFraction * lpSol;
   caps.lpImpact = impactCap;
 
-  const flowCap = config.wallet.flowCapFraction * Math.max(candidate.lpSol, 0);
+  const flowCap = config.wallet.flowCapFraction * flowCapacitySol;
   caps.flow = flowCap;
 
   const resolveDailyCap = (): number => {
@@ -91,7 +97,7 @@ export function computeSizing(
   const adjustedSize = baseSize * actionMultiplier * concurrencyScaler;
   caps.multiplier = adjustedSize;
 
-  const finalSize = Math.max(Math.min(adjustedSize, freeEquity, dailyCapRemaining), 0);
+  const finalSize = Math.max(Math.min(adjustedSize, baseSize, freeEquity, dailyCapRemaining), 0);
 
   const reason = finalSize <= 0 ? 'no_available_size' : 'ok';
 

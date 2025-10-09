@@ -185,6 +185,8 @@ export const configSchema = z.object({
     perNameCapMaxSol: z.number().positive().nullable().default(5),
     lpImpactCapFraction: z.number().min(0).max(1).default(0.015),
     flowCapFraction: z.number().min(0).max(1).default(0.4),
+    flowTradesPer5m: z.number().int().positive().default(60),
+    flowCapMinSol: z.number().min(0).default(0),
     equityTiers: z.array(equityTierSchema),
     concurrencyCap: z.number().int().positive().default(3),
     concurrencyScaler: concurrencyScalerSchema.default({ base: 1, max: 1.4, recoveryMinutes: 60 })

@@ -76,6 +76,7 @@ export type OrderPlan = {
   side?: 'buy' | 'sell';
   tokenAmountLamports?: number;
   expectedSol?: number;
+  clientOrderId?: string;
 };
 
 export type TradeEvent =

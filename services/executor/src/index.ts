@@ -416,7 +416,10 @@ async function executePlan(opts: {
     throw new Error('missing candidate in plan context');
   }
   const orderCreatedTs = Date.now();
-  const orderId = `${candidate.mint}-${orderCreatedTs}`;
+  const orderId = plan.clientOrderId ?? `${candidate.mint}-${orderCreatedTs}`;
+  if (!plan.clientOrderId) {
+    plan.clientOrderId = orderId;
+  }
 
   recordOrderPlan({
     id: orderId,

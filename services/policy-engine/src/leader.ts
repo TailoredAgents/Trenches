@@ -22,6 +22,8 @@ export type WalletCapsConfig = {
   perNameCapMaxSol: number | null;
   lpImpactCapFraction: number;
   flowCapFraction: number;
+  flowTradesPer5m: number;
+  flowCapMinSol: number;
 };
 
 export function computeLeaderBoostInfo(
@@ -53,8 +55,13 @@ export function applyLeaderSizeBoost(
   }
   const boostFactor = 1 + 0.25 * Math.max(cfg.sizeTierBoost, 0);
   const perMintCap = Math.min(caps.perNameCapFraction * wallet.equity, caps.perNameCapMaxSol ?? Infinity);
-  const impactCap = caps.lpImpactCapFraction * Math.max(candidate.lpSol ?? 0, 0);
-  const flowCap = caps.flowCapFraction * Math.max(candidate.lpSol ?? 0, 0);
+  const lpSol = Math.max(candidate.lpSol ?? 0, 0);
+  const tradesPer5m = Math.max((candidate.buys60 ?? 0) + (candidate.sells60 ?? 0), 0);
+  const flowRef = Math.max(caps.flowTradesPer5m ?? 60, 1);
+  const flowScale = Math.min(1, tradesPer5m / flowRef);
+  const flowCapacitySol = Math.max(lpSol * flowScale, caps.flowCapMinSol ?? 0);
+  const impactCap = caps.lpImpactCapFraction * lpSol;
+  const flowCap = caps.flowCapFraction * flowCapacitySol;
   const capValues = [wallet.free, wallet.spendRemaining, perMintCap, impactCap, flowCap]
     .filter((value) => Number.isFinite(value) && value > 0);
   const capLimit = capValues.length > 0 ? Math.min(...capValues) : baseSize;
