@@ -15,7 +15,7 @@ import { TokenCandidate, TradeEvent, OrderPlan } from '@trenches/shared';
 import { BirdeyePriceOracle } from './birdeye';
 import { getMintDecimals } from './mint';
 import { PositionState } from './types';
-import { positionsOpened, positionsClosed, exitsTriggered, trailingActivations, positionSizeGauge } from './metrics';
+import { positionsOpened, positionsClosed, exitsTriggered, trailingActivations, positionSizeGauge, maeAvgBpsGauge, maeMaxBpsGauge } from './metrics';
 const logger = createLogger('position-manager');
 const offline = process.env.NO_RPC === '1';
 const providersOff = process.env.DISABLE_PROVIDERS === '1';
@@ -611,14 +611,26 @@ async function persistPosition(state: PositionState): Promise<void> {
 async function refreshExposureMetrics(positions: Map<string, { state: PositionState; candidate?: TokenCandidate }>): Promise<void> {
   let exposure = 0;
   let count = 0;
+  let maeSum = 0;
+  let maeMax = 0;
   for (const entry of positions.values()) {
     if (entry.state.quantity > 0) {
       exposure += entry.state.quantity * entry.state.avgPrice;
       count += 1;
+      const m = Math.max(0, Math.round(entry.state.maeBps ?? 0));
+      maeSum += m;
+      if (m > maeMax) maeMax = m;
     }
   }
   positionSizeGauge.set(exposure);
   POSITION_COUNT_GAUGE.set(count);
+  if (count > 0) {
+    maeAvgBpsGauge.set(maeSum / count);
+    maeMaxBpsGauge.set(maeMax);
+  } else {
+    maeAvgBpsGauge.set(0);
+    maeMaxBpsGauge.set(0);
+  }
   POSITION_REFRESH_EPOCH.set(Math.floor(Date.now() / 1000));
 }
 

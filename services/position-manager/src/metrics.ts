@@ -26,3 +26,13 @@ export const positionSizeGauge: Gauge<string> = registerGauge({
   name: 'position_manager_total_size_sol',
   help: 'Total SOL exposure managed'
 });
+
+export const maeAvgBpsGauge: Gauge<string> = registerGauge({
+  name: 'position_manager_mae_avg_bps',
+  help: 'Average maximum adverse excursion (bps) across open positions'
+});
+
+export const maeMaxBpsGauge: Gauge<string> = registerGauge({
+  name: 'position_manager_mae_max_bps',
+  help: 'Maximum MAE (bps) among open positions'
+});
