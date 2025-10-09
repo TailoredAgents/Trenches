@@ -62,6 +62,16 @@ export const slipAvgGauge: Gauge<string> = registerGauge({
   help: 'Average realized slippage (bps)'
 });
 
+export const priorityFeeGauge: Gauge<string> = registerGauge({
+  name: 'executor_priority_fee_micro_lamports',
+  help: 'Priority fee (micro lamports) applied on last execution'
+});
+
+export const tipLamportsGauge: Gauge<string> = registerGauge({
+  name: 'executor_tip_lamports',
+  help: 'Tip lamports attached to the last execution'
+});
+
 export const timeToLandHistogram = registerGauge({
   name: 'executor_time_to_land_ms',
   help: 'Last execution time to land (ms)'

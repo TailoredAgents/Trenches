@@ -202,6 +202,24 @@ rpc:
 execution:
   tipStrategy: auto
   computeUnitPriceMode: auto_oracle
+  tipRanges:
+    p25: [200000, 400000]
+    p50: [500000, 1000000]
+    p75: [1500000, 2500000]
+    p90: [3000000, 4500000]
+  priorityFee:
+    baseMicroLamports: 7000          # Base compute unit price (micro lamports)
+    floorMicroLamports: 5000         # Never go below this CU price floor
+    maxMicroLamports: 28000          # Cap CU price to contain runaway spikes
+    sizeMultiplierMicroLamports: 1500 # Additional CU price per SOL of notional
+    congestionMultipliers:
+      p25: 0.7
+      p50: 1.0
+      p75: 1.6
+      p90: 2.2
+  jito:
+    enabled: false                   # Set true + provide bundle URL & tip account to enable bundles
+    bundleUrl: ''
   migrationPreset:
     enabled: true
     durationMs: 60000
@@ -350,7 +368,7 @@ features:
   constrainedSizing: true
   survivalStops: true
   offlinePolicyShadow: true
-  jitoEnabled: false
+  jitoEnabled: false              # Flip to true once Jito endpoints are configured
   parquetExport: false
   flowCapRewrite: false
   constrainedRiskScaling: false

@@ -13,7 +13,7 @@ import { TokenCandidate, OrderPlan, TradeEvent, CongestionLevel } from '@trenche
 import { WalletProvider } from './wallet';
 import { JupiterClient } from './jupiter';
 import { TransactionSender } from './sender';
-import { ordersReceived, ordersFailed, ordersSubmitted, simpleModeGauge, flagJitoEnabled, flagSecondaryRpcEnabled, flagWsEnabled, landedRateGauge, slipAvgGauge, timeToLandHistogram, retriesTotal, fallbacksTotal, shadowOutcomesTotal } from './metrics';
+import { ordersReceived, ordersFailed, ordersSubmitted, simpleModeGauge, flagJitoEnabled, flagSecondaryRpcEnabled, flagWsEnabled, landedRateGauge, slipAvgGauge, priorityFeeGauge, tipLamportsGauge, timeToLandHistogram, retriesTotal, fallbacksTotal, shadowOutcomesTotal } from './metrics';
 import { predictFill } from './fillnet';
 import { decideFees, updateArm } from './fee-bandit';
 import { ExecutorEventBus } from './eventBus';
@@ -346,6 +346,34 @@ function congestionLevelToScore(level: CongestionLevel | string | undefined, fal
   }
 }
 
+const DEFAULT_PRIORITY_FEE = {
+  baseMicroLamports: 6_000,
+  floorMicroLamports: 4_000,
+  maxMicroLamports: 25_000,
+  sizeMultiplierMicroLamports: 1_200,
+  congestionMultipliers: { p25: 0.6, p50: 1, p75: 1.5, p90: 2 }
+};
+
+function computePriorityFeeMicroLamports(
+  config: any,
+  level: CongestionLevel | string | undefined,
+  sizeSol: number | undefined
+): number {
+  const priority = (config?.execution?.priorityFee ?? DEFAULT_PRIORITY_FEE) as Record<string, any>;
+  const multipliers: Record<string, number> = priority.congestionMultipliers ?? DEFAULT_PRIORITY_FEE.congestionMultipliers;
+  const base = Number(priority.baseMicroLamports ?? DEFAULT_PRIORITY_FEE.baseMicroLamports);
+  const floor = Number(priority.floorMicroLamports ?? DEFAULT_PRIORITY_FEE.floorMicroLamports);
+  const max = Number(priority.maxMicroLamports ?? DEFAULT_PRIORITY_FEE.maxMicroLamports);
+  const sizeMultiplier = Number(priority.sizeMultiplierMicroLamports ?? DEFAULT_PRIORITY_FEE.sizeMultiplierMicroLamports);
+  const multiplierKey = typeof level === 'string' ? level : String(level ?? '');
+  const multiplierRaw = Number(multipliers[multiplierKey]);
+  const multiplier = Number.isFinite(multiplierRaw) && multiplierRaw > 0 ? multiplierRaw : 1;
+  const sizeComponent = Math.max(0, Number(sizeSol ?? 0)) * Math.max(0, sizeMultiplier);
+  const raw = (Math.max(0, base) + sizeComponent) * multiplier;
+  const bounded = Math.min(Math.max(floor, Math.round(raw)), Math.max(floor, max));
+  return Math.max(0, bounded);
+}
+
 function normalizePlanContext(raw: PolicyPlanContext): ExecutorPlanContext {
   const parsed = raw?.parsedCtx && typeof raw.parsedCtx === 'object' ? (raw.parsedCtx as Record<string, unknown>) : {};
   const candidate =
@@ -410,6 +438,7 @@ async function executePlan(opts: {
 }): Promise<void> {
   const { payload, wallet, jupiter, sender, bus, connection } = opts;
   const plan = payload.plan;
+  tipLamportsGauge.set(plan.jitoTipLamports ?? 0);
   const planContext = normalizePlanContext(payload.context ?? {});
   const candidate = planContext.candidate;
   if (!candidate?.mint) {
@@ -574,6 +603,13 @@ async function executePlan(opts: {
   cuPriceToUse = presetResult.cuPrice;
   slippageToUse = presetResult.slippageBps;
   slipExpForStats = Math.max(slipExpForStats, slippageToUse);
+  const priorityFloor = computePriorityFeeMicroLamports(cfg, planContext.congestionLevel, plan.sizeSol);
+  if (priorityFloor > cuPriceToUse) {
+    cuPriceToUse = priorityFloor;
+  }
+  priorityFeeGauge.set(cuPriceToUse);
+  plan.computeUnitPriceMicroLamports = cuPriceToUse;
+
   let quote = await jupiter.fetchQuote(
     {
       inputMint,

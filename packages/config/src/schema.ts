@@ -430,6 +430,41 @@ export const configSchema = z.object({
     tipStrategy: z.enum(['auto', 'manual']).default('auto'),
     computeUnitPriceMode: z.enum(['auto_oracle', 'manual']).default('auto_oracle'),
     simpleMode: z.boolean().default(true),
+    tipRanges: z
+      .object({
+        p25: z.tuple([z.number().int().min(0), z.number().int().min(0)]).default([200_000, 400_000]),
+        p50: z.tuple([z.number().int().min(0), z.number().int().min(0)]).default([500_000, 1_000_000]),
+        p75: z.tuple([z.number().int().min(0), z.number().int().min(0)]).default([1_500_000, 2_500_000]),
+        p90: z.tuple([z.number().int().min(0), z.number().int().min(0)]).default([3_000_000, 4_000_000])
+      })
+      .default({
+        p25: [200_000, 400_000],
+        p50: [500_000, 1_000_000],
+        p75: [1_500_000, 2_500_000],
+        p90: [3_000_000, 4_000_000]
+      }),
+    priorityFee: z
+      .object({
+        baseMicroLamports: z.number().int().nonnegative().default(6_000),
+        floorMicroLamports: z.number().int().nonnegative().default(4_000),
+        maxMicroLamports: z.number().int().positive().default(25_000),
+        sizeMultiplierMicroLamports: z.number().int().nonnegative().default(1_200),
+        congestionMultipliers: z
+          .object({
+            p25: z.number().positive().default(0.6),
+            p50: z.number().positive().default(1),
+            p75: z.number().positive().default(1.5),
+            p90: z.number().positive().default(2)
+          })
+          .default({ p25: 0.6, p50: 1, p75: 1.5, p90: 2 })
+      })
+      .default({
+        baseMicroLamports: 6_000,
+        floorMicroLamports: 4_000,
+        maxMicroLamports: 25_000,
+        sizeMultiplierMicroLamports: 1_200,
+        congestionMultipliers: { p25: 0.6, p50: 1, p75: 1.5, p90: 2 }
+      }),
     jito: z
       .object({ enabled: z.boolean().default(false), bundleUrl: z.string().default('') })
       .default({ enabled: false, bundleUrl: '' }),
@@ -469,6 +504,19 @@ export const configSchema = z.object({
     tipStrategy: 'auto',
     computeUnitPriceMode: 'auto_oracle',
     simpleMode: true,
+    tipRanges: {
+      p25: [200_000, 400_000],
+      p50: [500_000, 1_000_000],
+      p75: [1_500_000, 2_500_000],
+      p90: [3_000_000, 4_000_000]
+    },
+    priorityFee: {
+      baseMicroLamports: 6_000,
+      floorMicroLamports: 4_000,
+      maxMicroLamports: 25_000,
+      sizeMultiplierMicroLamports: 1_200,
+      congestionMultipliers: { p25: 0.6, p50: 1, p75: 1.5, p90: 2 }
+    },
     jito: { enabled: false, bundleUrl: '' },
     jitoEnabled: false,
     secondaryRpcEnabled: false,
