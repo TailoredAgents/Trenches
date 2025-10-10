@@ -268,11 +268,11 @@ policy:
   rewardSmoothing: 0.2
 
 caching:
-  dexscreenerPairsTtlSec: 10
-  dexscreenerTrendingTtlSec: 60
-  birdeyeMultiPriceTtlSec: 5
-  birdeyeTrendingTtlSec: 60
-  topicEmbeddingTtlSec: 600
+    dexscreenerPairsTtlSec: 10
+    dexscreenerTrendingTtlSec: 60
+    birdeyeMultiPriceTtlSec: 30
+    birdeyeTrendingTtlSec: 120
+    topicEmbeddingTtlSec: 600
 social:
   neynar:
     enabled: true
@@ -325,16 +325,16 @@ positionManager:
 
 providers:
   solanatracker:
-    enabled: true
-    baseUrl: https://api.solanatracker.io
-    pollSec: 8
-    ttlSec: 10
-    endpoints:
-      trending: true
-      latest: true
-      launchpads:
-        pumpfun: true
-        jupstudio: true
+      enabled: true
+      baseUrl: https://api.solanatracker.io
+      pollSec: 12
+      ttlSec: 10
+      endpoints:
+        trending: true
+        latest: true
+        launchpads:
+          pumpfun: true
+          jupstudio: true
 
 
 lunarcrush:

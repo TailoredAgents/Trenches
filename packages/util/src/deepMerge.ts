@@ -3,7 +3,7 @@ export function deepMerge<T extends Record<string, any>, U extends Record<string
   if (!source) return output as T & U;
   for (const [key, value] of Object.entries(source)) {
     if (Array.isArray(value)) {
-      output[key] = Array.isArray(output[key]) ? [...output[key], ...value] : [...value];
+      output[key] = [...value];
     } else if (value && typeof value === 'object') {
       output[key] = deepMerge(
         (output[key] && typeof output[key] === 'object' ? output[key] : {}),
@@ -15,4 +15,3 @@ export function deepMerge<T extends Record<string, any>, U extends Record<string
   }
   return output as T & U;
 }
-

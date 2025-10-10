@@ -713,8 +713,8 @@ async function executePlan(opts: {
                 })
               : { ts: Date.now(), cuPrice: reChosen.cuPrice, cuLimit: 1_200_000, slippageBps: reChosen.slippageBps, rationale: 'static' } as any;
 
-            let newCuPrice = reFeeDecision.cuPrice;
-            let newSlip = reFeeDecision.slippageBps;
+            const newCuPrice = reFeeDecision.cuPrice;
+            const newSlip = reFeeDecision.slippageBps;
             const presetResultRetry = applyMigrationPresetAdjustment({
               preset: ((cfg as any).execution?.migrationPreset),
               mint: candidate.mint,

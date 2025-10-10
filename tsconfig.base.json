@@ -19,19 +19,19 @@
     "baseUrl": ".",
     "paths": {
       "@trenches/shared": [
-        "packages/shared/src"
+        "packages/shared/src/index.ts"
       ],
       "@trenches/config": [
-        "packages/config/src"
+        "packages/config/src/index.ts"
       ],
       "@trenches/logger": [
-        "packages/logger/src"
+        "packages/logger/src/index.ts"
       ],
       "@trenches/metrics": [
-        "packages/metrics/src"
+        "packages/metrics/src/index.ts"
       ],
       "@trenches/persistence": [
-        "packages/persistence/src"
+        "packages/persistence/src/index.ts"
       ],
       "@trenches/util": [
         "packages/util/src/index.ts"

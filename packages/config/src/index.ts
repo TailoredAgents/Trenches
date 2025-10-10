@@ -10,7 +10,7 @@ function findRepoRoot(startDir: string): string {
     let current = path.resolve(startDir);
     let lastWithPkgJson: string | null = null;
     // Walk up until filesystem root
-    while (true) {
+    for (;;) {
       const workspaceFile = path.join(current, 'pnpm-workspace.yaml');
       const pkgJson = path.join(current, 'package.json');
       if (fs.existsSync(workspaceFile)) {
@@ -445,7 +445,10 @@ function loadFileConfig(customPath?: string): Record<string, unknown> {
     // Default missing: emit info so operators know baked defaults are used
     try {
       console.info(`[config] default config not found at ${DEFAULT_CONFIG_PATH}; using baked defaults`);
-    } catch {}
+    } catch (err) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+      void err;
+    }
     return {};
   }
   const raw = fs.readFileSync(pathToUse, 'utf-8');
