@@ -8,7 +8,7 @@ from typing import Iterable, Tuple
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import precision_recall_fscore_support
+from sklearn.metrics import precision_recall_fscore_support, roc_auc_score
 
 from util_ds import get_rugguard_dataset
 
@@ -118,7 +118,7 @@ def train_rugguard() -> dict:
         'status': 'ok',
         'weights': DEFAULT_WEIGHTS,
         'threshold': DEFAULT_THRESHOLD,
-        'metrics': {},
+        'metrics': {'train_size': train_size, 'holdout_size': holdout_size},
     }
 
     if train_size < 25 or len(np.unique(y_train)) < 2:
@@ -134,9 +134,16 @@ def train_rugguard() -> dict:
     threshold_src = (X_holdout, y_holdout) if holdout_size >= 10 else (X_train, y_train)
     threshold_probs = clf.predict_proba(threshold_src[0].to_numpy(dtype=float))[:, 1]
     threshold_labels = threshold_src[1].to_numpy(dtype=int)
-    threshold, metrics = _choose_threshold(threshold_labels, threshold_probs)
+    threshold, threshold_metrics = _choose_threshold(threshold_labels, threshold_probs)
     result['threshold'] = threshold
-    result['metrics'] = metrics
+    result['metrics'].update(threshold_metrics)
+
+    try:
+        auc_score = roc_auc_score(threshold_labels, threshold_probs)
+        result['metrics']['auc'] = float(auc_score)
+    except Exception:
+        # AUC may fail if labels lack diversity; ignore but retain status
+        pass
 
     prec, rec, f1, _ = precision_recall_fscore_support(
         threshold_labels,

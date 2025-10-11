@@ -10,6 +10,11 @@ Prerequisites
 - Set `SOLANA_WS_URL` when running a separate WebSocket endpoint and `SOLANA_RPC_HTTP_HEADERS` when the validator requires auth headers.
 - No external credentials required for offline checks beyond optional RPC headers.
 
+Training data preflight
+- Run `pnpm exec tsx tools/sql/check_training_data.ts`.
+- The script reports row counts for `exec_outcomes`, `sim_exec_outcomes`, `fills`, `rug_verdicts`, and `scores` (expected minimums: 1k, 1k, 500, 100, 500 respectively).
+- It also verifies that the four training views (`fill_training_view`, `alpha_training_view`, `rug_training_view`, `survival_training_view`) exist; the command exits non-zero if any prerequisite is missing.
+
 Build & Start
 - npx pnpm install
 - npx pnpm run typecheck && npx pnpm run lint

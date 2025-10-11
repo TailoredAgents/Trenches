@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import EventSource from 'eventsource';
 import { createInMemoryLastEventIdStore, subscribeJsonStream, sseQueue, sseRoute, resolveServiceUrl } from '@trenches/util';
+import { registerGauge } from '@trenches/metrics';
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -37,18 +38,77 @@ type AlphaModelPayload = {
   models?: Record<string, { weights?: number[]; status?: string; metrics?: Record<string, number>; train_size?: number; holdout_size?: number }>;
 };
 
-let alphaWeights: { features: string[]; weights: Record<string, number[]>; status: string } | null = null;
+const MODEL_STATUS_LABELS = ['ok', 'degraded', 'missing', 'error', 'unknown'] as const;
+const modelVersionGauge = registerGauge({ name: 'alpha_model_epoch_seconds', help: 'Alpha model created timestamp (unix seconds)' });
+const modelStatusGauge = registerGauge({ name: 'alpha_model_status', help: 'Alpha model status indicator (1 if active, 0 otherwise)', labelNames: ['status'] });
 
-function ensureAlphaModel(): void {
-  if (alphaWeights !== null) return;
+let alphaWeights: { features: string[]; weights: Record<string, number[]>; status: string } | null = null;
+let alphaModelPath: string | null = null;
+let alphaModelWatcher: fs.FSWatcher | null = null;
+let alphaModelStatus: typeof MODEL_STATUS_LABELS[number] = 'unknown';
+let alphaModelDebounce: NodeJS.Timeout | null = null;
+
+function setAlphaModelStatus(status: string, created?: string): void {
+  const normalized = MODEL_STATUS_LABELS.includes(status as any) ? (status as typeof MODEL_STATUS_LABELS[number]) : 'unknown';
+  const createdTs = created ? Date.parse(created) : Date.now();
+  if (!Number.isNaN(createdTs)) {
+    modelVersionGauge.set(Math.floor(createdTs / 1000));
+  }
+  for (const label of MODEL_STATUS_LABELS) {
+    modelStatusGauge.labels({ status: label }).set(label === normalized ? 1 : 0);
+  }
+  alphaModelStatus = normalized;
+}
+
+setAlphaModelStatus('unknown');
+
+function scheduleAlphaReload(reason: string): void {
+  if (alphaModelDebounce) return;
+  alphaModelDebounce = setTimeout(() => {
+    alphaModelDebounce = null;
+    logger.info({ path: alphaModelPath, reason }, 'alpha model change detected, reloading');
+    alphaWeights = null;
+    loadAlphaModel(true);
+  }, 200);
+}
+
+function applyAlphaWatcher(filePath: string): void {
+  if (!filePath) return;
+  if (alphaModelWatcher) {
+    alphaModelWatcher.close();
+    alphaModelWatcher = null;
+  }
   try {
-    const modelPath = path.join('models', 'alpha_ranker_v1.json');
-    if (!fs.existsSync(modelPath)) {
-      logger.warn({ modelPath }, 'alpha model file missing; using heuristic scoring');
+    alphaModelWatcher = fs.watch(filePath, { persistent: false }, (event) => {
+      if (event === 'change' || event === 'rename') {
+        scheduleAlphaReload(event);
+      }
+    });
+  } catch (err) {
+    logger.warn({ err, filePath }, 'failed to watch alpha model file');
+  }
+}
+
+function loadAlphaModel(force = false): void {
+  try {
+    const cfg = loadConfig();
+    const configuredPath = (cfg as any).alpha?.modelPath ?? path.join('models', 'alpha_ranker_v1.json');
+    if (alphaModelPath !== configuredPath) {
+      alphaModelPath = configuredPath;
+      if (alphaModelWatcher) {
+        alphaModelWatcher.close();
+        alphaModelWatcher = null;
+      }
+    }
+    if (!fs.existsSync(configuredPath)) {
+      if (force) {
+        logger.warn({ configuredPath }, 'alpha model file missing; continuing with heuristics');
+      }
       alphaWeights = null;
+      setAlphaModelStatus('missing');
       return;
     }
-    const raw = JSON.parse(fs.readFileSync(modelPath, 'utf-8')) as AlphaModelPayload;
+    const raw = JSON.parse(fs.readFileSync(configuredPath, 'utf-8')) as AlphaModelPayload;
     const features = Array.isArray(raw.features) && raw.features.length > 0 ? raw.features : ALPHA_FEATURES;
     const weights: Record<string, number[]> = {};
     const models = raw.models ?? {};
@@ -62,11 +122,25 @@ function ensureAlphaModel(): void {
       weights,
       status: raw.status ?? 'unknown'
     };
-    logger.info({ status: alphaWeights.status, horizons: Object.keys(weights) }, 'alpha model loaded');
+    logger.info({ status: alphaWeights.status, horizons: Object.keys(weights), path: configuredPath }, 'alpha model loaded');
+    setAlphaModelStatus(alphaWeights.status, raw.created);
+    applyAlphaWatcher(configuredPath);
   } catch (err) {
     logger.error({ err }, 'failed to load alpha model; falling back to heuristics');
     alphaWeights = null;
+    setAlphaModelStatus('error');
   }
+}
+
+function ensureAlphaModel(): void {
+  if (alphaWeights !== null) return;
+  loadAlphaModel();
+}
+
+function reloadAlphaModel(): { status: string } {
+  alphaWeights = null;
+  loadAlphaModel(true);
+  return { status: alphaModelStatus };
 }
 
 function selectWeightsForHorizon(horizon: Horizon): number[] | undefined {
@@ -162,6 +236,7 @@ function extractAlphaKeywords(candidate: Candidate): string[] {
 
 async function bootstrap() {
   const cfg = loadConfig();
+  loadAlphaModel();
   const apiKeyEnv = (process.env.LUNARCRUSH_API_KEY ?? '').trim();
   const envHandshake = (process.env.LUNARCRUSH_MCP_SSE_URL ?? '').trim();
   const configHandshake = (cfg.lunarcrush?.mcpSseUrl ?? '').trim();
@@ -247,9 +322,6 @@ async function bootstrap() {
       }
     });
   };
-  process.on('SIGINT', () => { safetyClient?.dispose(); lunar.stop(); });
-  process.on('SIGTERM', () => { safetyClient?.dispose(); lunar.stop(); });
-
   app.get('/events/scores', async (_req, reply) => {
     const stream = sseQueue<CandidateScore>();
     let stopped = false;
@@ -267,6 +339,11 @@ async function bootstrap() {
     });
   });
 
+  app.post('/control/reload-models', async (_req, reply) => {
+    const result = reloadAlphaModel();
+    reply.send(result);
+  });
+
   app.get('/healthz', async () => {
     const lunarStatus = lunar.getStatus();
     const baseStatus = offline ? 'degraded' : 'ok';
@@ -282,6 +359,24 @@ async function bootstrap() {
   } else {
     logger.warn('NO_RPC=1; alpha-ranker running without safety stream subscription');
   }
+
+  const disposeWatcher = () => {
+    if (alphaModelWatcher) {
+      alphaModelWatcher.close();
+      alphaModelWatcher = null;
+    }
+  };
+
+  process.on('SIGINT', () => {
+    safetyClient?.dispose();
+    disposeWatcher();
+    lunar.stop();
+  });
+  process.on('SIGTERM', () => {
+    safetyClient?.dispose();
+    disposeWatcher();
+    lunar.stop();
+  });
 }
 
 bootstrap().catch((err) => { logger.error({ err }, 'alpha-ranker failed to start'); process.exit(1); });

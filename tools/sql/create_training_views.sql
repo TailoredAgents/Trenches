@@ -1,3 +1,4 @@
+-- Training views are created automatically by migration 0018 and ensureTrainingViews; this SQL is kept for manual refresh/debug.
 -- 1) FillNet training view
 CREATE VIEW IF NOT EXISTS fill_training_view AS
 SELECT

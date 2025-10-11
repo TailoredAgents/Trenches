@@ -4,6 +4,7 @@ import shutil
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
+from urllib import error as urlerror, request as urlrequest
 
 
 MODELS = {
@@ -12,6 +13,13 @@ MODELS = {
     'alpha': ('models/alpha_ranker_v1.json', 'models/alpha_ranker.json', None),
     'rugguard': ('models/rugguard_v2.json', 'models/rugguard_v2.json', 'models/rugguard.json'),
     'survival': ('models/survival_v1.json', 'models/survival.json', None),
+}
+
+DEFAULT_RELOAD_ENDPOINTS = {
+    'fillnet': 'http://127.0.0.1:4011/control/reload-models',
+    'alpha': 'http://127.0.0.1:4021/control/reload-models',
+    'rugguard': '',
+    'survival': ''
 }
 
 
@@ -23,6 +31,14 @@ def run(cmd: str, env: dict | None = None) -> tuple[int, str]:
         return 1, str(e)
 
 
+def run_script(script: str, args: list[str], env: dict | None = None) -> tuple[int, str]:
+    joined_args = ' '.join(args)
+    cmd = f"pnpm run --if-present {script}"
+    if joined_args:
+        cmd = f"{cmd} -- {joined_args}"
+    return run(cmd, env)
+
+
 def backtest_and_ope(env_overrides: dict) -> dict:
     now = datetime.utcnow()
     start = now - timedelta(days=14)
@@ -31,15 +47,31 @@ def backtest_and_ope(env_overrides: dict) -> dict:
         'TO': now.strftime('%Y-%m-%d'),
     }
     summary = {}
-    code, out = run(f"pnpm backtest --from {args['FROM']} --to {args['TO']} --use-alpha", env_overrides)
+    code, out = run_script('backtest', [f"--from {args['FROM']}", f"--to {args['TO']}", '--use-alpha'], env_overrides)
     summary['backtest_ok'] = (code == 0)
     summary['backtest_raw'] = out[-2000:]
     # OPE fee + sizing
-    code_f, out_f = run(f"pnpm ope --from {args['FROM']} --to {args['TO']} --policy fee", env_overrides)
-    code_s, out_s = run(f"pnpm ope --from {args['FROM']} --to {args['TO']} --policy sizing", env_overrides)
+    code_f, out_f = run_script('ope', [f"--from {args['FROM']}", f"--to {args['TO']}", '--policy fee'], env_overrides)
+    code_s, out_s = run_script('ope', [f"--from {args['FROM']}", f"--to {args['TO']}", '--policy sizing'], env_overrides)
     summary['ope_ok'] = (code_f == 0 and code_s == 0)
     summary['ope_raw'] = (out_f + '\n' + out_s)[-2000:]
     return summary
+
+
+def trigger_reload(name: str) -> str:
+    default = DEFAULT_RELOAD_ENDPOINTS.get(name, '')
+    url = os.environ.get(f'PROMOTE_{name.upper()}_RELOAD_URL', default)
+    if not url:
+        return 'skipped(no_url)'
+    try:
+        req = urlrequest.Request(url, data=b'', method='POST')
+        with urlrequest.urlopen(req, timeout=5) as resp:
+            code = resp.getcode()
+            return f'ok({code})' if 200 <= code < 300 else f'http_{code}'
+    except urlerror.URLError as exc:
+        return f'failed:{exc}'
+    except Exception as exc:  # pragma: no cover - unexpected errors
+        return f'failed:{exc}'
 
 
 def read_json(path: str) -> dict | None:
@@ -53,40 +85,79 @@ def read_json(path: str) -> dict | None:
 
 
 def gate_fillnet(current: dict | None, cand: dict | None) -> tuple[bool, str]:
-    if not cand or cand.get('status') != 'ok':
-        return False, 'candidate_missing_or_no_data'
-    cb = (current or {}).get('metrics', {})
-    nb = cand.get('metrics', {})
-    # Prefer lower brier, lower slip_mape; landed rate gate delegated to backtest
-    brier_ok = nb.get('brier', 1.0) <= cb.get('brier', nb.get('brier', 1.0))
-    mape_cur = cb.get('slip_mape', 1.0)
-    mape_new = nb.get('slip_mape', 1.0)
-    mape_ok = (mape_cur - mape_new) / max(1e-6, mape_cur) >= 0.10 or mape_new <= 0.25
-    if brier_ok and mape_ok:
-        return True, 'brier_and_slip_ok'
+    if not cand:
+        return False, 'candidate_missing'
+    status = cand.get('status')
+    if status != 'ok':
+        return False, f'candidate_status_{status}'
+    metrics = cand.get('metrics', {})
+    train_size = metrics.get('train_size_fill', cand.get('train_size', 0))
+    if train_size is not None and train_size < 200:
+        return False, f'insufficient_train_samples({train_size})'
+    new_brier = metrics.get('brier')
+    current_brier = (current or {}).get('metrics', {}).get('brier', new_brier or 1.0)
+    if new_brier is None:
+        return False, 'missing_brier_metric'
+    improvement = current_brier - new_brier
+    slip_mape = metrics.get('slip_mape')
+    slip_ok = slip_mape is not None and slip_mape <= 0.3
+    if improvement >= 0.02 or (slip_ok and new_brier <= current_brier + 0.005):
+        return True, f'brier_delta={improvement:.4f}'
     return False, 'metrics_not_improved'
 
 
 def gate_alpha(current: dict | None, cand: dict | None) -> tuple[bool, str]:
-    if not cand or cand.get('status') != 'ok':
-        return False, 'candidate_missing_or_no_data'
-    auc10 = cand.get('metrics', {}).get('auc_10m', 0)
-    if auc10 >= 0.70:
-        return True, 'auc_10m_threshold_ok'
-    return False, 'auc_below_threshold'
+    if not cand:
+        return False, 'candidate_missing'
+    status = cand.get('status')
+    if status != 'ok':
+        return False, f'candidate_status_{status}'
+    metrics = cand.get('metrics', {})
+    auc10 = metrics.get('auc_10m')
+    train_size = max(
+        metrics.get('train_size_10m', 0),
+        metrics.get('train_size_60m', 0),
+        cand.get('train_size', 0)
+    )
+    if train_size < 200:
+        return False, f'insufficient_train_samples({train_size})'
+    if auc10 is None or auc10 < 0.7:
+        return False, f'auc_10m_too_low({auc10})'
+    precision60 = metrics.get('precision_at_50_60m')
+    if precision60 is not None and precision60 < 0.5:
+        return False, f'precision_60m_too_low({precision60})'
+    return True, f'auc_10m={auc10:.3f}'
 
 
 def gate_rug(current: dict | None, cand: dict | None) -> tuple[bool, str]:
-    if not cand or cand.get('status') != 'ok':
-        return False, 'candidate_missing_or_no_data'
-    # Without consistent tails in current, accept candidate; OPE will catch regressions
-    return True, 'accepted_via_ope_guard'
+    if not cand:
+        return False, 'candidate_missing'
+    status = cand.get('status')
+    if status != 'ok':
+        return False, f'candidate_status_{status}'
+    metrics = cand.get('metrics', {})
+    train_size = cand.get('train_size', 0)
+    if train_size < 200:
+        return False, f'insufficient_train_samples({train_size})'
+    auc = metrics.get('auc')
+    f1 = metrics.get('f1')
+    if auc is not None and auc < 0.65:
+        return False, f'auc_too_low({auc})'
+    if f1 is not None and f1 < 0.4:
+        return False, f'f1_too_low({f1})'
+    return True, f'auc={auc},f1={f1}'
 
 
 def gate_survival(current: dict | None, cand: dict | None) -> tuple[bool, str]:
-    if not cand or cand.get('status') != 'ok':
-        return False, 'candidate_missing_or_no_data'
-    return True, 'accepted_via_ope_guard'
+    if not cand:
+        return False, 'candidate_missing'
+    status = cand.get('status')
+    if status != 'ok':
+        return False, f'candidate_status_{status}'
+    sample_size = cand.get('sample_size') or cand.get('metrics', {}).get('sample_size', 0)
+    if sample_size < 100:
+        return False, f'insufficient_samples({sample_size})'
+    return True, f'sample_size={sample_size}'
 
 
 def maybe_promote(name: str, prod_primary: str, cand_path: str, env_keys: dict, prod_alias: str | None = None) -> str:
@@ -111,7 +182,8 @@ def maybe_promote(name: str, prod_primary: str, cand_path: str, env_keys: dict, 
         shutil.copyfile(cand_path, prod_primary)
         if prod_alias:
             shutil.copyfile(cand_path, prod_alias)
-        return f"PROMOTE {name}=ok reason={reason}"
+        reload_status = trigger_reload(name)
+        return f"PROMOTE {name}=ok reason={reason} reload={reload_status}"
     except Exception as e:
         return f"PROMOTE {name}=skipped reason=copy_failed:{e}"
 

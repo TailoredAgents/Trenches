@@ -103,7 +103,13 @@ def _precision_at_k(y_true: np.ndarray, y_score: np.ndarray, k: int = 50) -> flo
 
 def _train_one_horizon(features: pd.DataFrame, labels: pd.Series) -> Dict[str, Any]:
     X_train, y_train, X_holdout, y_holdout = _chronological_split(features, labels)
-    result: Dict[str, Any] = {'weights': FEATURE_NAMES.copy(), 'metrics': {}, 'status': 'ok', 'train_size': int(y_train.size), 'holdout_size': int(y_holdout.size)}
+    result: Dict[str, Any] = {
+        'weights': FEATURE_NAMES.copy(),
+        'metrics': {},
+        'status': 'ok',
+        'train_size': int(y_train.size),
+        'holdout_size': int(y_holdout.size)
+    }
     if y_train.size < 30 or len(np.unique(y_train)) < 2:
         result['status'] = 'insufficient_samples'
         result['weights'] = []
@@ -153,17 +159,32 @@ def main() -> None:
     feature_frame = _build_feature_frame(X_raw)
 
     horizons = {'10m': y10, '60m': y60}
+    overall_status = 'ok'
     for horizon, labels in horizons.items():
         trained = _train_one_horizon(feature_frame, labels)
         result['models'][horizon] = trained
-        result['metrics'][horizon] = trained.get('metrics', {})
         result['train_size'] = max(result['train_size'], trained.get('train_size', 0))
         result['holdout_size'] = max(result['holdout_size'], trained.get('holdout_size', 0))
-        if trained.get('status') != 'ok':
-            result['status'] = 'degraded'
+        status = trained.get('status')
+        if status != 'ok':
+            overall_status = 'degraded' if status == 'insufficient_samples' else status or 'degraded'
+        metrics = trained.get('metrics', {})
+        if metrics:
+            auc = metrics.get('auc_holdout') or metrics.get('auc_train')
+            if auc is not None:
+                result['metrics'][f'auc_{horizon}'] = float(auc)
+            prec = metrics.get('precision_at_50_holdout') or metrics.get('precision_at_50_train')
+            if prec is not None:
+                result['metrics'][f'precision_at_50_{horizon}'] = float(prec)
+            result['metrics'][f'train_size_{horizon}'] = int(trained.get('train_size', 0))
+            result['metrics'][f'holdout_size_{horizon}'] = int(trained.get('holdout_size', 0))
+        result['metrics'][horizon] = metrics
+
+    result['status'] = overall_status
 
     (out_dir / 'alpha_ranker_v1.json').write_text(json.dumps(result, indent=2))
-    print('alpha_ranker:', json.dumps(result['metrics']))
+    flattened = {k: v for k, v in result['metrics'].items() if not isinstance(v, dict)}
+    print('alpha_ranker:', json.dumps(flattened))
 
 
 if __name__ == '__main__':

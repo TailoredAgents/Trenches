@@ -17,7 +17,8 @@ def main() -> None:
         'created': datetime.utcnow().isoformat() + 'Z',
         'metrics': {},
         'params': {},
-        'status': 'ok'
+        'status': 'ok',
+        'sample_size': 0
     }
     if df.empty:
         result['status'] = 'no_data'
@@ -25,9 +26,16 @@ def main() -> None:
         print('survival: no_data')
         return
 
+    sample_size = int(len(df))
+    result['sample_size'] = sample_size
+    if sample_size < 50:
+        result['status'] = 'insufficient_samples'
+
     # Expect columns: exit_bps, drawdown_bps, time_to_peak_ms (placeholders)
-    exit_bps = df['exit_bps'] if 'exit_bps' in df.columns else pd.Series([0])
-    draw_bps = df['drawdown_bps'] if 'drawdown_bps' in df.columns else pd.Series([0])
+    exit_bps = pd.to_numeric(df.get('exit_bps', pd.Series([0])), errors='coerce').fillna(0)
+    draw_bps = pd.to_numeric(df.get('drawdown_bps', pd.Series([0])), errors='coerce').fillna(0)
+    time_to_peak_ms = pd.to_numeric(df.get('time_to_peak_ms', pd.Series([0])), errors='coerce').fillna(0)
+
     base_trail_bps = max(60, int(np.percentile(draw_bps, 75)))
     tighten = 0.65
     result['params'] = {
@@ -40,12 +48,15 @@ def main() -> None:
     result['metrics'] = {
         'exit_bps_avg': float(np.mean(exit_bps)),
         'drawdown_bps_avg': float(np.mean(draw_bps)),
+        'exit_bps_median': float(np.median(exit_bps)),
+        'drawdown_bps_median': float(np.median(draw_bps)),
+        'time_to_peak_ms_avg': float(np.mean(time_to_peak_ms)),
+        'sample_size': sample_size
     }
 
     (out_dir / 'survival_v1.json').write_text(json.dumps(result, indent=2))
-    print('survival:', json.dumps(result['metrics']))
+    print('survival:', result['status'], json.dumps(result['metrics']))
 
 
 if __name__ == '__main__':
     main()
-

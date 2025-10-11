@@ -14,7 +14,7 @@ import { WalletProvider } from './wallet';
 import { JupiterClient } from './jupiter';
 import { TransactionSender } from './sender';
 import { ordersReceived, ordersFailed, ordersSubmitted, simpleModeGauge, flagJitoEnabled, flagSecondaryRpcEnabled, flagWsEnabled, landedRateGauge, slipAvgGauge, priorityFeeGauge, tipLamportsGauge, timeToLandHistogram, retriesTotal, fallbacksTotal, shadowOutcomesTotal } from './metrics';
-import { predictFill } from './fillnet';
+import { predictFill, reloadFillnetModel } from './fillnet';
 import { decideFees, updateArm } from './fee-bandit';
 import { ExecutorEventBus } from './eventBus';
 import { computeWindowStart, loadRouteStats, recordRouteAttempt, markRouteExcluded, RouteQuarantineConfig, RouteStatSnapshot } from './routeQuarantine';
@@ -115,6 +115,15 @@ async function bootstrap() {
   } else {
     logger.warn('NO_RPC=1; executor running in offline mode; skipping RPC initialization');
   }
+
+  app.post('/control/reload-models', async (_req, reply) => {
+    try {
+      const result = reloadFillnetModel();
+      reply.send({ status: 'ok', detail: result });
+    } catch (err) {
+      reply.code(500).send({ status: 'error', detail: (err as Error).message });
+    }
+  });
 
   app.get('/healthz', async () => {
     const walletStatus = wallet?.status ?? { ready: false, reason: offline ? 'offline' : 'missing_keystore' };

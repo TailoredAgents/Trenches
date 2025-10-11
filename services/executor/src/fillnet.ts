@@ -2,6 +2,7 @@ import { FillPrediction } from '@trenches/shared';
 import { insertFillPrediction } from '@trenches/persistence';
 import { createLogger } from '@trenches/logger';
 import { registerGauge, registerCounter } from '@trenches/metrics';
+import EventEmitter from 'events';
 import fs from 'fs';
 import path from 'path';
 import { loadConfig } from '@trenches/config';
@@ -26,12 +27,31 @@ const timeExpGauge = registerGauge({ name: 'fillnet_time_expected_ms', help: 'Ex
 const calibBucket = registerCounter({ name: 'fillnet_calib_bucket', help: 'FillNet predictions by bucket', labelNames: ['bucket'] });
 const fillnetInsertPredErrors = registerCounter({ name: 'fillnet_insert_pred_errors_total', help: 'FillNet prediction persist errors' });
 const brierGauge = registerGauge({ name: 'fillnet_calib_brier', help: 'Approximate Brier score (expected)' });
+const modelVersionGauge = registerGauge({ name: 'fillnet_model_epoch_seconds', help: 'Model created timestamp (unix seconds)' });
+const modelStatusGauge = registerGauge({ name: 'fillnet_model_status', help: 'Model status indicator (1 if active for given label, 0 otherwise)', labelNames: ['status'] });
+const MODEL_STATUS_LABELS = ['ok', 'degraded', 'missing', 'error', 'unknown'] as const;
+let currentModelStatus: typeof MODEL_STATUS_LABELS[number] = 'unknown';
 
 type FillnetModel = { wFill?: number[]; wSlip?: number[]; wTime?: number[] };
 let model: FillnetModel | null = null;
 let modelMeta: Record<string, unknown> | null = null;
-function ensureModel(): void {
-  if (model !== null) return;
+const modelBus = new EventEmitter();
+
+function setModelStatus(status: string, created?: string): void {
+  const normalized = MODEL_STATUS_LABELS.includes(status as any) ? status : 'unknown';
+  const createdTs = created ? Date.parse(created) : Date.now();
+  if (!Number.isNaN(createdTs)) {
+    modelVersionGauge.set(Math.floor(createdTs / 1000));
+  }
+  for (const label of MODEL_STATUS_LABELS) {
+    modelStatusGauge.labels({ status: label }).set(label === normalized ? 1 : 0);
+  }
+  currentModelStatus = normalized as typeof MODEL_STATUS_LABELS[number];
+}
+
+setModelStatus('unknown');
+
+function loadModel(): void {
   try {
     const cfg = loadConfig();
     const modelPath = (cfg as any).fillnet?.modelPath ?? path.join('models', 'fillnet_v2.json');
@@ -49,13 +69,33 @@ function ensureModel(): void {
         },
         'fillnet model loaded'
       );
+      const status = String(raw?.status ?? 'unknown');
+      setModelStatus(status, raw?.created);
+      modelBus.emit('reloaded', { path: modelPath, status });
     } else {
       model = {};
+      setModelStatus('missing');
     }
   } catch (err) {
     logger.error({ err }, 'failed to load fillnet model');
     model = {};
+    setModelStatus('error');
   }
+}
+
+function ensureModel(): void {
+  if (model !== null) return;
+  loadModel();
+}
+
+export function reloadFillnetModel(): { status: string } {
+  model = null;
+  loadModel();
+  return { status: currentModelStatus };
+}
+
+export function onFillnetModelReload(handler: (payload: unknown) => void): void {
+  modelBus.on('reloaded', handler);
 }
 
 export async function predictFill(ctx: PredictContext, persistCtx?: Record<string, unknown>): Promise<FillPrediction> {

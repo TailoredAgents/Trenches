@@ -111,7 +111,10 @@ def train_fillnet() -> dict:
     X_train_fill, y_train_fill, X_holdout_fill, y_holdout_fill = _train_test_split(feature_df, y_fill)
     result['train_size'] = int(y_train_fill.size)
     result['holdout_size'] = int(y_holdout_fill.size)
+    result['metrics']['train_size_fill'] = int(y_train_fill.size)
+    result['metrics']['holdout_size_fill'] = int(y_holdout_fill.size)
 
+    issues = []
     if y_train_fill.size >= 10 and _has_class_diversity(y_train_fill):
         clf = LogisticRegression(max_iter=1000, C=5.0, solver='lbfgs')
         clf.fit(X_train_fill[:, 1:], y_train_fill)
@@ -123,11 +126,15 @@ def train_fillnet() -> dict:
         holdout_src = X_holdout_fill[:, 1:] if y_holdout_fill.size > 0 else X_train_fill[:, 1:]
         holdout_y = y_holdout_fill if y_holdout_fill.size > 0 else y_train_fill
         preds_holdout = clf.predict_proba(holdout_src)[:, 1]
-        result['metrics']['pfill_brier_holdout'] = float(brier_score_loss(holdout_y, preds_holdout))
+        brier = float(brier_score_loss(holdout_y, preds_holdout))
+        result['metrics']['pfill_brier_holdout'] = brier
+        result['metrics']['brier'] = brier
     else:
-        result['status'] = 'insufficient_pfill_data'
+        issues.append('insufficient_pfill_data')
 
     X_train_slip, y_train_slip, X_holdout_slip, y_holdout_slip = _train_test_split(feature_df, y_slip.dropna())
+    result['metrics']['train_size_slip'] = int(y_train_slip.size)
+    result['metrics']['holdout_size_slip'] = int(y_holdout_slip.size)
     if y_train_slip.size >= 20:
         reg_slip = Ridge(alpha=5.0)
         reg_slip.fit(X_train_slip[:, 1:], y_train_slip)
@@ -139,10 +146,11 @@ def train_fillnet() -> dict:
         result['metrics']['slip_mae'] = float(mean_absolute_error(truth_slip, preds_slip))
         result['metrics']['slip_mape'] = float(mean_absolute_percentage_error(truth_slip, np.clip(preds_slip, 1e-6, None)))
     else:
-        if result['status'] == 'ok':
-            result['status'] = 'insufficient_slip_data'
+        issues.append('insufficient_slip_data')
 
     X_train_ttl, y_train_ttl, X_holdout_ttl, y_holdout_ttl = _train_test_split(feature_df, y_ttl.dropna())
+    result['metrics']['train_size_ttl'] = int(y_train_ttl.size)
+    result['metrics']['holdout_size_ttl'] = int(y_holdout_ttl.size)
     if y_train_ttl.size >= 20:
         reg_ttl = Ridge(alpha=5.0)
         reg_ttl.fit(X_train_ttl[:, 1:], y_train_ttl)
@@ -153,8 +161,11 @@ def train_fillnet() -> dict:
         preds_ttl = np.clip(preds_ttl, 50, None)
         result['metrics']['ttl_mae'] = float(mean_absolute_error(truth_ttl, preds_ttl))
     else:
-        if result['status'] == 'ok':
-            result['status'] = 'insufficient_ttl_data'
+        issues.append('insufficient_ttl_data')
+
+    if issues:
+        result['status'] = 'insufficient_data'
+        result['issues'] = issues
 
     return result
 
